@@ -1,0 +1,12 @@
+{
+    "compilerOptions": {
+        "lib": [
+            "deno.window"
+        ],
+        "strict": true
+    },
+    "imports": {
+        "@google/generative-ai": "npm:@google/generative-ai@0.21.0",
+        "@supabase/supabase-js": "npm:@supabase/supabase-js@2"
+    }
+}

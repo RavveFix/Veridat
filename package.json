@@ -1,0 +1,25 @@
+{
+  "name": "britta-bokforing",
+  "version": "1.0.0",
+  "description": "Britta - AI Bokföringsexpert för svenska småföretagare",
+  "main": "index.html",
+  "scripts": {
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:serve": "supabase functions serve gemini-chat",
+    "supabase:deploy": "supabase functions deploy gemini-chat",
+    "supabase:secrets": "echo 'Run: supabase secrets set GEMINI_API_KEY=your_key_here'"
+  },
+  "keywords": [
+    "bokföring",
+    "accounting",
+    "swedish",
+    "ai",
+    "gemini"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "supabase": "^1.142.2"
+  }
+}

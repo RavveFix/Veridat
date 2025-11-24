@@ -1,0 +1,24 @@
+# Supabase
+.supabase/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Environment
+.env
+.env.local
+
+# API Keys (old client-side config - no longer used)
+config.js
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+
+.idea/
+*.swp
+*.swo

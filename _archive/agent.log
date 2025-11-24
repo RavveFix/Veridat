@@ -1,0 +1,102 @@
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+🚀 Agent Server running on http://localhost:3001
+Available actions: goto, click, type, wait, waitForNavigation, screenshot, content, extract, scroll, hover
+Browser closed manually
+[Retry 1/3] click failed: Node is either not clickable or not an Element
+Waiting 1000ms before retry...
+[Retry 2/3] click failed: Node is either not clickable or not an Element
+Waiting 2000ms before retry...
+[Retry 3/3] click failed: Node is either not clickable or not an Element
+Browser Error: Error: Node is either not clickable or not an Element
+    at CdpElementHandle.clickablePoint (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/ElementHandle.js:696:23)
+    at async CdpElementHandle.<anonymous> (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/ElementHandle.js:122:20)
+    at async CdpElementHandle.click (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/ElementHandle.js:726:30)
+    at async CdpElementHandle.<anonymous> (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/ElementHandle.js:133:24)
+    at async CdpFrame.click (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:752:17)
+    at async performAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:121:13)
+    at async executeAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:102:12)
+    at async withRetry (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:83:20)
+    at async /Users/ravonstrawder/Desktop/Britta/agent-server/server.js:199:24
+[Retry 1/3] click failed: Node is either not clickable or not an Element
+Waiting 1000ms before retry...
+[Retry 2/3] click failed: Node is either not clickable or not an Element
+Waiting 2000ms before retry...
+[Retry 3/3] click failed: Node is either not clickable or not an Element
+Browser Error: Error: Node is either not clickable or not an Element
+    at CdpElementHandle.clickablePoint (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/ElementHandle.js:696:23)
+    at async CdpElementHandle.<anonymous> (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/ElementHandle.js:122:20)
+    at async CdpElementHandle.click (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/ElementHandle.js:726:30)
+    at async CdpElementHandle.<anonymous> (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/ElementHandle.js:133:24)
+    at async CdpFrame.click (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:752:17)
+    at async performAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:121:13)
+    at async executeAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:102:12)
+    at async withRetry (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:83:20)
+    at async /Users/ravonstrawder/Desktop/Britta/agent-server/server.js:199:24
+Browser closed manually
+Page closed, creating new one...
+Browser closed manually
+[Retry 1/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Waiting 1000ms before retry...
+[Retry 2/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Waiting 2000ms before retry...
+[Retry 3/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Browser Error: TimeoutError: Waiting for selector `#non-existent-element-12345` failed
+    at CSSQueryHandler.waitFor (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/QueryHandler.js:214:46)
+    at async CdpFrame.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:544:21)
+    ... 4 lines matching cause stack trace ...
+    at async /Users/ravonstrawder/Desktop/Britta/agent-server/server.js:199:24 {
+  cause: TimeoutError: Waiting failed: 5000ms exceeded
+      at new WaitTask (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/WaitTask.js:49:34)
+      at IsolatedWorld.waitForFunction (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Realm.js:25:26)
+      at CSSQueryHandler.waitFor (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/QueryHandler.js:179:95)
+      at async CdpFrame.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:544:21)
+      at async CdpPage.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Page.js:1377:20)
+      at async performAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:120:13)
+      at async executeAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:102:12)
+      at async withRetry (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:83:20)
+      at async /Users/ravonstrawder/Desktop/Britta/agent-server/server.js:199:24
+}
+Browser closed manually
+[Retry 1/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Waiting 1000ms before retry...
+[Retry 2/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Waiting 2000ms before retry...
+[Retry 3/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Browser Error: TimeoutError: Waiting for selector `#non-existent-element-12345` failed
+    at CSSQueryHandler.waitFor (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/QueryHandler.js:214:46)
+    at async CdpFrame.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:544:21)
+    ... 4 lines matching cause stack trace ...
+    at async /Users/ravonstrawder/Desktop/Britta/agent-server/server.js:199:24 {
+  cause: TimeoutError: Waiting failed: 5000ms exceeded
+      at new WaitTask (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/WaitTask.js:49:34)
+      at IsolatedWorld.waitForFunction (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Realm.js:25:26)
+      at CSSQueryHandler.waitFor (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/QueryHandler.js:179:95)
+      at async CdpFrame.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:544:21)
+      at async CdpPage.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Page.js:1377:20)
+      at async performAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:120:13)
+      at async executeAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:102:12)
+      at async withRetry (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:83:20)
+      at async /Users/ravonstrawder/Desktop/Britta/agent-server/server.js:199:24
+}
+Browser closed manually
+[Retry 1/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Waiting 1000ms before retry...
+[Retry 2/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Waiting 2000ms before retry...
+[Retry 3/3] click failed: Waiting for selector `#non-existent-element-12345` failed
+Browser Error: TimeoutError: Waiting for selector `#non-existent-element-12345` failed
+    at CSSQueryHandler.waitFor (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/QueryHandler.js:214:46)
+    at async CdpFrame.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:544:21)
+    ... 4 lines matching cause stack trace ...
+    at async /Users/ravonstrawder/Desktop/Britta/agent-server/server.js:199:24 {
+  cause: TimeoutError: Waiting failed: 5000ms exceeded
+      at new WaitTask (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/WaitTask.js:49:34)
+      at IsolatedWorld.waitForFunction (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Realm.js:25:26)
+      at CSSQueryHandler.waitFor (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/common/QueryHandler.js:179:95)
+      at async CdpFrame.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:544:21)
+      at async CdpPage.waitForSelector (/Users/ravonstrawder/Desktop/Britta/agent-server/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Page.js:1377:20)
+      at async performAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:120:13)
+      at async executeAction (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:102:12)
+      at async withRetry (/Users/ravonstrawder/Desktop/Britta/agent-server/server.js:83:20)
+      at async /Users/ravonstrawder/Desktop/Britta/agent-server/server.js:199:24
+}
