@@ -1,11 +1,8 @@
+/// <reference path="../types/deno.d.ts" />
 
-import { createClient } from "@supabase/supabase-js";
-import {
-    FortnoxCustomerListResponse,
-    FortnoxArticleListResponse,
-    FortnoxInvoice,
-    FortnoxInvoiceResponse
-} from "../functions/fortnox/types.ts";
+// @ts-expect-error - Deno npm: specifier
+import { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import type { CustomerResponse, ArticleResponse, InvoiceCreateRequest } from '../functions/fortnox/types.ts';
 
 export interface FortnoxConfig {
     clientId: string;

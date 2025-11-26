@@ -1,0 +1,33 @@
+#FLAGGA 0
+#FORMAT PC8
+#SIETYP 4
+#PROGRAM "svensk-ekonomi" 1.0
+#GEN 20251125
+#FNAMN "Test Laddoperat”r AB"
+#ORGNR 5561839191
+#RAR 0 20250101 20251231
+#KPTYP BAS2024
+
+# Kontoplan
+#KONTO 1510 "Kundfordringar"
+#KONTO 2440 "Leverant”rsskulder"
+#KONTO 2611 "Utg†ende moms 25%"
+#KONTO 2621 "Utg†ende moms 12%"
+#KONTO 2631 "Utg†ende moms 6%"
+#KONTO 2641 "Ing†ende moms"
+#KONTO 2650 "Momsredovisning"
+#KONTO 3010 "F”rs„ljning tj„nster 25%"
+#KONTO 3011 "F”rs„ljning tj„nster momsfri"
+#KONTO 3012 "Roaming-int„kter"
+#KONTO 6590 "™vriga externa tj„nster"
+#KONTO 6591 "Plattformsavgifter"
+#KONTO 6592 "Abonnemangskostnader"
+
+# Verifikationer
+#VER "" 1 20251125 "Momsredovisning 2025-11"
+{
+    #TRANS 3010 {} -300.0
+    #TRANS 2611 {} -75.0
+    #TRANS 6590 {} 290.0
+    #TRANS 2641 {} 72.5
+}

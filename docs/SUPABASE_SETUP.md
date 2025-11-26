@@ -27,7 +27,7 @@ supabase link --project-ref your-project-ref-here
 Din Gemini API-nyckel måste sparas som en secret i Supabase:
 
 ```bash
-supabase secrets set GEMINI_API_KEY=your_api_key_here
+supabase secrets set GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 ## Steg 5: Deploya Edge Function

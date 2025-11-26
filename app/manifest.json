@@ -30,7 +30,7 @@
     "shortcuts": [
         {
             "name": "Ny konversation",
-            "url": "/",
+            "url": "/app/",
             "description": "Starta en ny konversation med Britta"
         }
     ]

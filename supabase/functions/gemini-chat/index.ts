@@ -2,10 +2,11 @@
 /// <reference path="../../types/deno.d.ts" />
 
 import { sendMessageToGemini, type FileData } from "../../services/GeminiService.ts";
+import { RateLimiterService } from "../../services/RateLimiterService.ts";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-user-id",
 };
 
 interface RequestBody {
@@ -13,7 +14,8 @@ interface RequestBody {
     fileData?: FileData;
 }
 
-import { createClient } from "@supabase/supabase-js";
+// @ts-expect-error - Deno npm: specifier
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { FortnoxService } from "../../services/FortnoxService.ts";
 
 Deno.serve(async (req: Request) => {
@@ -35,8 +37,44 @@ Deno.serve(async (req: Request) => {
             );
         }
 
+        // Initialize Supabase client with service role for rate limiting
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+        // Get user ID from header or use 'anonymous'
+        const userId = req.headers.get('x-user-id') || req.headers.get('authorization')?.split(' ')[1] || 'anonymous';
+
+        // Check rate limit
+        const rateLimiter = new RateLimiterService(supabaseAdmin);
+        const rateLimit = await rateLimiter.checkAndIncrement(userId, 'gemini-chat');
+
+        if (!rateLimit.allowed) {
+            console.log('Rate limit exceeded for user:', userId);
+            return new Response(
+                JSON.stringify({
+                    error: 'rate_limit_exceeded',
+                    message: rateLimit.message,
+                    remaining: rateLimit.remaining,
+                    resetAt: rateLimit.resetAt.toISOString()
+                }),
+                {
+                    status: 429,
+                    headers: {
+                        ...corsHeaders,
+                        'Content-Type': 'application/json',
+                        'X-RateLimit-Remaining': String(rateLimit.remaining),
+                        'X-RateLimit-Reset': rateLimit.resetAt.toISOString()
+                    }
+                }
+            );
+        }
+
+        console.log('Rate limit check passed:', { userId, remaining: rateLimit.remaining });
+
         // Call Gemini Service
         const geminiResponse = await sendMessageToGemini(message, fileData);
+
 
         // Handle Tool Calls
         if (geminiResponse.toolCall) {

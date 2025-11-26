@@ -1,8 +1,7 @@
 {
     "deno.enable": true,
-    "deno.enablePaths": [
-        "supabase/functions"
-    ],
     "deno.lint": true,
-    "deno.unstable": true
+    "deno.unstable": true,
+    "deno.config": "./deno.json",
+    "deno.importMap": "./deno.json"
 }

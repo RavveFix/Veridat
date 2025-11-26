@@ -1,0 +1,107 @@
+/* Voice Input Animation */
+#mic-btn.listening {
+    color: #ff4444;
+    background: rgba(255, 68, 68, 0.1);
+    animation: pulse-red 1.5s infinite;
+}
+
+@keyframes pulse-red {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4);
+    }
+
+    70% {
+        box-shadow: 0 0 0 10px rgba(255, 68, 68, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 68, 68, 0);
+    }
+}
+
+/* Voice Recording UI */
+.voice-recording-ui {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px);
+    padding: 0.5rem 1rem;
+    border-radius: 16px;
+    z-index: 10;
+}
+
+.voice-recording-ui.hidden {
+    display: none;
+}
+
+/* Waveform Container */
+.waveform-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 40px;
+}
+
+.waveform-bar {
+    width: 3px;
+    background: var(--accent-primary);
+    border-radius: 2px;
+    height: 8px;
+    transition: height 0.1s ease-out;
+}
+
+
+/* Voice Action Buttons */
+.voice-action-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 2px solid;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.voice-action-btn:hover {
+    transform: scale(1.1);
+}
+
+.cancel-btn {
+    border-color: #ff4444;
+    color: #ff4444;
+}
+
+.cancel-btn:hover {
+    background: rgba(255, 68, 68, 0.2);
+}
+
+.confirm-btn {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+.confirm-btn:hover {
+    background: rgba(0, 240, 255, 0.2);
+}
+
+/* Hide input when recording */
+.text-input-container {
+    position: relative;
+}
+
+.text-input-container.recording #user-input {
+    opacity: 0;
+}

@@ -1,4 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize Excel Viewer
+    const excelViewer = new ExcelViewer();
+
     // Theme Toggle
     const themeToggle = document.getElementById('theme-toggle');
     const moonIcon = document.querySelector('.moon-icon');
@@ -246,6 +249,36 @@ document.addEventListener('DOMContentLoaded', () => {
         createNewCompany();
     });
 
+    // Mock Connect Fortnox Logic
+    const connectBtn = document.getElementById('connect-fortnox-btn');
+    if (connectBtn) {
+        connectBtn.addEventListener('click', () => {
+            // Simulate connection flow
+            const originalText = connectBtn.innerHTML;
+            connectBtn.innerHTML = '<span>Ansluter...</span>';
+            connectBtn.style.opacity = '0.7';
+            connectBtn.disabled = true;
+
+            setTimeout(() => {
+                alert('🔗 Du skickas nu till Fortnox för att godkänna kopplingen...\n\n(Detta är en simulation)');
+
+                setTimeout(() => {
+                    connectBtn.innerHTML = `
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 6L9 17l-5-5"></path>
+                        </svg>
+                        <span>Kopplad</span>
+                    `;
+                    connectBtn.classList.add('connected');
+                    connectBtn.style.opacity = '1';
+                    connectBtn.disabled = false;
+
+                    addMessage('✅ <strong>Fortnox kopplat!</strong><br>Jag har nu tillgång till dina kunder och artiklar.', 'ai');
+                }, 1000);
+            }, 1000);
+        });
+    }
+
     // Create test invoice button
     const createTestInvoiceBtn = document.getElementById('create-test-invoice-btn');
     if (createTestInvoiceBtn) {
@@ -426,25 +459,85 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    chatForm.addEventListener('submit', (e) => {
+    chatForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const message = userInput.value.trim();
+        let message = userInput.value.trim();
+        console.log('Form submit - message:', message, 'currentFile:', !!currentFile);
 
         if (!message && !currentFile) return;
 
-        // Add user message with optional file
-        addMessage(message, 'user', currentFile);
+        // If no message but file is attached, use a default message
+        if (!message && currentFile) {
+            message = "Analysera denna fil";
+        }
+
+        const fileToSend = currentFile; // Store reference
+        let fileUrl = null;
+        let vatReport = null; // Store Claude analysis result
+
+        // Upload Excel files to Supabase Storage
+        if (fileToSend && (fileToSend.name.endsWith('.xlsx') || fileToSend.name.endsWith('.xls'))) {
+            try {
+                // Upload for Excel viewer
+                fileUrl = await uploadFileToSupabase(fileToSend);
+                console.log('File uploaded successfully:', fileUrl);
+
+                // Analyze with Claude for Swedish VAT report
+                vatReport = await analyzeExcelWithClaude(fileToSend);
+                console.log('VAT report generated:', vatReport.period);
+
+                // Store report in localStorage for potential export later
+                localStorage.setItem('latest_vat_report', JSON.stringify({
+                    ...vatReport,
+                    fileUrl,
+                    filename: fileToSend.name,
+                    analyzedAt: new Date().toISOString()
+                }));
+
+            } catch (error) {
+                console.error('Failed to process Excel file:', error);
+                // Show error message but continue
+                addMessage('⚠️ Kunde inte analysera Excel-filen helt, men den är uppladdad och kan öppnas.', 'ai');
+            }
+        }
+
+        // Add user message with optional file and URL
+        addMessage(message, 'user', fileToSend, fileUrl);
 
         // Clear input and file
         userInput.value = '';
-        const fileToSend = currentFile; // Store reference for AI response
         clearFile();
 
-        // Simulate AI thinking and response
-        simulateAIResponse(message, fileToSend);
+        // Show AI response based on file type
+        if (vatReport) {
+            // Excel file - show Swedish accounting summary
+            const summary = renderVATSummary(vatReport);
+            addMessage(summary, 'ai');
+        } else {
+            // Other files - use existing AI flow
+            console.log('Calling simulateAIResponse with message:', message);
+            simulateAIResponse(message, fileToSend);
+        }
     });
 
-    function addMessage(text, sender, file = null) {
+    // Helper function to convert simple markdown to HTML
+    function markdownToHtml(text) {
+        if (!text) return '';
+
+        return text
+            // Bold: **text** or __text__
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/__(.+?)__/g, '<strong>$1</strong>')
+            // Italic: *text* or _text_
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/_(.+?)_/g, '<em>$1</em>')
+            // Code: `code`
+            .replace(/`(.+?)`/g, '<code>$1</code>')
+            // Line breaks
+            .replace(/\n/g, '<br>');
+    }
+
+    function addMessage(text, sender, file = null, fileUrl = null) {
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('message', sender === 'user' ? 'user-message' : 'ai-message');
 
@@ -459,24 +552,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Add file attachment display if present
         if (file) {
+            const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+            const clickableClass = (isExcel && fileUrl) ? 'file-attachment-clickable' : '';
+
             content += `
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;">
+                <div class="${clickableClass}" data-file-url="${fileUrl || ''}" data-file-name="${file.name}" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                         <polyline points="14 2 14 8 20 8"></polyline>
                     </svg>
                     <span style="font-size: 0.9em;">${file.name}</span>
+                    ${isExcel && fileUrl ? '<span style="margin-left: auto; font-size: 0.75em; color: var(--accent-primary);">Klicka för att öppna →</span>' : ''}
                 </div>
             `;
         }
 
         // Allow simple HTML in AI responses for formatting
         if (sender === 'ai') {
-            content += text;
+            // Convert markdown to HTML
+            const htmlContent = markdownToHtml(text);
+            content += htmlContent;
 
             // Add speak button for AI messages
             // Strip HTML tags for speech
-            const textForSpeech = text.replace(/<[^>]*>/g, ' ');
+            const textForSpeech = text.replace(/\u003c[^\u003e]*\u003e/g, ' ');
             const speakBtnId = 'speak-' + Date.now();
 
             // We need to append the button after setting innerHTML
@@ -499,6 +598,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         bubbleDiv.innerHTML = content;
 
+        // Add click handler for Excel files
+        if (file && fileUrl) {
+            const fileAttachment = bubbleDiv.querySelector('.file-attachment-clickable');
+            if (fileAttachment) {
+                fileAttachment.addEventListener('click', () => {
+                    const url = fileAttachment.dataset.fileUrl;
+                    const name = fileAttachment.dataset.fileName;
+                    excelViewer.openExcelFile(url, name);
+                });
+            }
+        }
+
         messageDiv.appendChild(avatarDiv);
         messageDiv.appendChild(bubbleDiv);
         chatContainer.appendChild(messageDiv);
@@ -507,14 +618,192 @@ document.addEventListener('DOMContentLoaded', () => {
         chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
+    // Upload file to Supabase Storage
+    async function uploadFileToSupabase(file) {
+        try {
+            // Get current session for auth token
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error('User not authenticated');
+
+            // Convert file to base64
+            const reader = new FileReader();
+            const base64Data = await new Promise((resolve, reject) => {
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            // Get current company ID for file association
+            const company = getCurrentCompany();
+
+            // Call upload-file Edge Function
+            const response = await fetch(`${SUPABASE_URL}/functions/v1/upload-file`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                    filename: file.name,
+                    fileData: base64Data,
+                    mimeType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    userId: session.user.id,
+                    companyId: company ? company.id : null
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Upload failed');
+            }
+
+            const result = await response.json();
+            return result.file.url; // Return the public URL
+        } catch (error) {
+            console.error('File upload error:', error);
+            throw error;
+        }
+    }
+
+    // Analyze Excel file with Claude for Swedish VAT reports
+    async function analyzeExcelWithClaude(file) {
+        try {
+            // Get current session for auth token
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error('User not authenticated');
+
+            addMessage('Britta', 'Jag analyserar din Excel-fil... Detta kan ta några sekunder. ⏳');
+
+            console.log('Analyzing Excel with Claude:', file.name);
+
+            // Parse Excel file locally using SheetJS
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer);
+
+            // Convert all sheets to JSON
+            const sheets = {};
+            workbook.SheetNames.forEach(sheetName => {
+                const worksheet = workbook.Sheets[sheetName];
+                sheets[sheetName] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+            });
+
+            console.log('Excel parsed locally, sheets:', Object.keys(sheets));
+
+            // Call Claude Edge Function with JSON data instead of binary Excel
+            const response = await fetch(`${SUPABASE_URL}/functions/v1/claude-analyze`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                    filename: file.name,
+                    sheets: sheets
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                console.error('Claude analysis error response:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    error: error
+                });
+
+                // Show user-friendly error
+                addMessage(`⚠️ **Kunde inte analysera Excel-filen**\n\nFel: ${error.error || 'Okänt fel'}\n\nFilen är uppladdad och kan öppnas i Excel-panelen.`, 'ai');
+
+                throw new Error(error.error || 'Analysis failed');
+            }
+
+            const result = await response.json();
+            console.log('Claude analysis complete:', result.report.period);
+
+            return result.report; // Return structured VAT report
+        } catch (error) {
+            console.error('Excel analysis error:', error);
+            console.error('Error details:', {
+                message: error.message,
+                stack: error.stack
+            });
+            throw error;
+        }
+    }
+
+    // Render Swedish VAT summary in chat
+    function renderVATSummary(report) {
+        const { period, company_name, summary, revenue, costs, vat_summary, warnings } = report;
+
+        let summaryText = `**Sammanfattning för ${period}**\n\n`;
+
+        if (company_name) {
+            summaryText += `**Företag:** ${company_name}\n\n`;
+        }
+
+        // Revenue section
+        summaryText += `**Intäkter:**\n\n`;
+        revenue.forEach(r => {
+            const vatInfo = r.is_vat_free ? '(momsfritt)' : `(${r.vat_rate}% moms)`;
+            summaryText += `• ${r.description}: ${r.amount_excl_vat.toFixed(2)} SEK exkl moms ${vatInfo}\n`;
+        });
+        summaryText += `• **Total försäljning:** ${summary.total_revenue.toFixed(2)} SEK\n\n`;
+
+        // Costs section
+        summaryText += `**Kostnader:**\n\n`;
+        costs.forEach(c => {
+            const vatInfo = c.vat_amount ? `(+ ${c.vat_amount.toFixed(2)} SEK moms)` : '(momsfritt)';
+            summaryText += `• ${c.description}: ${c.amount_excl_vat.toFixed(2)} SEK exkl moms ${vatInfo}\n`;
+        });
+        summaryText += `• **Totala kostnader:** ${summary.total_costs.toFixed(2)} SEK\n\n`;
+
+        // VAT section
+        summaryText += `**Momsredovisning:**\n\n`;
+        summaryText += `• Utgående moms 25%: ${vat_summary.outgoing_vat_25.toFixed(2)} SEK\n`;
+        if (vat_summary.outgoing_vat_12) {
+            summaryText += `• Utgående moms 12%: ${vat_summary.outgoing_vat_12.toFixed(2)} SEK\n`;
+        }
+        if (vat_summary.outgoing_vat_6) {
+            summaryText += `• Utgående moms 6%: ${vat_summary.outgoing_vat_6.toFixed(2)} SEK\n`;
+        }
+        summaryText += `• Ingående moms 25%: ${vat_summary.incoming_vat.toFixed(2)} SEK\n`;
+
+        const vatAction = vat_summary.net_vat < 0 ? 'återfå' : 'betala';
+        summaryText += `• **Moms att ${vatAction}:** ${Math.abs(vat_summary.net_vat).toFixed(2)} SEK\n\n`;
+
+        // Result
+        const resultLabel = summary.result < 0 ? '(förlust)' : '(vinst)';
+        summaryText += `**Resultat:** ${summary.result.toFixed(2)} SEK ${resultLabel}`;
+
+        // Warnings if any
+        if (warnings && warnings.length > 0) {
+            summaryText += `\n\n**⚠️ Varningar:**\n`;
+            warnings.forEach(w => {
+                summaryText += `• ${w}\n`;
+            });
+        }
+
+        return summaryText;
+    }
+
+
     async function simulateAIResponse(userMessage, attachedFile) {
         // Show typing indicator
         const typingIndicator = showTypingIndicator();
 
         try {
-            const response = await generateResponse(userMessage, attachedFile);
-            removeTypingIndicator(typingIndicator);
-            addMessage(response, 'ai');
+            // If Excel file is attached, provide a custom response
+            const isExcel = attachedFile && (attachedFile.name.endsWith('.xlsx') || attachedFile.name.endsWith('.xls'));
+
+            if (isExcel) {
+                // Special handling for Excel files
+                removeTypingIndicator(typingIndicator);
+                addMessage(`📊 Excel-filen **${attachedFile.name}** har laddats upp! Klicka på filen ovan för att öppna den i Excel-panelen.`, 'ai');
+            } else {
+                // Normal AI response for other messages/files
+                const response = await generateResponse(userMessage, attachedFile);
+                removeTypingIndicator(typingIndicator);
+                addMessage(response, 'ai');
+            }
         } catch (error) {
             console.error("Error generating response:", error);
             removeTypingIndicator(typingIndicator);
@@ -915,7 +1204,41 @@ VIKTIGT: Returnera ENDAST ett JSON-objekt i ett kodblock, inget annat text:
     // Agent Server Configuration
     // Supabase Configuration
     const SUPABASE_URL = 'https://baweorbvueghhkzlyncu.supabase.co'; // Production URL
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJhd2VvcmJ2dWVnaGhremx5bmN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2Mjk4MTYsImV4cCI6MjA3OTIwNTgxNn0.IkPVcD_shy7vPLuQdwLjzK4NoIEHUbUGdWjGVxt-tic';
     const AGENT_SERVER_URL = `${SUPABASE_URL}/functions/v1`;
+
+    // --- Authentication & Initialization ---
+
+    // Initialize Supabase client
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Async initialization function
+    async function initApp() {
+        // Check Authentication State
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session) {
+            // Redirect to login if not authenticated
+            window.location.href = '/login.html';
+            return; // Stop execution
+        }
+
+        console.log('User authenticated:', session.user.email);
+
+        // Add Logout Button Logic (if button exists)
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async () => {
+                await supabase.auth.signOut();
+                window.location.href = '/login.html';
+            });
+        }
+    }
+
+    // Start initialization
+    initApp();
+
+    // --- Tool Execution Logic ---
 
     async function executeTool(toolCall) {
         if (toolCall.tool === 'browser_action') {
@@ -955,25 +1278,49 @@ VIKTIGT: Returnera ENDAST ett JSON-objekt i ett kodblock, inget annat text:
         return { error: "Unknown tool" };
     }
 
-    async function callAgentAPI(message, userId = 'default-user') {
+    async function callAgentAPI(message, userId = 'default-user', fileData = null) {
         const apiUrl = `${AGENT_SERVER_URL}/gemini-chat`;
 
         const requestBody = {
-            message: message,
-            userId: userId
+            message: message
         };
+
+        // Only include fileData if it exists
+        if (fileData) {
+            requestBody.fileData = fileData;
+        }
 
         try {
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'x-user-id': userId  // Add user ID header for rate limiting
                 },
                 body: JSON.stringify(requestBody)
             });
 
+            // Check for rate limiting
+            if (response.status === 429) {
+                const errorData = await response.json();
+                showRateLimitBanner(errorData);
+                return {
+                    type: 'text',
+                    data: '⚠️ Du har nått din dagliga gräns för AI-frågor. Uppgradera till Pro för obegränsad åtkomst!'
+                };
+            }
+
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                // Try to get error details from response
+                let errorDetails = `HTTP error! status: ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    console.error('Backend error response:', errorData);
+                    errorDetails = errorData.error || errorData.message || errorDetails;
+                } catch (e) {
+                    console.error('Could not parse error response');
+                }
+                throw new Error(errorDetails);
             }
 
             const data = await response.json();
@@ -981,6 +1328,7 @@ VIKTIGT: Returnera ENDAST ett JSON-objekt i ett kodblock, inget annat text:
 
         } catch (error) {
             console.error('Error calling Agent Server:', error);
+            console.error('Request was:', { message, userId, fileData: fileData ? 'present' : 'none' });
             return { type: 'text', data: `Fel vid anslutning till servern: ${error.message}` };
         }
     }
@@ -1134,10 +1482,38 @@ VIKTIGT: Returnera ENDAST ett JSON-objekt i ett kodblock, inget annat text:
     }
 
     async function generateResponse(input, file) {
+        console.log('generateResponse called with input:', input, 'file:', !!file);
         const userId = getCurrentCompany().id;
 
-        // Call Agent API
-        const responseData = await callAgentAPI(input, userId);
+        let fileData = null;
+
+        // Process file if attached (but skip Excel files - they're only for viewing)
+        if (file) {
+            const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+
+            if (isExcel) {
+                // Don't send Excel files to Gemini - they're only uploaded to Supabase for viewing
+                console.log('Skipping Excel file from Gemini API - will be viewable in Excel panel');
+            } else {
+                // Process other files (images, PDFs, etc.) for Gemini
+                try {
+                    const base64 = await fileToBase64(file);
+                    const base64Data = base64.split(',')[1]; // Remove data:image/png;base64, prefix
+
+                    fileData = {
+                        mimeType: file.type,
+                        data: base64Data
+                    };
+                } catch (error) {
+                    console.error('Error processing file:', error);
+                    // Continue without file if there's an error
+                }
+            }
+        }
+
+        // Call Agent API with file data if available
+        console.log('Calling callAgentAPI with input:', input);
+        const responseData = await callAgentAPI(input, userId, fileData);
 
         // Handle response based on type
         if (responseData.type === 'json') {
@@ -1149,6 +1525,16 @@ VIKTIGT: Returnera ENDAST ett JSON-objekt i ett kodblock, inget annat text:
             // Plain text response
             return responseData.data || "Inget svar.";
         }
+    }
+
+    // Helper function to convert file to base64
+    function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
     }
 
     // Helper function to describe actions in Swedish
@@ -1191,4 +1577,98 @@ VIKTIGT: Returnera ENDAST ett JSON-objekt i ett kodblock, inget annat text:
         // Optional: Auto-submit
         // document.getElementById('chat-form').dispatchEvent(new Event('submit'));
     };
+
+    // ===== RATE LIMIT BANNER LOGIC =====
+    let rateLimitReached = false;
+    let rateLimitResetAt = null;
+
+    // Show rate limit banner
+    function showRateLimitBanner(data) {
+        rateLimitReached = true;
+        rateLimitResetAt = data.resetAt ? new Date(data.resetAt) : null;
+
+        const banner = document.getElementById('rate-limit-banner');
+        const message = document.getElementById('rate-limit-message');
+        const progress = document.getElementById('rate-limit-progress');
+
+        if (!banner) return;
+
+        // Update message
+        if (rateLimitResetAt) {
+            const resetTime = rateLimitResetAt.toLocaleTimeString('sv-SE', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            message.textContent = `${data.message || 'Du har nått din API-gräns.'} Återställs ${resetTime}.`;
+        } else {
+            message.textContent = data.message || 'Du har använt dina gratis AI-frågor för idag.';
+        }
+
+        // Update progress (0% when limit reached)
+        if (progress) {
+            progress.style.width = '0%';
+        }
+
+        // Show banner with animation
+        banner.classList.remove('hidden');
+
+        console.log('Rate limit banner shown:', data);
+    }
+
+    // Hide rate limit banner
+    function hideRateLimitBanner() {
+        rateLimitReached = false;
+        const banner = document.getElementById('rate-limit-banner');
+        if (banner) {
+            banner.classList.add('hidden');
+        }
+    }
+
+    // Update progress bar based on usage
+    function updateRateLimitProgress(remaining, total) {
+        const progress = document.getElementById('rate-limit-progress');
+        if (!progress) return;
+
+        const percentage = (remaining / total) * 100;
+        progress.style.width = `${Math.max(0, Math.min(100, percentage))}%`;
+    }
+
+    // Show soft warning at 80% usage
+    function checkUsageWarning(remaining, total) {
+        const usagePercentage = ((total - remaining) / total) * 100;
+
+        if (usagePercentage >= 80 && usagePercentage < 100) {
+            addMessage(`⚠️ Du har använt ${Math.floor(usagePercentage)}% av dina AI-frågor. ${remaining} kvar idag.`, 'ai');
+        }
+    }
+
+    // Handle banner close
+    const closeBannerBtn = document.getElementById('close-banner-btn');
+    if (closeBannerBtn) {
+        closeBannerBtn.addEventListener('click', () => {
+            hideRateLimitBanner();
+        });
+    }
+
+    // Handle upgrade button
+    const upgradeBtn = document.getElementById('upgrade-btn');
+    if (upgradeBtn) {
+        upgradeBtn.addEventListener('click', () => {
+            addMessage('💎 Pro-planer kommer snart! Håll utkik.', 'ai');
+            // TODO: Navigate to pricing page when implemented
+        });
+    }
+
+    // Test function to show banner (for demo purposes)
+    window.testRateLimitBanner = () => {
+        showRateLimitBanner({
+            message: 'Daily limit reached (50 requests/day)',
+            resetAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour from now
+        });
+    };
+
+    // Expose functions for testing
+    window.showRateLimitBanner = showRateLimitBanner;
+    window.hideRateLimitBanner = hideRateLimitBanner;
+    window.updateRateLimitProgress = updateRateLimitProgress;
 });

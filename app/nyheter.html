@@ -148,7 +148,6 @@
             flex-shrink: 0;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             z-index: 10;
-            gap: 1.5rem;
         }
 
         .logo-area {
@@ -188,6 +187,7 @@
             align-items: center;
             gap: 0.75rem;
             margin-left: auto;
+            margin-right: 2rem;
         }
 
         .company-dropdown {
@@ -522,177 +522,111 @@
                 </svg>
             </button>
             <nav class="main-nav">
-                <a href="index.html" class="nav-btn active"
+                <a href="index.html" class="nav-btn"
                     style="text-decoration: none; display: inline-block; text-align: center;">Chatt</a>
-                <a href="nyheter.html" class="nav-btn"
+                <a href="nyheter.html" class="nav-btn active"
                     style="text-decoration: none; display: inline-block; text-align: center;">Uppdateringar -
                     Nyheter</a>
             </nav>
         </header>
 
-        <!-- Workspace Container for Split View -->
+        <!-- Main Content Area -->
         <div class="workspace-container">
-            <!-- Left Side: Chat Section -->
-            <div class="chat-section">
-                <main class="content-area">
-                    <div id="chat-view" class="view active">
-                        <!-- Rate Limit Banner (hidden by default) -->
-                        <div id="rate-limit-banner" class="rate-limit-banner hidden">
-                            <div class="banner-content">
-                                <div class="banner-icon">⚡</div>
-                                <div class="banner-text">
-                                    <h4>AI-gräns nådd</h4>
-                                    <p id="rate-limit-message">Du har använt dina gratis AI-frågor för idag.</p>
-                                </div>
-                                <button id="upgrade-btn" class="upgrade-btn">
-                                    Uppgradera till Pro
-                                </button>
-                                <button id="close-banner-btn" class="close-banner-btn">×</button>
+            <main class="content-area" style="overflow-y: auto; padding: 2rem;">
+                <!-- Changelog View (Always Visible) -->
+                <div id="changelog-view" class="view">
+                    <div class="tab-header">
+                        <h2>🎉 Nyheter & Uppdateringar</h2>
+                        <p>Se vad som är nytt i Britta</p>
+                    </div>
+
+                    <div class="changelog-container">
+                        <!-- Version 1.2.0 - Agent Enhancements -->
+                        <div class="changelog-entry">
+                            <div class="changelog-header">
+                                <span class="version-badge">v1.2.0</span>
+                                <span class="date-badge">20 November 2024</span>
                             </div>
-                            <div class="banner-progress">
-                                <div class="progress-bar" id="rate-limit-progress"></div>
+                            <h3>🤖 Britta är nu en autonom agent!</h3>
+                            <p>Britta kan nu utföra komplexa uppgifter i flera steg utan att du behöver vänta mellan
+                                varje
+                                åtgärd.
+                            </p>
+
+                            <div class="feature-list">
+                                <h4>✨ Nya funktioner:</h4>
+                                <ul>
+                                    <li><strong>5 nya browser-åtgärder:</strong>
+                                        <ul>
+                                            <li><code>wait</code> - Vänta på att element dyker upp på sidan</li>
+                                            <li><code>extract</code> - Extrahera data från flera element</li>
+                                            <li><code>scroll</code> - Scrolla till specifika positioner</li>
+                                            <li><code>hover</code> - Hovra över element</li>
+                                            <li><code>waitForNavigation</code> - Vänta på sidladdning</li>
+                                        </ul>
+                                    </li>
+                                    <li><strong>Automatisk retry:</strong> Britta försöker upp till 3 gånger vid fel
+                                    </li>
+                                    <li><strong>Timeout-skydd:</strong> Inga mer hängningar, alla åtgärder har
+                                        tidsgränser</li>
+                                    <li><strong>Multi-steg uppgifter:</strong> Ge Britta komplexa mål som "Sök efter
+                                        Fortnox på
+                                        Google" och hon utför alla steg automatiskt</li>
+                                </ul>
+                            </div>
+
+                            <div class="example-box">
+                                <h4>📝 Testa de nya funktionerna:</h4>
+                                <code>"Scrolla till botten på google.se"</code><br>
+                                <code>"Gå till wikipedia.org och hämta alla länkar"</code><br>
+                                <code>"Sök efter 'bokföring' på Google"</code>
                             </div>
                         </div>
 
-                        <div class="chat-container" id="chat-container">
-                            <div class="message ai-message welcome-message">
-                                <div class="avatar">B</div>
-                                <div class="bubble">
-                                    <p>Hej! Jag är <strong>Britta</strong>, din expert på svensk bokföring.</p>
-                                    <p>Jag kan hjälpa dig med kontering, momsregler, avdrag och bokslut. Vad funderar du
-                                        på
-                                        idag?</p>
-                                </div>
+                        <!-- Version 1.1.0 - Browser Integration -->
+                        <div class="changelog-entry">
+                            <div class="changelog-header">
+                                <span class="version-badge">v1.1.0</span>
+                                <span class="date-badge">19 November 2024</span>
                             </div>
-                            <!-- Messages will be added here dynamically -->
+                            <h3>🌐 Browser-integration</h3>
+                            <p>Britta kan nu styra en webbläsare och utföra åtgärder åt dig!</p>
+
+                            <div class="feature-list">
+                                <h4>Grundläggande funktioner:</h4>
+                                <ul>
+                                    <li>Navigera till webbsidor</li>
+                                    <li>Klicka på element</li>
+                                    <li>Skriva text i fält</li>
+                                    <li>Ta skärmdumpar</li>
+                                    <li>Läsa sidinnehåll</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Version 1.0.0 - Initial Release -->
+                        <div class="changelog-entry">
+                            <div class="changelog-header">
+                                <span class="version-badge">v1.0.0</span>
+                                <span class="date-badge">15 November 2024</span>
+                            </div>
+                            <h3>🚀 Initial Release</h3>
+                            <p>Välkommen till Britta - din AI-drivna bokföringsassistent!</p>
+
+                            <div class="feature-list">
+                                <h4>Kärnfunktioner:</h4>
+                                <ul>
+                                    <li>Chatta med Britta om bokföringsfrågor</li>
+                                    <li>Ladda upp fakturor och kvitton för analys</li>
+                                    <li>Få konteringsförslag enligt BAS 2024</li>
+                                    <li>Hantera leverantörsfakturor</li>
+                                    <li>Mörkt/ljust tema</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
-
-
-                    <footer class="input-area glass-footer">
-                        <form id="chat-form">
-                            <div class="attachment-wrapper">
-                                <input type="file" id="file-input" accept="image/*,.pdf,.xlsx,.xls" hidden>
-                                <button type="button" id="attach-btn" class="icon-btn" title="Bifoga fil">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                                        xmlns="http://www.w3.org/2000/svg">
-                                        <path
-                                            d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
-                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                            stroke-linejoin="round" />
-                                    </svg>
-                                </button>
-                            </div>
-                            <div class="input-wrapper">
-                                <div id="file-preview" class="file-preview hidden">
-                                    <span class="file-name">faktura.pdf</span>
-                                    <button type="button" class="remove-file">×</button>
-                                </div>
-                                <div class="text-input-container">
-                                    <input type="text" id="user-input"
-                                        placeholder="Fråga om bokföring... (t.ex. 'Hur bokför jag representation?')"
-                                        autocomplete="off">
-
-                                    <!-- Voice Recording UI -->
-                                    <div id="voice-recording-ui" class="voice-recording-ui hidden">
-                                        <div class="waveform-container">
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                            <div class="waveform-bar"></div>
-                                        </div>
-                                        <button type="button" id="voice-cancel-btn" class="voice-action-btn cancel-btn"
-                                            title="Avbryt">
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                                stroke="currentColor" stroke-width="2">
-                                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                                            </svg>
-                                        </button>
-                                        <button type="button" id="voice-confirm-btn"
-                                            class="voice-action-btn confirm-btn" title="Bekräfta">
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                                                stroke="currentColor" stroke-width="2">
-                                                <polyline points="20 6 9 17 4 12"></polyline>
-                                            </svg>
-                                        </button>
-                                    </div>
-
-                                    <button type="button" id="mic-btn" class="icon-btn" title="Röststyrning">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                                            xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
-                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                stroke-linejoin="round" />
-                                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2"
-                                                stroke-linecap="round" stroke-linejoin="round" />
-                                            <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2"
-                                                stroke-linecap="round" stroke-linejoin="round" />
-                                            <line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2"
-                                                stroke-linecap="round" stroke-linejoin="round" />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                            <button type="submit" class="send-btn">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                                    xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M22 2L11 13" stroke="white" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round" />
-                                    <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" stroke-width="2"
-                                        stroke-linecap="round" stroke-linejoin="round" />
-                                </svg>
-                            </button>
-                        </form>
-                    </footer>
-                </main>
-            </div>
-
-            <!-- Right Side: Excel Panel (Initially Hidden) -->
-            <div id="excel-panel" class="excel-panel">
-                <div class="excel-header">
-                    <div class="excel-title">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                            <polyline points="14 2 14 8 20 8"></polyline>
-                            <line x1="16" y1="13" x2="8" y2="13"></line>
-                            <line x1="16" y1="17" x2="8" y2="17"></line>
-                            <polyline points="10 9 9 9 8 9"></polyline>
-                        </svg>
-                        <span id="excel-filename">document.xlsx</span>
-                    </div>
-                    <button id="close-excel-panel" class="close-excel-btn" title="Close">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
                 </div>
-                <div id="sheet-tabs" class="sheet-tabs">
-                    <!-- Tabs will be dynamically generated -->
-                </div>
-                <div id="excel-table-container" class="excel-table-container">
-                    <!-- Excel table will be rendered here -->
-                </div>
-            </div>
+            </main>
         </div>
 
         <!-- Company Form Modal -->
@@ -729,8 +663,6 @@
 
         <!-- Scripts -->
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-        <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
-        <script type="module" src="/src/scripts/excelViewer.js"></script>
         <script type="module" src="/src/main.ts"></script>
 </body>
 
