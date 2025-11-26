@@ -60,65 +60,6 @@ async function initApp() {
         return;
     }
 
-    // Login Page Logic
-    const loginForm = document.getElementById('login-form') as HTMLFormElement;
-    console.log('initApp: Checking for login-form element:', loginForm);
-    if (loginForm) {
-        console.log('Login form found, attaching listener');
-        const messageEl = document.getElementById('message');
-        const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
-
-        // Check if already logged in
-        if (session) {
-            window.location.href = '/app/';
-            return;
-        }
-
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            console.log('Login form submitted');
-            const emailInput = document.getElementById('email') as HTMLInputElement;
-            const email = emailInput.value;
-
-            if (submitBtn) {
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Skickar...';
-            }
-
-            if (messageEl) {
-                messageEl.className = 'message-box'; // Hide previous messages
-            }
-
-            try {
-                const { error } = await supabase.auth.signInWithOtp({
-                    email,
-                    options: {
-                        emailRedirectTo: window.location.origin + '/app/'
-                    }
-                });
-
-                if (error) throw error;
-
-                if (messageEl) {
-                    messageEl.textContent = 'Kolla din e-post! Vi har skickat en inloggningslänk.';
-                    messageEl.classList.add('success');
-                }
-                loginForm.style.display = 'none';
-
-            } catch (error: any) {
-                console.error('Login error:', error);
-                if (messageEl) {
-                    messageEl.textContent = error.message || 'Ett fel uppstod. Försök igen.';
-                    messageEl.classList.add('error');
-                }
-                if (submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Skicka inloggningslänk';
-                }
-            }
-        });
-    }
-
     // Theme Toggle
     const themeToggle = document.getElementById('theme-toggle');
     const moonIcon = document.querySelector('.moon-icon') as HTMLElement;
