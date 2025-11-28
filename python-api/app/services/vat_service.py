@@ -4,17 +4,11 @@ VAT Service - Wrapper around svensk-ekonomi VATProcessor with format transformat
 CRITICAL: This module transforms the Python vat_processor.py output format
 to match the TypeScript VATReportData interface exactly.
 """
-import sys
-from pathlib import Path
 import pandas as pd
 from decimal import Decimal
 import logging
 
-# Add svensk-ekonomi to path
-SKILL_PATH = Path(__file__).parent.parent.parent.parent / ".skills" / "svensk-ekonomi" / "scripts"
-sys.path.insert(0, str(SKILL_PATH))
-
-from vat_processor import VATProcessor
+from app.svensk_ekonomi import VATProcessor
 
 logger = logging.getLogger(__name__)
 
