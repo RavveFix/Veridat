@@ -28,3 +28,25 @@ dist/
 # Temp files
 *.temp
 .temp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+*.egg-info/
+
+# Security - NEVER commit these patterns
+*api*key*
+*apikey*
+*secret*
+*password*
+*credentials*
+*token*
+*.pem
+*.key
+*.cert
+*session*continuation*.md
+docs/*security*.md
