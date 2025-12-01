@@ -1,15 +1,51 @@
 :root {
+    /* Base Colors (Dark Mode Default) */
     --bg-color: #050505;
     --text-primary: #ffffff;
     --text-secondary: #a1a1aa;
+
+    /* Accents */
     --accent-primary: #00F0FF;
     --accent-secondary: #7000FF;
     --accent-tertiary: #FF0055;
+
+    /* Glass Effect */
     --glass-bg: rgba(255, 255, 255, 0.03);
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-highlight: rgba(255, 255, 255, 0.1);
+
+    /* Typography */
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
     --container-width: 1200px;
+
+    /* Blob Colors */
+    --blob-color-1: var(--accent-primary);
+    --blob-color-2: var(--accent-secondary);
+    --blob-color-3: var(--accent-tertiary);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+    --bg-color: #f8fafc;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+
+    /* Accents (Adjusted for contrast) */
+    --accent-primary: #0284c7;
+    --accent-secondary: #7c3aed;
+    --accent-tertiary: #db2777;
+
+    /* Glass Effect */
+    --glass-bg: rgba(255, 255, 255, 0.75);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --glass-highlight: rgba(255, 255, 255, 0.5);
+
+    /* Blob Colors (Soft Pastels) */
+    --blob-color-1: rgba(14, 165, 233, 0.25);
+    --blob-color-2: rgba(245, 158, 11, 0.25);
+    --blob-color-3: rgba(168, 85, 247, 0.25);
 }
 
 * {
@@ -52,7 +88,7 @@ body {
     left: -10%;
     width: 50vw;
     height: 50vw;
-    background: var(--accent-primary);
+    background: var(--blob-color-1);
     animation-delay: 0s;
     opacity: 0.15;
 }
@@ -62,7 +98,7 @@ body {
     right: -10%;
     width: 60vw;
     height: 60vw;
-    background: var(--accent-secondary);
+    background: var(--blob-color-2);
     animation-delay: -5s;
     opacity: 0.15;
 }
@@ -72,7 +108,7 @@ body {
     left: 40%;
     width: 40vw;
     height: 40vw;
-    background: var(--accent-tertiary);
+    background: var(--blob-color-3);
     animation-delay: -10s;
     opacity: 0.1;
 }

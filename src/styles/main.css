@@ -1,17 +1,34 @@
 :root {
+    /* Base Colors (Dark Mode Default) */
     --bg-color: #050505;
     --text-primary: #ffffff;
     --text-secondary: #a1a1aa;
+
+    /* Accents */
     --accent-primary: #00F0FF;
     --accent-secondary: #7000FF;
     --accent-tertiary: #FF0055;
+
+    /* Glass Effect */
     --glass-bg: rgba(255, 255, 255, 0.03);
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-highlight: rgba(255, 255, 255, 0.1);
+
+    /* Component Specifics (Dark) */
+    --header-bg: rgba(5, 5, 5, 0.2);
+    --footer-bg: rgba(5, 5, 5, 0.2);
+    --ai-bubble-bg: rgba(20, 25, 35, 0.85);
+    --user-bubble-bg: linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(0, 240, 255, 0.05));
+    --dropdown-bg: #0a0e17;
+    --input-bg: rgba(255, 255, 255, 0.03);
+    --surface-bg: rgba(255, 255, 255, 0.05);
+    --surface-hover: rgba(255, 255, 255, 0.1);
+
+    /* Typography */
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
-    /* Default Blob Colors (Dark Mode) */
+    /* Blob Colors */
     --blob-color-1: var(--accent-primary);
     --blob-color-2: var(--accent-secondary);
     --blob-color-3: var(--accent-tertiary);
@@ -20,14 +37,30 @@
 /* Light Theme */
 [data-theme="light"] {
     --bg-color: #f8fafc;
-    --glass-bg: rgba(255, 255, 255, 0.75);
-    --glass-border: rgba(0, 0, 0, 0.08);
-    --accent-primary: #0284c7;
-    --accent-secondary: #f59e0b;
     --text-primary: #0f172a;
     --text-secondary: #64748b;
 
-    /* Light Mode Blob Colors (Soft Pastels) */
+    /* Accents (Adjusted for contrast) */
+    --accent-primary: #0284c7;
+    --accent-secondary: #7c3aed;
+    --accent-tertiary: #db2777;
+
+    /* Glass Effect */
+    --glass-bg: rgba(255, 255, 255, 0.75);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --glass-highlight: rgba(255, 255, 255, 0.5);
+
+    /* Component Specifics (Light) */
+    --header-bg: rgba(255, 255, 255, 0.6);
+    --footer-bg: rgba(255, 255, 255, 0.6);
+    --ai-bubble-bg: rgba(255, 255, 255, 0.8);
+    --user-bubble-bg: linear-gradient(135deg, rgba(2, 132, 199, 0.1), rgba(2, 132, 199, 0.02));
+    --dropdown-bg: #ffffff;
+    --input-bg: rgba(0, 0, 0, 0.03);
+    --surface-bg: rgba(0, 0, 0, 0.05);
+    --surface-hover: rgba(0, 0, 0, 0.1);
+
+    /* Blob Colors (Soft Pastels) */
     --blob-color-1: rgba(14, 165, 233, 0.25);
     --blob-color-2: rgba(245, 158, 11, 0.25);
     --blob-color-3: rgba(168, 85, 247, 0.25);
@@ -39,6 +72,7 @@
     box-sizing: border-box;
 }
 
+html,
 body {
     font-family: var(--font-sans);
     background-color: var(--bg-color);
@@ -128,7 +162,7 @@ body {
 /* Header */
 .glass-header {
     padding: 1.25rem 2rem;
-    background: rgba(5, 5, 5, 0.2);
+    background: var(--header-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
@@ -147,7 +181,7 @@ body {
 }
 
 .logo-icon {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-bg);
     padding: 8px;
     border-radius: 12px;
     display: flex;
@@ -188,7 +222,7 @@ h1 {
 }
 
 .company-dropdown {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
@@ -205,7 +239,7 @@ h1 {
 }
 
 .company-dropdown:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--surface-hover);
     border-color: var(--accent-primary);
 }
 
@@ -215,7 +249,7 @@ h1 {
 }
 
 .company-dropdown option {
-    background: #0a0e17;
+    background: var(--dropdown-bg);
     color: var(--text-primary);
     padding: 0.5rem;
 }
@@ -224,7 +258,7 @@ h1 {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
@@ -241,7 +275,7 @@ h1 {
 }
 
 .connect-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
     border-color: var(--glass-highlight);
 }
 
@@ -254,7 +288,7 @@ h1 {
     padding-bottom: 120px;
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: 3rem;
     scroll-behavior: smooth;
     max-width: 1000px;
     margin: 0 auto;
@@ -263,7 +297,7 @@ h1 {
 
 .message {
     display: flex;
-    gap: 1.25rem;
+    gap: 0.75rem;
     max-width: 85%;
     animation: fadeIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -309,30 +343,32 @@ h1 {
 }
 
 .user-message .avatar {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
     border: 1px solid var(--glass-border);
     color: var(--text-primary);
 }
 
 .bubble {
-    padding: 1.25rem 1.75rem;
+    padding: 0.8rem 1.25rem;
     border-radius: 20px;
     font-size: 1rem;
-    line-height: 1.6;
+    line-height: 1.7;
     position: relative;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .ai-message .bubble {
-    background: rgba(10, 15, 20, 0.8);
+    background: var(--ai-bubble-bg);
     border: 1px solid var(--glass-border);
     border-top-left-radius: 4px;
     backdrop-filter: blur(12px);
 }
 
 .user-message .bubble {
-    background: linear-gradient(135deg, rgba(0, 240, 255, 0.1), rgba(0, 240, 255, 0.02));
-    border: 1px solid rgba(0, 240, 255, 0.15);
+    background: var(--user-bubble-bg);
+    border: 1px solid rgba(0, 240, 255, 0.25);
     border-top-right-radius: 4px;
     backdrop-filter: blur(12px);
 }
@@ -361,7 +397,7 @@ h1 {
 /* Footer / Input */
 .glass-footer {
     padding: 1.5rem 2rem;
-    background: rgba(5, 5, 5, 0.2);
+    background: var(--footer-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-top: 1px solid rgba(255, 255, 255, 0.03);
@@ -377,7 +413,7 @@ h1 {
 #chat-form {
     display: flex;
     gap: 1rem;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--input-bg);
     padding: 0.75rem;
     border-radius: 20px;
     border: 1px solid var(--glass-border);
@@ -389,7 +425,7 @@ h1 {
 
 #chat-form:focus-within {
     border-color: var(--accent-primary);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-bg);
     box-shadow: 0 0 30px rgba(0, 240, 255, 0.1);
 }
 
@@ -480,7 +516,7 @@ h1 {
 
 .icon-btn:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
 }
 
 .file-name {
@@ -761,11 +797,49 @@ h1 {
     border: 1px solid rgba(255, 77, 77, 0.2);
 }
 
-.status-badge.attested {
-    background: rgba(255, 165, 0, 0.1);
-    color: #ffa500;
-    border: 1px solid rgba(255, 165, 0, 0.2);
+/* History Sidebar */
+.history-sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 300px;
+    height: 100vh;
+    background: var(--dropdown-bg);
+    border-left: 1px solid var(--glass-border);
+    backdrop-filter: blur(20px);
+    z-index: 100;
+    transform: translateX(0);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.2);
 }
+
+.history-sidebar.hidden {
+    transform: translateX(100%);
+    display: flex;
+    /* Keep flex but move off-screen */
+}
+
+.sidebar-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sidebar-header h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+#conversation-list-container {
+    flex: 1;
+    overflow-y: auto;
+}
+
 
 
 /* Verification Badge */
@@ -1495,5 +1569,51 @@ h1 {
         min-width: 0;
         z-index: 100;
         border-left: none;
+    }
+}
+
+/* Thinking Indicator */
+.thinking-bubble {
+    padding: 1rem 1.5rem;
+    min-width: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.typing-indicator {
+    display: flex;
+    gap: 6px;
+}
+
+.typing-indicator span {
+    width: 8px;
+    height: 8px;
+    background: var(--accent-primary);
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out both;
+    opacity: 0.7;
+}
+
+.typing-indicator span:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.typing-indicator span:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+
+    0%,
+    80%,
+    100% {
+        transform: scale(0);
+        opacity: 0.5;
+    }
+
+    40% {
+        transform: scale(1);
+        opacity: 1;
     }
 }

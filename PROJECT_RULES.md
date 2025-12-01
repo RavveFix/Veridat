@@ -20,9 +20,12 @@ This document defines the strict rules, technology stack, and architectural patt
 ## 2. Architecture & Patterns
 
 ### Frontend Component Pattern
-We use a **hybrid architecture**:
+We use a **hybrid architecture**, but are transitioning to **Preact-first**:
 
-#### Preact Components (Preferred for new code)
+> [!IMPORTANT]
+> **Rule**: All new UI logic MUST be built as Preact components in `src/components/`. Avoid writing new imperative "Vanilla JS" DOM manipulation in `src/main.ts` unless absolutely necessary for the "glue" layer.
+
+#### Preact Components (Standard for new code)
 Create functional components in `.tsx` files:
 ```typescript
 import { FunctionComponent } from 'preact';

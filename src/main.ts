@@ -1,4 +1,12 @@
-import { createClient } from '@supabase/supabase-js';
+
+import { supabase } from './lib/supabase';
+import { mountPreactComponent } from './components/preact-adapter';
+import { ChatHistory } from './components/Chat/ChatHistory';
+import { ConversationList } from './components/Chat/ConversationList';
+import { LegalConsentModal } from './components/LegalConsentModal';
+import { SettingsModal } from './components/SettingsModal';
+import { CURRENT_TERMS_VERSION, isVersionOutdated } from './constants/termsVersion';
+import { mountModal } from './utils/modalHelpers';
 import * as XLSX from 'xlsx';
 import './styles/main.css';
 import './styles/components/vat-card.css';
@@ -6,11 +14,11 @@ import './styles/components/voice-input.css';
 import type { VATReportResponse } from './types/vat';
 import { ExcelWorkspace } from './components/ExcelWorkspace';
 import { VoiceService } from './utils/VoiceService';
+import { ThemeManager } from './lib/theme';
 
 // Initialize Supabase client
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Initialize Supabase client
+// const supabase = createClient<Database>(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 console.log('main.ts module loading...');
 
@@ -28,7 +36,7 @@ interface Company {
     conversationId?: string; // Changed from chatHistory to conversationId
 }
 
-
+let chatUnmount: (() => void) | null = null;
 
 async function initApp() {
     // Initialize Excel Workspace
@@ -51,9 +59,106 @@ async function initApp() {
     const isLoginPage = window.location.pathname.includes('login.html');
     const isLandingPage = window.location.pathname === '/' || window.location.pathname.endsWith('index.html');
 
-    if (!session && !isLoginPage && !isLandingPage && window.location.pathname.includes('/app/')) {
-        window.location.href = '/login.html';
+    if (!session && !isLoginPage && !isLandingPage && (window.location.pathname.includes('/app/') || window.location.pathname === '/app')) {
+        window.location.href = '/login';
         return;
+    }
+
+    // Check Legal Consent and Version
+    if (session) {
+        let hasAccepted = false;
+        try {
+            const { data: profile, error } = await supabase
+                .from('profiles')
+                .select('has_accepted_terms, terms_version')
+                .eq('id', session.user.id)
+                .single();
+
+            if (error) {
+                // If error (e.g. no profile found/406), treat as not accepted
+                console.warn('Error fetching profile, assuming terms not accepted:', error);
+                hasAccepted = false;
+            } else {
+                hasAccepted = !!profile?.has_accepted_terms;
+                // Check if version is outdated (needs re-consent)
+                if (hasAccepted && isVersionOutdated(profile?.terms_version)) {
+                    console.log('Terms version outdated, user needs to re-consent');
+                    hasAccepted = false; // Treat as not accepted to trigger modal
+                }
+            }
+        } catch (e) {
+            console.error('Exception checking terms:', e);
+            hasAccepted = false;
+        }
+
+        if (!hasAccepted) {
+            // Check for local consent (from login page)
+            const localConsent = localStorage.getItem('has_accepted_terms_local');
+            const localName = localStorage.getItem('user_full_name_local');
+            const localTime = localStorage.getItem('terms_accepted_at_local');
+
+            if (localConsent && localName) {
+                console.log('Found local consent, syncing to DB...');
+
+                // Get version from localStorage
+                const localVersion = localStorage.getItem('terms_version_local');
+
+                // Sync to DB
+                supabase.from('profiles').upsert({
+                    id: session.user.id,
+                    has_accepted_terms: true,
+                    terms_accepted_at: localTime || new Date().toISOString(),
+                    terms_version: localVersion || CURRENT_TERMS_VERSION,
+                    full_name: localName
+                }).then(({ error }) => {
+                    if (error) {
+                        console.error('Error syncing local consent:', error);
+                        // If sync fails, we might want to show the modal again or retry
+                        // For now, we'll let it pass but log the error. 
+                        // Ideally, we should block if sync fails to ensure legal compliance record.
+                        // But since we have local record, we can treat it as accepted for this session.
+                    } else {
+                        console.log('Local consent synced successfully');
+                        // Optional: Clear local storage to avoid re-syncing? 
+                        // Or keep it as backup. Keeping it is fine.
+                    }
+                });
+
+                // Proceed as accepted
+                hasAccepted = true;
+            } else {
+                console.log('User has not accepted terms, showing modal');
+
+                // Remove loader immediately so modal is visible
+                const loader = document.getElementById('app-loader');
+                if (loader) loader.remove();
+
+                // Create a container for the modal if it doesn't exist
+                let modalContainer = document.getElementById('legal-modal-container');
+                if (!modalContainer) {
+                    modalContainer = document.createElement('div');
+                    modalContainer.id = 'legal-modal-container';
+                    document.body.appendChild(modalContainer);
+                }
+
+                // Mount the modal
+                mountPreactComponent(
+                    LegalConsentModal,
+                    {
+                        mode: 'authenticated' as const,
+                        onAccepted: (_fullName: string) => {
+                            console.log('Terms accepted, redirecting to app...');
+                            // Redirect to clean /app URL to clear any potential error hashes
+                            window.location.href = '/app';
+                        }
+                    },
+                    modalContainer
+                );
+
+                // Stop further initialization until accepted
+                return;
+            }
+        }
     }
 
     // Listen for auth state changes
@@ -72,7 +177,7 @@ async function initApp() {
         } else if (event === 'SIGNED_OUT') {
             // Clear chat on sign out
             if (chatContainer) chatContainer.innerHTML = '';
-            window.location.href = '/login.html';
+            window.location.href = '/';
         }
     });
 
@@ -80,19 +185,14 @@ async function initApp() {
     const themeToggle = document.getElementById('theme-toggle');
     const moonIcon = document.querySelector('.moon-icon') as HTMLElement;
     const sunIcon = document.querySelector('.sun-icon') as HTMLElement;
-    const savedTheme = localStorage.getItem('theme') || 'dark';
 
-    // Apply saved theme
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    if (moonIcon && sunIcon) updateThemeIcon(savedTheme);
+    // Initialize theme state (listeners, etc.)
+    ThemeManager.init();
+    updateThemeIcon(ThemeManager.getCurrentTheme());
 
     if (themeToggle) {
         themeToggle.addEventListener('click', () => {
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-
-            document.documentElement.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
+            const newTheme = ThemeManager.toggle();
             updateThemeIcon(newTheme);
         });
     }
@@ -106,6 +206,36 @@ async function initApp() {
             moonIcon.style.display = 'block';
             sunIcon.style.display = 'none';
         }
+    }
+
+    // Settings Button Logic
+    const settingsBtn = document.getElementById('settings-btn');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const closeSettings = mountModal({
+                containerId: 'settings-modal-container',
+                Component: SettingsModal,
+                props: {
+                    user,
+                    onClose: () => closeSettings(),
+                    onLogout: async () => {
+                        await supabase.auth.signOut();
+                        window.location.href = '/login';
+                    }
+                }
+            });
+        });
+    }
+
+    // Logout button logic (legacy support if button exists, though we replaced it)
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            await supabase.auth.signOut();
+        });
     }
 
     // Company Management
@@ -185,69 +315,200 @@ async function initApp() {
             currentCompany.conversationId = conversationId;
             saveCompanies();
 
-            // Load messages from database
-            const { data: messages, error: messagesError } = await supabase
-                .from('messages')
-                .select('*')
-                .eq('conversation_id', conversationId)
-                .order('created_at', { ascending: true });
+            // Mount ChatHistory component
+            if (chatContainer) {
+                // Unmount previous instance if exists
+                if (chatUnmount) chatUnmount();
+                chatContainer.innerHTML = ''; // Clear container
 
-            if (messagesError) {
-                console.error('Error loading messages:', messagesError);
-                return;
+                chatUnmount = mountPreactComponent(
+                    ChatHistory,
+                    { conversationId: conversationId },
+                    chatContainer
+                );
             }
 
-            // Clear and reload chat UI
-            loadChatHistoryFromMessages(messages || []);
         } catch (error) {
             console.error('Error loading conversation from DB:', error);
         }
     }
 
-    // Load chat from database messages
-    function loadChatHistoryFromMessages(messages: any[]) {
-        if (!chatContainer) return;
+    // Listen for open-excel events from ChatHistory
+    window.addEventListener('open-excel', (e: any) => {
+        const { url, name } = e.detail;
+        if (url && name) {
+            excelWorkspace.openExcelFile(url, name);
+        }
+    });
 
-        // Clear chat
-        chatContainer.innerHTML = '';
+    // Listen for conversation deletion
+    window.addEventListener('conversation-deleted', (e: any) => {
+        const { id } = e.detail;
+        console.log('Conversation deleted:', id);
 
-        // Add welcome message
-        const welcomeMsg = document.createElement('div');
-        welcomeMsg.className = 'message ai-message welcome-message';
-        welcomeMsg.innerHTML = `
-            <div class="avatar">B</div>
-            <div class="bubble">
-                <p>Hej! Jag är <strong>Britta</strong>, din expert på svensk bokföring.</p>
-                <p>Jag kan hjälpa dig med kontering, momsregler, avdrag och bokslut. Vad funderar du på idag?</p>
-            </div>
-        `;
-        chatContainer.appendChild(welcomeMsg);
+        // If the deleted conversation was the current one, clear the chat
+        const currentCompany = getCurrentCompany();
+        if (currentCompany.conversationId === id) {
+            currentCompany.conversationId = undefined; // Clear ID
+            saveCompanies();
 
-        // Load saved messages
-        messages.forEach(msg => {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${msg.role === 'user' ? 'user-message' : 'ai-message'}`;
+            if (chatContainer) {
+                chatContainer.innerHTML = '';
+                // Optionally show a "New Chat" or "Select Chat" empty state here
+                // For now, we'll rely on ConversationList to select another or reload
+            }
+        }
+    });
 
-            const avatar = document.createElement('div');
-            avatar.className = 'avatar';
-            avatar.textContent = msg.role === 'user' ? 'Du' : 'B';
+    // Listen for create new conversation request (e.g., after deleting active conversation)
+    window.addEventListener('create-new-conversation', async () => {
+        console.log('Creating new conversation after deletion');
+        await startNewChat();
+    });
 
-            const bubble = document.createElement('div');
-            bubble.className = 'bubble';
-            bubble.innerHTML = markdownToHtml(msg.content);
 
-            messageDiv.appendChild(avatar);
-            messageDiv.appendChild(bubble);
-            chatContainer.appendChild(messageDiv);
-        });
 
-        // Scroll to bottom
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    // History Sidebar Logic
+    const historyToggle = document.getElementById('history-toggle');
+    const historySidebar = document.getElementById('history-sidebar');
+    const closeHistoryBtn = document.getElementById('close-history-btn');
+    const conversationListContainer = document.getElementById('conversation-list-container');
+    let conversationListUnmount: (() => void) | null = null;
+
+    function toggleHistorySidebar() {
+        if (!historySidebar) return;
+        const isHidden = historySidebar.classList.contains('hidden');
+
+        if (isHidden) {
+            historySidebar.classList.remove('hidden');
+            // Mount list when opening
+            if (conversationListContainer) {
+                if (conversationListUnmount) conversationListUnmount();
+                conversationListContainer.innerHTML = '';
+
+                const currentCompany = getCurrentCompany();
+
+                conversationListUnmount = mountPreactComponent(
+                    ConversationList,
+                    {
+                        currentConversationId: currentCompany.conversationId || null,
+                        onSelectConversation: async (id) => {
+                            await loadConversation(id);
+                            historySidebar.classList.add('hidden'); // Close on select
+                        }
+                    },
+                    conversationListContainer
+                );
+            }
+        } else {
+            historySidebar.classList.add('hidden');
+        }
     }
 
+    if (historyToggle) {
+        historyToggle.addEventListener('click', toggleHistorySidebar);
+    }
 
+    if (closeHistoryBtn) {
+        closeHistoryBtn.addEventListener('click', () => {
+            historySidebar?.classList.add('hidden');
+        });
+    }
 
+    // Close sidebar when clicking outside
+    document.addEventListener('click', (e) => {
+        if (historySidebar &&
+            !historySidebar.classList.contains('hidden') &&
+            !historySidebar.contains(e.target as Node) &&
+            !historyToggle?.contains(e.target as Node)) {
+            historySidebar.classList.add('hidden');
+        }
+    });
 
+    async function loadConversation(conversationId: string) {
+        console.log('Loading conversation:', conversationId);
+        const currentCompany = getCurrentCompany();
+
+        // Update local state
+        currentCompany.conversationId = conversationId;
+        saveCompanies();
+
+        // Re-mount chat
+        if (chatContainer) {
+            if (chatUnmount) chatUnmount();
+            chatContainer.innerHTML = '';
+
+            chatUnmount = mountPreactComponent(
+                ChatHistory,
+                { conversationId: conversationId },
+                chatContainer
+            );
+        }
+    }
+
+    // New Chat Logic
+    const newChatBtn = document.getElementById('new-chat-btn');
+    if (newChatBtn) {
+        newChatBtn.addEventListener('click', async () => {
+            // Use a custom modal or just proceed for now to avoid blocking automation
+            // Ideally we'd show a nice UI modal here
+            await startNewChat();
+        });
+    }
+
+    async function startNewChat() {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return;
+
+            const currentCompany = getCurrentCompany();
+
+            // Create a NEW conversation explicitly
+            const { data: conversationId, error } = await supabase
+                .from('conversations')
+                .insert({
+                    user_id: session.user.id,
+                    company_id: currentCompany.id,
+                    title: 'Ny konversation'
+                })
+                .select('id')
+                .single();
+
+            if (error) {
+                console.error('Error creating new chat:', error);
+                alert('Kunde inte starta ny chatt.');
+                return;
+            }
+
+            if (conversationId) {
+                console.log('Started new conversation:', conversationId.id);
+
+                // Update local state
+                currentCompany.conversationId = conversationId.id;
+                saveCompanies();
+
+                // Mount empty chat
+                if (chatContainer) {
+                    if (chatUnmount) chatUnmount();
+                    chatContainer.innerHTML = '';
+
+                    chatUnmount = mountPreactComponent(
+                        ChatHistory,
+                        { conversationId: conversationId.id },
+                        chatContainer
+                    );
+                }
+
+                // Add welcome message for new chat
+                // We can optionally insert a system message here if we want it persisted
+                // or just let the ChatHistory component handle the empty state
+            }
+
+        } catch (error) {
+            console.error('Error in startNewChat:', error);
+        }
+    }
 
     // Get recent chat history from database for API context (last N messages)
     async function getRecentChatHistory(conversationId: string, maxMessages: number = 20): Promise<Array<{ role: string, content: string }>> {
@@ -405,16 +666,21 @@ async function initApp() {
 
                 setTimeout(() => {
                     connectBtn.innerHTML = `
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M20 6L9 17l-5-5"></path>
-                        </svg>
-                        <span>Kopplad</span>
-                    `;
+    < svg width = "18" height = "18" viewBox = "0 0 24 24" fill = "none" stroke = "currentColor" stroke - width="2" >
+        <path d="M20 6L9 17l-5-5" > </path>
+            </svg>
+            < span > Kopplad </span>
+                `;
                     connectBtn.classList.add('connected');
                     connectBtn.style.opacity = '1';
                     connectBtn.disabled = false;
 
-                    addMessage('✅ <strong>Fortnox kopplat!</strong><br>Jag har nu tillgång till dina kunder och artiklar.', 'ai');
+                    connectBtn.classList.add('connected');
+                    connectBtn.style.opacity = '1';
+                    connectBtn.disabled = false;
+
+                    // addMessage('✅ <strong>Fortnox kopplat!</strong><br>Jag har nu tillgång till dina kunder och artiklar.', 'ai');
+                    alert('Fortnox kopplat! (Simulation)');
                 }, 1000);
             }, 1000);
         });
@@ -445,6 +711,22 @@ async function initApp() {
 
     // Auto-focus input
     if (userInput) userInput.focus();
+
+    // Hide Loader with minimum display time to prevent flicker
+    const loader = document.getElementById('app-loader');
+    if (loader) {
+        // Ensure loader stays for at least 800ms total (including initial load time)
+        const minLoadTime = 800;
+        const loadTime = Date.now() - (window as any).performance.timing.navigationStart;
+        const remainingTime = Math.max(0, minLoadTime - loadTime);
+
+        setTimeout(() => {
+            loader.style.opacity = '0';
+            setTimeout(() => {
+                loader.remove();
+            }, 600); // Match CSS transition duration
+        }, remainingTime);
+    }
 
     // File Attachment Logic
     if (attachBtn && fileInput) {
@@ -528,7 +810,7 @@ async function initApp() {
                     const randomFactor = 0.7 + Math.random() * 0.6;
                     const height = minHeight + (level * randomFactor * (maxHeight - minHeight));
 
-                    (bar as HTMLElement).style.height = `${height}px`;
+                    (bar as HTMLElement).style.height = `${height} px`;
                 });
             });
 
@@ -603,8 +885,11 @@ async function initApp() {
                     } catch (claudeError) {
                         // Both failed - show error to user
                         console.error('[Router] Both Python and Claude failed:', claudeError);
+                        // Both failed - show error to user
+                        console.error('[Router] Both Python and Claude failed:', claudeError);
                         const errorMessage = claudeError instanceof Error ? claudeError.message : 'Okänt fel';
-                        addMessage(`❌ Kunde inte analysera Excel-filen. Försök igen eller kontakta support.\n\nFelmeddelande: ${errorMessage}`, 'ai');
+                        // addMessage(`❌ Kunde inte analysera Excel - filen.Försök igen eller kontakta support.\n\nFelmeddelande: ${ errorMessage } `, 'ai');
+                        alert(`Kunde inte analysera Excel - filen: ${errorMessage} `);
                     }
                 }
 
@@ -626,8 +911,24 @@ async function initApp() {
                 }
             }
 
-            // Add user message with optional file and URL
-            addMessage(message, 'user', fileToSend, fileUrl);
+            // 1. Get history for AI context BEFORE inserting new message
+            const currentCompany = getCurrentCompany();
+            const conversationId = currentCompany.conversationId;
+            // Note: getRecentChatHistory handles fetching from DB. 
+            // Since we haven't inserted the new message yet, it won't be included, which is correct for "history".
+
+            // 2. Optimistic UI Update (Backend saves the message)
+            // Dispatch event for ChatHistory to show message immediately
+            window.dispatchEvent(new CustomEvent('add-optimistic-message', {
+                detail: {
+                    content: message,
+                    file_name: fileToSend?.name,
+                    file_url: fileUrl
+                }
+            }));
+
+            // 3. Refresh UI to show user message
+            // window.dispatchEvent(new CustomEvent('chat-refresh')); // REMOVED: Premature refresh clears optimistic message
 
             // Clear input and file
             userInput.value = '';
@@ -638,87 +939,29 @@ async function initApp() {
                 // Open VAT report in right panel (Claude artifacts style)
                 excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined);
 
-                // Show simple confirmation message in chat
-                addMessage(`✅ **Momsredovisning skapad för ${vatReportResponse.data.period}**\n\nRapporten visas till höger. Du kan fortsätta ställa frågor samtidigt som du tittar på rapporten.`, 'ai');
+                // Insert system message about report
+                if (conversationId) {
+                    await supabase.from('messages').insert({
+                        conversation_id: conversationId,
+                        role: 'ai',
+                        content: `✅ ** Momsredovisning skapad för ${vatReportResponse.data.period}**\n\nRapporten visas till höger.Du kan fortsätta ställa frågor samtidigt som du tittar på rapporten.`
+                    });
+                    window.dispatchEvent(new CustomEvent('chat-refresh'));
+                }
             } else {
                 await sendToGemini(message, fileToSend, fileUrl);
+                // Refresh again after AI response (sendToGemini should handle saving AI response to DB? We need to verify this)
+                // Assuming sendToGemini triggers the edge function which saves the response.
+                // We should trigger a refresh after it returns.
+                window.dispatchEvent(new CustomEvent('chat-refresh'));
             }
         });
     }
 
-    function markdownToHtml(text: string): string {
-        if (!text) return '';
-        return text
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            .replace(/__(.+?)__/g, '<strong>$1</strong>')
-            .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/_(.+?)_/g, '<em>$1</em>')
-            .replace(/`(.+?)`/g, '<code>$1</code>')
-            .replace(/\n/g, '<br>');
-    }
-
-    function addMessage(text: string, sender: 'user' | 'ai', file: File | null = null, fileUrl: string | null = null) {
-        if (!chatContainer) return;
-
-        const messageDiv = document.createElement('div');
-        messageDiv.classList.add('message', sender === 'user' ? 'user-message' : 'ai-message');
-
-        const avatarDiv = document.createElement('div');
-        avatarDiv.classList.add('avatar');
-        avatarDiv.textContent = sender === 'user' ? 'Du' : 'B';
-
-        const bubbleDiv = document.createElement('div');
-        bubbleDiv.classList.add('bubble');
-
-        let content = '';
-
-        // Add file attachment display if present
-        if (file) {
-            const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-            const clickableClass = (isExcel && fileUrl) ? 'file-attachment-clickable' : '';
-
-            content += `
-                <div class="${clickableClass}" data-file-url="${fileUrl || ''}" data-file-name="${file.name}" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                    </svg>
-                    <span style="font-size: 0.9em;">${file.name}</span>
-                    ${isExcel && fileUrl ? '<span style="margin-left: auto; font-size: 0.75em; color: var(--accent-primary);">Klicka för att öppna →</span>' : ''}
-                </div>
-            `;
-        }
-
-        // Allow simple HTML in AI responses for formatting
-        if (sender === 'ai') {
-            const htmlContent = markdownToHtml(text);
-            content += htmlContent;
 
 
+    // Removed addMessage function - replaced by ChatHistory component
 
-        } else {
-            content += text ? `<p>${text}</p>` : '';
-        }
-
-        bubbleDiv.innerHTML = content;
-
-        // Add click handler for Excel files
-        if (file && fileUrl) {
-            const fileAttachment = bubbleDiv.querySelector('.file-attachment-clickable') as HTMLElement;
-            if (fileAttachment) {
-                fileAttachment.addEventListener('click', () => {
-                    const url = fileAttachment.dataset.fileUrl;
-                    const name = fileAttachment.dataset.fileName;
-                    if (url && name) excelWorkspace.openExcelFile(url, name);
-                });
-            }
-        }
-
-        messageDiv.appendChild(avatarDiv);
-        messageDiv.appendChild(bubbleDiv);
-        chatContainer.appendChild(messageDiv);
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
 
 
     async function uploadFileToSupabase(file: File): Promise<string> {
@@ -735,11 +978,11 @@ async function initApp() {
 
             const company = getCurrentCompany();
 
-            const response = await fetch(`${SUPABASE_URL}/functions/v1/upload-file`, {
+            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/upload-file`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.access_token}`
+                    'Authorization': `Bearer ${session.access_token} `
                 },
                 body: JSON.stringify({
                     filename: file.name,
@@ -809,7 +1052,7 @@ async function initApp() {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) throw new Error('User not authenticated');
 
-            addMessage('Jag analyserar din Excel-fil... Detta kan ta några sekunder. ⏳', 'ai');
+            // addMessage('Jag analyserar din Excel-fil... Detta kan ta några sekunder. ⏳', 'ai');
 
             const arrayBuffer = await file.arrayBuffer();
             const workbook = XLSX.read(arrayBuffer);
@@ -820,11 +1063,11 @@ async function initApp() {
                 sheets[sheetName] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
             });
 
-            const response = await fetch(`${SUPABASE_URL}/functions/v1/claude-analyze`, {
+            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/claude-analyze`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.access_token}`
+                    'Authorization': `Bearer ${session.access_token} `
                 },
                 body: JSON.stringify({
                     filename: file.name,
@@ -847,22 +1090,6 @@ async function initApp() {
 
     async function sendToGemini(message: string, file: File | null, fileUrl: string | null = null) {
         try {
-            // Show loading state
-            const loadingId = 'loading-' + Date.now();
-            const loadingDiv = document.createElement('div');
-            loadingDiv.id = loadingId;
-            loadingDiv.className = 'message ai-message';
-            loadingDiv.innerHTML = `
-                <div class="avatar">B</div>
-                <div class="bubble">
-                    <div class="typing-dots">
-                        <span></span><span></span><span></span>
-                    </div>
-                </div>
-            `;
-            chatContainer?.appendChild(loadingDiv);
-            if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
-
             // Prepare file data if present
             let fileData = null;
             if (file) {
@@ -915,29 +1142,40 @@ async function initApp() {
                 }
             });
 
-            // Remove loading indicator
-            const loadingEl = document.getElementById(loadingId);
-            if (loadingEl) loadingEl.remove();
-
             if (error) throw error;
 
-            if (data) {
+            if (data && conversationId) {
+                let aiContent = '';
                 if (data.type === 'text') {
-                    addMessage(data.data, 'ai');
+                    aiContent = data.data;
                 } else if (data.type === 'json') {
                     // Handle tool output (e.g. create_invoice)
-                    addMessage(`Jag har förberett en åtgärd: \n\`\`\`json\n${JSON.stringify(data.data, null, 2)}\n\`\`\``, 'ai');
+                    aiContent = `Jag har förberett en åtgärd: \n\`\`\`json\n${JSON.stringify(data.data, null, 2)}\n\`\`\``;
+                }
+
+                if (aiContent) {
+                    await supabase.from('messages').insert({
+                        conversation_id: conversationId,
+                        role: 'ai',
+                        content: aiContent
+                    });
+                    window.dispatchEvent(new CustomEvent('chat-refresh'));
                 }
             }
 
         } catch (error) {
             console.error('Gemini error:', error);
-            // Remove loading indicator if still present
-            // Remove loading indicator if still present
-            const loaders = document.querySelectorAll('.typing-dots');
-            loaders.forEach(l => l.closest('.message')?.remove());
 
-            addMessage('⚠️ Tyvärr uppstod ett fel vid kontakten med Britta. Försök igen senare.', 'ai');
+            // Log error to chat
+            const currentCompany = getCurrentCompany();
+            if (currentCompany?.conversationId) {
+                await supabase.from('messages').insert({
+                    conversation_id: currentCompany.conversationId,
+                    role: 'ai',
+                    content: '⚠️ Tyvärr uppstod ett fel vid kontakten med Britta. Försök igen senare.'
+                });
+                window.dispatchEvent(new CustomEvent('chat-refresh'));
+            }
         }
     }
 

@@ -78,6 +78,37 @@ Deno.serve(async (req: Request) => {
 
         console.log('Rate limit check passed:', { userId, remaining: rateLimit.remaining });
 
+        // Save messages to database if conversationId is provided
+        // We save the user message FIRST, before calling Gemini, to ensure it's recorded.
+        if (conversationId && userId !== 'anonymous') {
+            try {
+                // Get auth token from request
+                const authHeader = req.headers.get('authorization');
+                const token = authHeader?.replace('Bearer ', '');
+
+                if (token) {
+                    // Create authenticated Supabase client
+                    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+                        global: { headers: { Authorization: authHeader! } }
+                    });
+
+                    const conversationService = new ConversationService(supabaseClient);
+
+                    // Save user message
+                    await conversationService.addMessage(
+                        conversationId,
+                        'user',
+                        message,
+                        fileUrl || null,
+                        fileName || null
+                    );
+                }
+            } catch (saveError) {
+                console.error('Failed to save user message to database:', saveError);
+                // Continue anyway, but log it
+            }
+        }
+
         // Call Gemini Service with history
         const geminiResponse = await sendMessageToGemini(message, fileData, history);
 
@@ -163,14 +194,8 @@ Deno.serve(async (req: Request) => {
 
                     const conversationService = new ConversationService(supabaseClient);
 
-                    // Save user message
-                    await conversationService.addMessage(
-                        conversationId,
-                        'user',
-                        message,
-                        fileUrl || null,
-                        fileName || null
-                    );
+                    // User message is already saved above (before Gemini call)
+                    // We only need to save the AI response here
 
                     // Save AI response
                     if (geminiResponse.text) {

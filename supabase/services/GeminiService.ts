@@ -294,11 +294,6 @@ export const sendMessageToGemini = async (
         return { text: text || "Jag kunde inte generera ett svar just nu." };
     } catch (error) {
         console.error("Gemini API Error:", error);
-
-        if (error instanceof Error) {
-            return { text: `Tyvärr uppstod ett fel: ${error.message} ` };
-        }
-
-        return { text: "Tyvärr uppstod ett fel vid kontakten med mina hjärnceller (Gemini). Försök igen senare." };
+        throw error;
     }
 };
