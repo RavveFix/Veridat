@@ -75,43 +75,84 @@ export class PythonAPIService {
 
   /**
    * Analyze Excel file and generate Swedish VAT report
+   * Includes retry logic for Railway cold starts
    */
   async analyzeVAT(request: VATAnalysisRequest): Promise<VATReportResponse> {
     const url = `${this.baseUrl}/api/v1/vat/analyze`;
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
     console.log(`[PythonAPIService] Calling VAT analysis: ${url}`);
 
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
+    // Retry loop for handling Railway cold starts
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[PythonAPIService] Attempt ${attempt}/${maxRetries}`);
+
+        // Prepare headers with optional API key
+        const apiKey = Deno.env.get("PYTHON_API_KEY");
+        const headers: Record<string, string> = {
           "Content-Type": "application/json",
-        },
-        body: JSON.stringify(request),
-      });
+        };
+        if (apiKey) {
+          headers["X-API-Key"] = apiKey;
+        }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[PythonAPIService] API error (${response.status}):`, errorText);
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(request),
+        });
 
-        throw new Error(
-          `Python API error (${response.status}): ${errorText || response.statusText}`
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(
+            `[PythonAPIService] API error (${response.status}):`,
+            errorText
+          );
+
+          throw new Error(
+            `Python API error (${response.status}): ${errorText || response.statusText}`
+          );
+        }
+
+        const data: VATReportResponse = await response.json();
+
+        console.log(`[PythonAPIService] ✅ Success on attempt ${attempt}`);
+        console.log(`- Sales transactions: ${data.data.sales.length}`);
+        console.log(`- Cost transactions: ${data.data.costs.length}`);
+        console.log(`- Net VAT: ${data.data.vat.net} SEK`);
+        console.log(
+          `- Validation: ${data.data.validation.is_valid ? "PASS" : "FAIL"}`
         );
+
+        return data;
+      } catch (error) {
+        lastError = error as Error;
+        console.warn(
+          `[PythonAPIService] ❌ Attempt ${attempt}/${maxRetries} failed:`,
+          error instanceof Error ? error.message : error
+        );
+
+        // If this was the last attempt, don't retry
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        // Exponential backoff: 1s, 2s, 4s
+        const delayMs = 1000 * Math.pow(2, attempt - 1);
+        console.log(
+          `[PythonAPIService] ⏳ Waiting ${delayMs}ms before retry...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
-
-      const data: VATReportResponse = await response.json();
-
-      console.log(`[PythonAPIService] VAT analysis successful`);
-      console.log(`- Sales transactions: ${data.data.sales.length}`);
-      console.log(`- Cost transactions: ${data.data.costs.length}`);
-      console.log(`- Net VAT: ${data.data.vat.net} SEK`);
-      console.log(`- Validation: ${data.data.validation.is_valid ? "PASS" : "FAIL"}`);
-
-      return data;
-    } catch (error) {
-      console.error("[PythonAPIService] Failed to analyze VAT:", error);
-      throw error;
     }
+
+    // All retries exhausted
+    console.error(
+      "[PythonAPIService] ❌ All retries exhausted. Failed to analyze VAT."
+    );
+    throw lastError || new Error("Failed to analyze VAT after multiple attempts");
   }
 
   /**
