@@ -1,13 +1,14 @@
 """
 VAT Routes - Endpoints for VAT analysis and processing.
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 import logging
 
 from app.api.models.response import VATReportResponse
 from app.services.vat_service import VATService
 from app.services.excel_service import ExcelService, FileProcessingError
+from app.core.security import verify_api_key
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -22,10 +23,13 @@ class ExcelAnalysisRequest(BaseModel):
 
 
 @router.post("/analyze", response_model=VATReportResponse)
-async def analyze_excel(request: ExcelAnalysisRequest):
+async def analyze_excel(
+    request: ExcelAnalysisRequest,
+    api_key: str = Depends(verify_api_key)
+):
     """
     Analyze Excel file and generate Swedish VAT report.
-    No auth - trusts Edge Function proxy for authentication.
+    Requires X-API-Key header if PYTHON_API_KEY is configured.
     """
     try:
         logger.info(f"VAT analysis request for file: {request.filename}")

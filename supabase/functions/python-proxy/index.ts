@@ -87,6 +87,10 @@ Deno.serve(async (req: Request) => {
     // Initialize Python API Service
     const pythonAPI = new PythonAPIService();
 
+    // Debug: Log received data size
+    console.log("[python-proxy] Received file_data length:", body.file_data?.length || 0);
+    console.log("[python-proxy] Received file_data first 50 chars:", body.file_data?.substring(0, 50));
+
     // Prepare request for Python API
     const vatRequest: VATAnalysisRequest = {
       file_data: body.file_data,
@@ -100,6 +104,7 @@ Deno.serve(async (req: Request) => {
       filename: vatRequest.filename,
       company: vatRequest.company_name,
       period: vatRequest.period,
+      file_data_length: vatRequest.file_data.length,
     });
 
     // Call Python API for VAT analysis

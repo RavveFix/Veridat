@@ -1099,12 +1099,17 @@ async function initApp() {
                 throw new Error(`Invalid base64 data: too short (${base64Data?.length || 0} characters)`);
             }
 
+            console.log('[Python API] Base64 data length BEFORE padding:', base64Data.length);
+            console.log('[Python API] First 50 chars:', base64Data.substring(0, 50));
+            console.log('[Python API] Last 50 chars:', base64Data.substring(base64Data.length - 50));
+
             // Ensure proper base64 padding (must be multiple of 4)
             while (base64Data.length % 4 !== 0) {
                 base64Data += '=';
+                console.log('[Python API] Added padding, new length:', base64Data.length);
             }
 
-            console.log('[Python API] Base64 data length:', base64Data.length);
+            console.log('[Python API] Base64 data length AFTER padding:', base64Data.length);
 
             // Get current company info
             const company = getCurrentCompany();
