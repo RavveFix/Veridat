@@ -7,11 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Britta is an AI-powered Swedish bookkeeping assistant for small businesses. It's a Progressive Web App (PWA) that helps users with accounting tasks, invoice creation, and tax document analysis using Google Gemini AI and Fortnox integration.
 
 **Tech Stack:**
-- Frontend: Vanilla JavaScript, HTML, CSS (no frameworks)
-- Backend: Supabase Edge Functions (Deno runtime)
-- AI: Google Gemini 2.5 Flash with function calling
+- Frontend: Vite + TypeScript (vanilla, class-based components)
+- Backend: Supabase Edge Functions (Deno) + Python FastAPI (Railway)
+- AI: Google Gemini (chat/PDF), Claude (fallback), Python (VAT-beräkningar)
 - Integrations: Fortnox API for accounting operations
-- Database: Supabase PostgreSQL
+- Database: Supabase PostgreSQL with RLS
 
 ## Development Commands
 
@@ -59,6 +59,23 @@ supabase link --project-ref your-project-ref
 deno run --allow-all test_rate_limit.ts
 ```
 
+### Python API (VAT Calculations)
+```bash
+# Local development
+cd python-api
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8080
+
+# Test health
+curl http://localhost:8080/health
+
+# Production (Railway)
+# Auto-deploys from git push
+# Environment: ENV=production, DEBUG=false, ALLOWED_ORIGINS=https://...
+```
+
 ## Architecture
 
 ### Service Layer Pattern
@@ -71,19 +88,62 @@ The backend uses a service-oriented architecture where business logic is encapsu
 
 - **RateLimiterService** (`supabase/services/RateLimiterService.ts`): Implements rate limiting with hourly (10/hour) and daily (50/day) limits per user. Uses Supabase `api_usage` table for tracking
 
+### Intelligent File Routing
+
+The frontend automatically routes files to the appropriate backend:
+```
+Excel (.xlsx, .xls) → python-proxy Edge Function → Python API (Railway)
+                                ↓ (fallback if Python fails)
+                      claude-analyze → Claude AI
+
+PDF/Images → gemini-chat → Gemini AI
+Text messages → gemini-chat → Gemini AI
+```
+
+**Key files:**
+- `src/main.ts`: Frontend routing logic (analyzeExcelWithPython, fallback to Claude)
+- `supabase/functions/python-proxy/`: Auth + proxy to Python API
+- `python-api/app/services/vat_service.py`: VAT calculations
+
 ### Edge Functions
+
+| Function | Purpose | Backend |
+|----------|---------|---------|
+| `gemini-chat` | Main chat, PDF analysis | Gemini AI |
+| `claude-analyze` | Excel analysis fallback | Claude AI |
+| `python-proxy` | VAT calculations proxy | Python API |
+| `fortnox` | Accounting operations | Fortnox API |
 
 - **gemini-chat** (`supabase/functions/gemini-chat/index.ts`): Main entry point for chat interactions. Handles rate limiting, calls GeminiService, and executes tool calls. Returns structured responses: `{type: 'text', data: string}` or `{type: 'json', data: object}` for confirmation cards
 
 - **fortnox** (`supabase/functions/fortnox/index.ts`): Direct Fortnox API operations. Supports actions: `createInvoice`, `getCustomers`, `getArticles`
 
+### Python API (python-api/)
+
+FastAPI service hosted on Railway for precise VAT calculations.
+
+**Structure:**
+- `app/main.py` - FastAPI entry, CORS, startup validation
+- `app/config.py` - Environment-based configuration
+- `app/api/routes/vat.py` - POST /api/v1/vat/analyze
+- `app/services/vat_service.py` - VAT calculation logic
+- `app/services/excel_service.py` - Excel parsing with pandas
+- `app/core/security.py` - Optional API key validation
+
+**Environment Variables (Railway):**
+- `ENV=production`
+- `DEBUG=false`
+- `ALLOWED_ORIGINS=https://your-supabase.supabase.co`
+- `PYTHON_API_KEY` (optional, for API auth)
+
 ### Frontend Structure
 
-- **Landing page**: `landing/index.html`
-- **Main app**: `app/index.html`
-- **App logic**: `app/src/js/main.js` - Handles chat UI, company management, file uploads, and API calls
-- **Styles**: `app/src/css/main.css` - Custom properties for theming
-- **PWA**: `app/manifest.json` + `app/service-worker.js`
+- **Entry**: `src/main.ts` - Main TypeScript application
+- **Components**: `src/components/` - Class-based TypeScript components
+- **Types**: `src/types/` - TypeScript interfaces (VATReportData, etc.)
+- **Styles**: `src/styles/` - CSS with custom properties
+- **Build**: Vite (`npm run build` → `dist/`)
+- **Legacy**: `app/` folder (being migrated to src/)
 
 ### Multi-Company Support
 
@@ -168,17 +228,24 @@ Frontend converts files to base64 and sends with mimeType:
 
 ## Environment Variables
 
-Required in Supabase Edge Functions:
-- `GEMINI_API_KEY`: Google Gemini API key
-- `SUPABASE_URL`: Auto-provided by Supabase
-- `SUPABASE_SERVICE_ROLE_KEY`: Auto-provided by Supabase
-- `FORTNOX_CLIENT_ID`: Fortnox OAuth client ID
-- `FORTNOX_CLIENT_SECRET`: Fortnox OAuth client secret
+### Frontend (.env)
+- `VITE_SUPABASE_URL`: Supabase project URL
+- `VITE_SUPABASE_ANON_KEY`: Supabase anonymous key
 
-Set secrets with:
+### Supabase Secrets
 ```bash
-supabase secrets set KEY=value
+supabase secrets set GEMINI_API_KEY=...
+supabase secrets set PYTHON_API_URL=https://your-railway-app.railway.app
+supabase secrets set PYTHON_API_KEY=...  # Optional
+supabase secrets set FORTNOX_CLIENT_ID=...
+supabase secrets set FORTNOX_CLIENT_SECRET=...
 ```
+
+### Railway (Python API)
+- `ENV=production`
+- `DEBUG=false`
+- `ALLOWED_ORIGINS=https://...`
+- `PYTHON_API_KEY` (optional)
 
 ## Skills
 
@@ -239,3 +306,192 @@ Optional: `id`, `kwh` (for EV charging)
 - LocalStorage is primary data store for frontend (no Supabase auth yet)
 - Rate limiting is per-user but currently defaults to 'anonymous' for unauthenticated users
 - Fortnox tokens must be initially obtained through OAuth flow and stored in database
+
+## Current Status
+
+- [x] Python API deployed on Railway
+- [x] Security fixes implemented (CORS, DEBUG, startup validation)
+- [x] Intelligent routing (Excel → Python, fallback → Claude)
+- [x] Edge Functions deployed (gemini-chat, python-proxy, claude-analyze)
+- [x] RLS policies optimized
+- [ ] Production frontend deployment
+- [ ] E2E testing
+
+## Quick Reference
+```bash
+# Start everything locally
+npm run dev                              # Frontend (Vite)
+cd python-api && uvicorn app.main:app   # Python API
+supabase functions serve                 # Edge Functions
+
+# Deploy
+git push                                 # Railway auto-deploys Python
+supabase functions deploy               # Deploy Edge Functions
+npm run build && vercel deploy          # Frontend to Vercel
+
+# Testing
+cd python-api && pytest tests/ -v       # Run unit tests
+cd python-api && python3 verify_api.py  # Run API verification
+```
+
+---
+
+## Recent Improvements (2025-12-03)
+
+### Security Enhancements 🔒
+
+**Timing Attack Protection** (`python-api/app/core/security.py`)
+- Implemented `secrets.compare_digest()` for constant-time API key comparison
+- Prevents timing attacks where hackers measure response time to guess API keys character by character
+- Maintains fail-open design: authentication bypassed if `PYTHON_API_KEY` not configured
+
+**Authentication Error Handling** (`src/components/LegalConsentModal.tsx`)
+- Added comprehensive error handling for `supabase.auth.getUser()`
+- Handles both response errors and network exceptions gracefully
+- Users see clear error messages instead of crashes during auth failures
+
+**Test Coverage** (`python-api/tests/test_security.py`)
+- 7 unit tests covering all security.py code paths (100% coverage)
+- Tests: fail-open behavior, API key validation, timing attack resistance, edge cases
+- Configured pytest with asyncio support (`pytest.ini`)
+- Command: `pytest tests/ -v` → **7/7 passing ✅**
+
+### Reliability Improvements 🛡️
+
+**FastAPI Modern Lifespan** (`python-api/app/main.py`)
+- Migrated from deprecated `@app.on_event("startup")` to modern `lifespan` context manager
+- Future-proof for FastAPI 0.109+ versions
+- Cleaner startup/shutdown handling with proper async context
+
+**Railway Cold Start Handling** (`supabase/services/PythonAPIService.ts`)
+- Implemented retry logic: 3 attempts with exponential backoff (1s, 2s, 4s)
+- Automatically handles Railway cold starts (when API "wakes up" from sleep)
+- Users no longer see "Internal server error" on first request after idle
+- Detailed logging for each retry attempt
+
+**Consent Email Retry** (`src/components/LegalConsentModal.tsx`)
+- 3 retry attempts with exponential backoff (1s, 2s) for email delivery
+- Non-blocking: user can proceed immediately while email sends in background
+- 🚨 CRITICAL error logging when all retries fail (for admin monitoring)
+- Future integration point: trigger alerts to admins on persistent failures
+
+**Error Detail Preservation** (`supabase/functions/python-proxy/index.ts`)
+- Preserves error details when forwarding from Python API to frontend
+- Tracks error source: `python_api` vs `edge_function`
+- Extracts and includes HTTP status codes in error responses
+- Better debugging with structured error objects:
+  ```typescript
+  {
+    error: "python_api_error",
+    message: "Python API error (400): Invalid base64",
+    source: "python_api",
+    details: { status_code: 400 }
+  }
+  ```
+
+### Code Quality 🧹
+
+**Clean Code Practices** (`python-api/verify_api.py`)
+- Removed unused `Decimal` import
+- Extracted magic number (0.02) to named constant: `FLOAT_TOLERANCE`
+- Made `BASE_URL` configurable via `PYTHON_API_URL` environment variable
+- Default: `http://localhost:8080`, override for production testing
+
+**Testing Infrastructure** (`python-api/requirements.txt`, `pytest.ini`)
+- Added pytest, pytest-asyncio, httpx to dependencies
+- Configured async test mode for FastAPI testing
+- Test discovery configured for `tests/` directory
+- Ready for CI/CD integration
+
+### Test Commands
+
+```bash
+# Run all unit tests
+cd python-api
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_security.py -v
+
+# Run API verification (requires running server)
+python3 verify_api.py
+
+# Test against production API
+PYTHON_API_URL=https://your-api.railway.app python3 verify_api.py
+```
+
+### Monitoring & Debugging
+
+**Railway Logs (Python API):**
+```
+✅ Environment validated: ENV=production, DEBUG=False
+✅ Allowed origins: ['https://...']
+Application startup complete
+```
+
+**Supabase Edge Function Logs (Retry Example):**
+```
+[PythonAPIService] Attempt 1/3
+❌ Attempt 1/3 failed: fetch failed
+⏳ Waiting 1000ms before retry...
+[PythonAPIService] Attempt 2/3
+✅ Success on attempt 2
+```
+
+**Frontend Console (Email Retry):**
+```
+[Consent Email] Attempt 1/3...
+❌ Email attempt 1/3 failed: ...
+[Consent Email] Attempt 2/3...
+✅ Consent confirmation email sent successfully
+```
+
+**Critical Failure Alert:**
+```
+🚨 CRITICAL: Failed to send consent email after all retries
+{
+  userId: "...",
+  email: "...",
+  error: {...},
+  timestamp: "2025-12-03T..."
+}
+```
+
+### Git History
+```
+6596263 - refactor: Low priority code quality improvements
+f67f860 - feat: Medium priority improvements - testing, retry, error handling
+1dbe52d - fix: Critical security and reliability improvements
+```
+
+### Production Checklist
+- [x] Timing attack protection (constant-time comparison)
+- [x] Auth error handling (graceful degradation)
+- [x] FastAPI modern patterns (lifespan)
+- [x] Railway cold start handling (retry with backoff)
+- [x] Email delivery retry (3 attempts)
+- [x] Error detail preservation (source tracking)
+- [x] Unit tests (7 tests, 100% security coverage)
+- [x] Clean code (no magic numbers, configurable URLs)
+- [x] Production deployment (Railway auto-deploy)
+
+---
+
+## Best Practices for Future Sessions
+
+### For Maintaining Context Between Sessions:
+
+1. **Update CLAUDE.md** - Document all significant changes here
+2. **Use Descriptive Commits** - Clear commit messages help understand changes
+3. **Keep CHANGELOG.md** - Track version history and breaking changes
+4. **Reference Line Numbers** - Use `file:line` format in documentation
+5. **Document Decisions** - Explain "why" not just "what" in comments
+
+### When Starting a New Session:
+
+Claude will automatically read CLAUDE.md and understand:
+- Current architecture and patterns
+- Recent changes and improvements
+- Environment setup and deployment process
+- Testing procedures and commands
+- Known issues and TODOs
