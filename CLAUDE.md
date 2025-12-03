@@ -397,6 +397,112 @@ cd python-api && python3 verify_api.py  # Run API verification
 - Made `BASE_URL` configurable via `PYTHON_API_URL` environment variable
 - Default: `http://localhost:8080`, override for production testing
 
+---
+
+## Critical Debugging Session (2025-12-03) 🐛
+
+### Problem: Inconsistent VAT Calculations
+
+**Symptom**: Same Excel file returned different results on every upload:
+- Upload 1: Försäljning 298.81 SEK, Kostnader 426.56 SEK
+- Upload 2: Försäljning 299.01 SEK, Kostnader 461.27 SEK
+- Upload 3: Försäljning 314.81 SEK, Kostnader 526.55 SEK
+
+**Root Causes Discovered**:
+
+1. **Authentication Failure (401 Unauthorized)**
+   - Railway Python API had `PYTHON_API_KEY` environment variable set
+   - Supabase Edge Function did NOT have matching `PYTHON_API_KEY` secret
+   - All requests were rejected with 401, triggering Claude AI fallback
+   - **Fix**: Set matching API key in Supabase secrets
+
+2. **Pydantic Validation Error (500 Internal Server Error)**
+   - `ValidationResult` expected `errors: List[str]`
+   - Railway's Python API returned `errors: List[dict]` format
+   - Mismatch caused: `ValidationError: Input should be a valid string [type=string_type, input_value={'field': 'org_number', ...}]`
+   - **Fix**: Changed to `errors: List[Union[str, dict]]` for compatibility
+
+### Solutions Implemented
+
+**1. Frontend Base64 Validation** (`src/main.ts`)
+```typescript
+// Added comprehensive logging
+console.log('[Python API] Base64 data length BEFORE padding:', base64Data.length);
+console.log('[Python API] First 50 chars:', base64Data.substring(0, 50));
+console.log('[Python API] Last 50 chars:', base64Data.substring(base64Data.length - 50));
+
+// Auto-padding for base64 strings (must be multiple of 4)
+while (base64Data.length % 4 !== 0) {
+    base64Data += '=';
+}
+```
+
+**2. Edge Function Debug Logging** (`supabase/functions/python-proxy/index.ts`)
+```typescript
+// Log received data for debugging
+console.log("[python-proxy] Received file_data length:", body.file_data?.length || 0);
+console.log("[python-proxy] Received file_data first 50 chars:", body.file_data?.substring(0, 50));
+```
+
+**3. Enhanced Excel Service Validation** (`python-api/app/services/excel_service.py`)
+```python
+# Validate base64 string before decoding
+if not file_data:
+    raise FileProcessingError("Empty base64 data received")
+
+if len(file_data) < 10:
+    raise FileProcessingError(f"Base64 data too short: {len(file_data)} characters")
+
+# Decode with validation
+try:
+    file_bytes = base64.b64decode(file_data, validate=True)
+except Exception as decode_error:
+    raise FileProcessingError(f"Invalid base64 encoding: {str(decode_error)}")
+```
+
+**4. Pydantic Model Compatibility** (`python-api/app/api/models/response.py`)
+```python
+from typing import Union
+
+class ValidationResult(BaseModel):
+    is_valid: bool
+    errors: List[Union[str, dict]]  # Accept both formats
+    warnings: List[Union[str, dict]]  # Accept both formats
+```
+
+### Debugging Workflow Used
+
+1. **Console Analysis**: Checked frontend logs → Base64 data correct (14392 chars)
+2. **Railway Logs**: Found 401 Unauthorized errors
+3. **API Key Sync**: Matched `PYTHON_API_KEY` between Railway and Supabase
+4. **Pydantic Error**: Discovered validation type mismatch in errors/warnings
+5. **Union Type Fix**: Made model accept both string and dict formats
+6. **Deployment**: Railway auto-deployed from git push
+7. **Verification**: Same Excel file now returns consistent results every time
+
+### Testing & Verification
+
+**Test Script Created**: `python-api/test_validation_format.py`
+- Validates that errors/warnings are formatted correctly
+- Confirms local Python API returns strings, not dicts
+- Railway compatibility ensured through Union types
+
+**Result**:
+```
+✅ [Python API] Success
+✅ [Router] Python API succeeded
+✅ No Claude fallback
+✅ Consistent results: 298.81 SEK försäljning, 426.48 SEK kostnader
+```
+
+### Key Learnings
+
+1. **API Key Management**: Always ensure secrets are synced between Railway and Supabase
+2. **Type Flexibility**: Use `Union` types for backward compatibility during migrations
+3. **Comprehensive Logging**: Debug logs at each pipeline stage (Frontend → Edge Function → Python API)
+4. **Railway Caching**: Python API may cache old code; wait 2-3 minutes for deployments
+5. **Error Propagation**: 500 errors don't always mean code bugs—check authentication first!
+
 **Testing Infrastructure** (`python-api/requirements.txt`, `pytest.ini`)
 - Added pytest, pytest-asyncio, httpx to dependencies
 - Configured async test mode for FastAPI testing
