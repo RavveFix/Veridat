@@ -1,0 +1,81 @@
+{
+  "model": "sonnet",
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(npm:*)",
+      "Bash(npm run:*)",
+      "Bash(supabase:*)",
+      "Bash(pytest:*)",
+      "Bash(uvicorn:*)",
+      "Bash(pip:*)",
+      "Bash(pip install:*)",
+      "Bash(curl:*)",
+      "Bash(find:*)",
+      "Bash(ps:*)",
+      "Bash(kill:*)",
+      "Bash(source:*)",
+      "Bash(cd:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Read(*)",
+      "Grep(*)",
+      "Glob(*)",
+      "Write(.claude/*)",
+      "Write(src/*)",
+      "Write(python-api/*)",
+      "Write(supabase/*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(dd:*)",
+      "Bash(mkfs:*)",
+      "Bash(git push --force:*)",
+      "Write(.env*)",
+      "Read(.env*)"
+    ],
+    "ask": [
+      "Bash(supabase secrets set:*)",
+      "Bash(git push origin main:*)",
+      "Bash(npm publish:*)",
+      "Bash(vercel deploy:*)"
+    ]
+  },
+  "agents": {
+    "vat-calculator": {
+      "file": ".claude/agents/vat-calculator.md",
+      "triggers": ["moms", "VAT", "momsredovisning", "Excel", "xlsx"]
+    },
+    "pr-reviewer": {
+      "file": ".claude/agents/pr-reviewer.md",
+      "triggers": ["review", "PR", "pull request", "security"]
+    },
+    "deployment": {
+      "file": ".claude/agents/deployment.md",
+      "triggers": ["deploy", "production", "release", "Railway", "Supabase"]
+    }
+  },
+  "commands": {
+    "dev-start": ".claude/commands/dev-start.md",
+    "dev-stop": ".claude/commands/dev-stop.md",
+    "dev-status": ".claude/commands/dev-status.md"
+  },
+  "skills": {
+    "svensk-ekonomi": {
+      "path": ".skills/svensk-ekonomi",
+      "autoload": true
+    }
+  }
+}

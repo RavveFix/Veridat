@@ -1,3 +1,5 @@
+project_id = "baweorbvueghhkzlyncu"
+
 [api]
 enabled = true
 port = 54321
@@ -30,5 +32,8 @@ jwt_expiry = 3600
 enable_signup = true
 
 [functions.gemini-chat]
+verify_jwt = false
+
+[functions.analyze-excel-ai]
 verify_jwt = false
 

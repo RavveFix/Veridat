@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { ExcelPanelElements, ExcelWorkspaceOptions } from '../types/excel';
 import type { VATReportData } from '../types/vat';
+import type { AIAnalysisProgress } from '../services/ChatService';
 import { VATReportCard } from './VATReportCard';
 import { mountPreactComponent } from './preact-adapter';
 
@@ -240,7 +241,7 @@ export class ExcelWorkspace {
     }
 
     /**
-     * Show analyzing state while processing Excel file
+     * Show analyzing state while processing Excel file (legacy static version)
      *
      * @param filename - Name of the file being analyzed
      */
@@ -267,6 +268,289 @@ export class ExcelWorkspace {
 
         // Open the panel
         this.elements.panel.classList.add('open');
+    }
+
+    /**
+     * Show AI-powered streaming analysis with real-time progress
+     * Inspired by Claude Artifacts
+     *
+     * @param filename - Name of the file being analyzed
+     */
+    showStreamingAnalysis(filename: string): void {
+        // Update panel title
+        this.elements.filenameDisplay.textContent = filename;
+
+        // Hide sheet tabs
+        this.elements.tabsContainer.style.display = 'none';
+
+        // Create streaming progress UI
+        this.elements.container.innerHTML = `
+            <div class="excel-analyzing streaming">
+                <div class="ai-thinking">
+                    <div class="ai-avatar">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z"/>
+                            <circle cx="12" cy="12" r="4"/>
+                        </svg>
+                    </div>
+                    <div class="thinking-text">AI analyserar...</div>
+                </div>
+
+                <div class="streaming-progress">
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="ai-progress-bar"></div>
+                    </div>
+                    <div class="progress-text" id="ai-progress-text">Förbereder analys...</div>
+                </div>
+
+                <div class="analysis-steps" id="ai-analysis-steps">
+                    <!-- STEG 1: GEMINI -->
+                    <div class="step-group" data-ai="gemini">
+                        <div class="step-group-header">
+                            <span class="ai-badge gemini">Gemini</span>
+                            <span class="step-group-title">Läser & mappar kolumner</span>
+                        </div>
+                        <div class="step-item" data-step="parsing">
+                            <div class="step-indicator pending"></div>
+                            <div class="step-content">
+                                <div class="step-title">Läser Excel-fil</div>
+                                <div class="step-detail"></div>
+                            </div>
+                        </div>
+                        <div class="step-item" data-step="analyzing">
+                            <div class="step-indicator pending"></div>
+                            <div class="step-content">
+                                <div class="step-title">Analyserar kolumnstruktur</div>
+                                <div class="step-detail"></div>
+                            </div>
+                        </div>
+                        <div class="step-item" data-step="mapping">
+                            <div class="step-indicator pending"></div>
+                            <div class="step-content">
+                                <div class="step-title">Identifierar momsfält</div>
+                                <div class="step-detail"></div>
+                            </div>
+                        </div>
+                        <div class="step-item" data-step="normalizing">
+                            <div class="step-indicator pending"></div>
+                            <div class="step-content">
+                                <div class="step-title">Normaliserar data</div>
+                                <div class="step-detail"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEG 2: PYTHON -->
+                    <div class="step-group" data-ai="python">
+                        <div class="step-group-header">
+                            <span class="ai-badge python">Python</span>
+                            <span class="step-group-title">Exakta beräkningar</span>
+                        </div>
+                        <div class="step-item" data-step="python-calculating">
+                            <div class="step-indicator pending"></div>
+                            <div class="step-content">
+                                <div class="step-title">Beräknar moms per momssats</div>
+                                <div class="step-detail"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEG 3: CLAUDE -->
+                    <div class="step-group" data-ai="claude">
+                        <div class="step-group-header">
+                            <span class="ai-badge claude">Claude</span>
+                            <span class="step-group-title">Validering & BAS-konton</span>
+                        </div>
+                        <div class="step-item" data-step="claude-validating">
+                            <div class="step-indicator pending"></div>
+                            <div class="step-content">
+                                <div class="step-title">Validerar bokföring</div>
+                                <div class="step-detail"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ai-notes" id="ai-analysis-notes" style="display: none;">
+                    <div class="notes-header">AI insikter</div>
+                    <div class="notes-content" id="ai-notes-content"></div>
+                </div>
+            </div>
+        `;
+
+        // Open the panel
+        this.elements.panel.classList.add('open');
+    }
+
+    /**
+     * Update streaming analysis progress
+     *
+     * @param progress - Progress update from AI analysis
+     */
+    updateStreamingProgress(progress: AIAnalysisProgress): void {
+        // Update progress bar
+        const progressBar = document.getElementById('ai-progress-bar');
+        const progressText = document.getElementById('ai-progress-text');
+
+        if (progressBar && typeof progress.progress === 'number') {
+            progressBar.style.width = `${Math.round(progress.progress * 100)}%`;
+        }
+
+        if (progressText && progress.message) {
+            progressText.textContent = progress.message;
+        }
+
+        // Update step indicators
+        const stepsContainer = document.getElementById('ai-analysis-steps');
+        if (stepsContainer) {
+            // All steps in order across all 3 AI backends
+            const steps = ['parsing', 'analyzing', 'mapping', 'normalizing', 'python-calculating', 'claude-validating'];
+            const currentStepIndex = steps.indexOf(progress.step);
+
+            steps.forEach((step, index) => {
+                const stepItem = stepsContainer.querySelector(`[data-step="${step}"]`);
+                if (!stepItem) return;
+
+                const indicator = stepItem.querySelector('.step-indicator');
+                const detail = stepItem.querySelector('.step-detail');
+
+                if (index < currentStepIndex) {
+                    // Completed steps
+                    indicator?.classList.remove('pending', 'active');
+                    indicator?.classList.add('completed');
+                } else if (index === currentStepIndex) {
+                    // Current step
+                    indicator?.classList.remove('pending', 'completed');
+                    indicator?.classList.add('active');
+
+                    // Update detail if we have it
+                    if (detail && progress.details) {
+                        const detailText = this.formatProgressDetails(progress.step, progress.details);
+                        if (detailText) {
+                            detail.textContent = detailText;
+                        }
+                    }
+                } else {
+                    // Future steps
+                    indicator?.classList.remove('active', 'completed');
+                    indicator?.classList.add('pending');
+                }
+            });
+        }
+
+        // Update AI notes if we have mapping info
+        if (progress.step === 'mapping' && progress.details) {
+            this.showAINotes(progress.details);
+        }
+
+        // Handle complete state
+        if (progress.step === 'complete') {
+            const thinkingText = this.elements.container.querySelector('.thinking-text');
+            if (thinkingText) {
+                thinkingText.textContent = 'Analys klar!';
+            }
+        }
+
+        // Handle error state
+        if (progress.step === 'error') {
+            this.showAnalysisError(progress.error || 'Okänt fel');
+        }
+    }
+
+    /**
+     * Format progress details for display
+     */
+    private formatProgressDetails(step: string, details: Record<string, unknown>): string {
+        switch (step) {
+            case 'parsing':
+                if (details.rows_count && details.columns_count) {
+                    return `${details.rows_count} rader, ${details.columns_count} kolumner`;
+                }
+                break;
+            case 'mapping':
+                if (details.file_type) {
+                    return String(details.file_type);
+                }
+                break;
+            case 'normalizing':
+                if (details.total_transactions) {
+                    return `${details.total_transactions} transaktioner`;
+                }
+                break;
+            case 'python-calculating':
+                if (details.period) {
+                    return `Period: ${details.period}`;
+                }
+                break;
+            case 'claude-validating':
+                if (details.passed !== undefined) {
+                    return details.passed ? 'Godkänd' : 'Varningar hittades';
+                }
+                break;
+        }
+        return '';
+    }
+
+    /**
+     * Show AI analysis notes/insights
+     */
+    private showAINotes(details: Record<string, unknown>): void {
+        const notesContainer = document.getElementById('ai-analysis-notes');
+        const notesContent = document.getElementById('ai-notes-content');
+
+        if (notesContainer && notesContent) {
+            const notes: string[] = [];
+
+            if (details.file_type) {
+                notes.push(`<strong>Filtyp:</strong> ${details.file_type}`);
+            }
+
+            if (details.confidence) {
+                const confidence = Math.round(Number(details.confidence) * 100);
+                const confidenceClass = confidence >= 80 ? 'high' : confidence >= 60 ? 'medium' : 'low';
+                notes.push(`<strong>Konfidens:</strong> <span class="confidence ${confidenceClass}">${confidence}%</span>`);
+            }
+
+            if (details.notes) {
+                notes.push(`<strong>Observation:</strong> ${details.notes}`);
+            }
+
+            if (notes.length > 0) {
+                notesContent.innerHTML = notes.join('<br>');
+                notesContainer.style.display = 'block';
+            }
+        }
+    }
+
+    /**
+     * Show analysis error in the streaming UI
+     */
+    showAnalysisError(error: string): void {
+        this.elements.container.innerHTML = `
+            <div class="excel-analyzing error">
+                <div class="error-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="15" y1="9" x2="9" y2="15"/>
+                        <line x1="9" y1="9" x2="15" y2="15"/>
+                    </svg>
+                </div>
+                <h3>Analysen misslyckades</h3>
+                <p class="error-message">${this.escapeHtml(error)}</p>
+                <button class="retry-btn" onclick="window.dispatchEvent(new CustomEvent('retry-analysis'))">
+                    Försök igen
+                </button>
+            </div>
+        `;
+    }
+
+    /**
+     * Simple HTML escape
+     */
+    private escapeHtml(text: string): string {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     /**
