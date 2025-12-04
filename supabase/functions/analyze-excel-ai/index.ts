@@ -448,7 +448,75 @@ Svara ENDAST med giltig JSON (ingen markdown, inga kommentarer):
 
           const anthropic = new Anthropic({ apiKey: anthropicKey });
 
-          const claudePrompt = `Du är en svensk bokföringsexpert. Granska denna momsrapport och ge förbättringsförslag.
+          // Detect if this is EV charging data
+          const isEvCharging = /elbilsladdning|laddning|charging|kwh|ocpi|cpo|emsp|roaming|charge.*amp|monta/i.test(
+            aiAnalysis.file_type + ' ' + aiAnalysis.notes + ' ' + JSON.stringify(aiAnalysis.column_mapping)
+          );
+
+          logger.info('Claude analysis type', { isEvCharging, fileType: aiAnalysis.file_type });
+
+          let claudePrompt: string;
+
+          if (isEvCharging) {
+            // SPECIALIZED PROMPT FOR EV CHARGING
+            claudePrompt = `Du är Britta, en svensk redovisningsassistent specialiserad på momsredovisning för elbilsladdning (CPO/eMSP).
+
+MOMSRAPPORT (från Python):
+${JSON.stringify(pythonReport, null, 2)}
+
+AI-ANALYS (från Gemini):
+- Filtyp: ${aiAnalysis.file_type}
+- Konfidens: ${aiAnalysis.confidence}
+- Observationer: ${aiAnalysis.notes}
+- Kolumnmappning: ${JSON.stringify(aiAnalysis.column_mapping, null, 2)}
+
+NORMALISERAD DATA (sample):
+${JSON.stringify(normalizedTransactions.slice(0, 3), null, 2)}
+
+## DIN UPPGIFT (Elbilsladdning):
+
+1. **Berika rapporten med elbilsladdningsdata:**
+   - Beräkna total kWh (om kolumn finns)
+   - Identifiera OCPI roaming-transaktioner (0% moms)
+   - Identifiera privatkund-laddning (25% moms)
+   - Analysera kostnader (plattformsavgifter, abonnemang)
+
+2. **BAS-konton för elbilsladdning:**
+   - 3010: Laddning till privatkunder (25% moms)
+   - 3011: Roaming-försäljning momsfri (0% moms, OCPI)
+   - 6590: Externa tjänster/plattformsavgifter
+   - 2611: Utgående moms 25%
+   - 2641: Ingående moms 25%
+
+3. **Validera transaktioner:**
+   - TEAM# → OPERATOR# = privatkund (3010, 25%)
+   - OPERATOR# → TEAM# = roaming (3011, 0%)
+   - Negativa belopp = kostnader (6590)
+
+Svara ENDAST med JSON:
+{
+  "validation_passed": true/false,
+  "suggestions": ["förslag1", "förslag2"],
+  "warnings": ["varning1"],
+  "bas_account_adjustments": [
+    {"original": "3001", "suggested": "3010", "reason": "Specifikt för elbilsladdning till privatkunder"}
+  ],
+  "enrichments": {
+    "total_kwh": 1234.56,
+    "roaming_transactions": 45,
+    "private_customer_transactions": 120,
+    "platform_fees": 450.00,
+    "cost_breakdown": {
+      "platform_fees": 450.00,
+      "subscriptions": 0,
+      "other": 0
+    }
+  },
+  "confidence_boost": 0.0-0.1
+}`;
+          } else {
+            // GENERAL PROMPT FOR STANDARD VAT
+            claudePrompt = `Du är en svensk bokföringsexpert. Granska denna momsrapport och ge förbättringsförslag.
 
 MOMSRAPPORT (från Python):
 ${JSON.stringify(pythonReport, null, 2)}
@@ -470,14 +538,15 @@ Svara ENDAST med JSON:
   "suggestions": ["förslag1", "förslag2"],
   "warnings": ["varning1"],
   "bas_account_adjustments": [
-    {"original": "3001", "suggested": "3010", "reason": "Mer specifikt konto för elbilsladdning"}
+    {"original": "3001", "suggested": "3010", "reason": "Mer specifikt konto"}
   ],
   "confidence_boost": 0.0-0.1
 }`;
+          }
 
           const claudeResponse = await anthropic.messages.create({
             model: 'claude-sonnet-4-20250514',
-            max_tokens: 1024,
+            max_tokens: 2048,  // Increased for detailed enrichments
             messages: [{ role: 'user', content: claudePrompt }]
           });
 
@@ -499,6 +568,40 @@ Svara ENDAST med JSON:
 
               // Add Claude's insights
               reportData.claude_validation = claudeValidation;
+
+              // Add enrichments to summary (kWh, costs breakdown, etc.)
+              if (claudeValidation.enrichments) {
+                const summary = reportData.summary as Record<string, unknown>;
+
+                // Add EV charging specific data
+                if (claudeValidation.enrichments.total_kwh) {
+                  summary.total_kwh = claudeValidation.enrichments.total_kwh;
+                }
+                if (claudeValidation.enrichments.roaming_transactions) {
+                  summary.roaming_transactions = claudeValidation.enrichments.roaming_transactions;
+                }
+                if (claudeValidation.enrichments.private_customer_transactions) {
+                  summary.private_customer_transactions = claudeValidation.enrichments.private_customer_transactions;
+                }
+                if (claudeValidation.enrichments.cost_breakdown) {
+                  summary.cost_breakdown = claudeValidation.enrichments.cost_breakdown;
+                }
+              }
+
+              // Apply BAS account adjustments if suggested
+              if (claudeValidation.bas_account_adjustments && Array.isArray(claudeValidation.bas_account_adjustments)) {
+                const journalEntries = reportData.journal_entries as Array<Record<string, unknown>>;
+                if (journalEntries) {
+                  claudeValidation.bas_account_adjustments.forEach((adjustment: Record<string, unknown>) => {
+                    journalEntries.forEach(entry => {
+                      if (entry.account === adjustment.original) {
+                        entry.account = adjustment.suggested;
+                        entry.claude_note = adjustment.reason;
+                      }
+                    });
+                  });
+                }
+              }
 
               // Add suggestions to warnings if any
               if (claudeValidation.warnings && Array.isArray(claudeValidation.warnings)) {
