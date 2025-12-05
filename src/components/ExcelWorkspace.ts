@@ -442,85 +442,94 @@ export class ExcelWorkspace {
 
                     const data = reportData.data;
                     const summary = data.summary as Record<string, unknown> || {};
+                    const transactions = data.transactions as Array<Record<string, unknown>> || [];
 
-                    // Handle different response formats for vat_breakdown
-                    let vatBreakdown: Array<Record<string, unknown>> = [];
+                    // Build VAT breakdown from transactions (more reliable than vat_breakdown)
+                    const salesItems: Array<Record<string, unknown>> = [];
+                    const costItems: Array<Record<string, unknown>> = [];
 
-                    // Try different paths where vat_breakdown might be
-                    const possibleBreakdown = data.vat_breakdown || (data as Record<string, unknown>).vatBreakdown;
-
-                    if (Array.isArray(possibleBreakdown)) {
-                        vatBreakdown = possibleBreakdown as Array<Record<string, unknown>>;
-                    } else if (possibleBreakdown && typeof possibleBreakdown === 'object') {
-                        // If it's an object, try to extract values
-                        vatBreakdown = Object.values(possibleBreakdown) as Array<Record<string, unknown>>;
-                    }
-
-                    // If still empty, try to build from summary data
-                    if (vatBreakdown.length === 0 && summary) {
-                        console.log('[Britta] Building VAT breakdown from summary');
-                        // Build basic breakdown from summary if available
-                        if (summary.total_sales_vat || summary.private_sales) {
-                            vatBreakdown.push({
-                                rate: 25,
-                                type: 'sale',
-                                net_amount: Number(summary.private_sales || 0) / 1.25,
-                                vat_amount: Number(summary.total_sales_vat || 0),
-                                gross_amount: Number(summary.private_sales || 0),
-                                bas_account: '3010',
-                                description: 'Privatladdning 25% moms'
-                            });
-                        }
-                        if (summary.roaming_sales) {
-                            vatBreakdown.push({
-                                rate: 0,
-                                type: 'sale',
-                                net_amount: Number(summary.roaming_sales || 0),
-                                vat_amount: 0,
-                                gross_amount: Number(summary.roaming_sales || 0),
-                                bas_account: '3011',
-                                description: 'Roaming-försäljning momsfri'
-                            });
-                        }
-                        if (summary.total_costs) {
-                            vatBreakdown.push({
-                                rate: 25,
-                                type: 'cost',
-                                net_amount: -Math.abs(Number(summary.total_costs || 0)),
-                                vat_amount: -Math.abs(Number(summary.total_costs_vat || 0)),
-                                gross_amount: -Math.abs(Number(summary.total_costs || 0)),
-                                bas_account: '6590',
-                                description: 'Kostnader'
-                            });
-                        }
-                    }
-
-                    console.log('[Britta] VAT breakdown:', vatBreakdown);
-                    console.log('[Britta] Summary:', summary);
-
-                    // Separate sales and costs from vat_breakdown
-                    const salesItems = vatBreakdown.filter(item => item.type === 'sale' || Number(item.net_amount || 0) >= 0);
-                    const costItems = vatBreakdown.filter(item => item.type === 'cost' || Number(item.net_amount || 0) < 0);
-
-                    // Calculate VAT totals
+                    // Calculate totals from transactions
                     let outgoing25 = 0;
                     let outgoing12 = 0;
                     let outgoing6 = 0;
                     let incoming = 0;
 
-                    for (const item of vatBreakdown) {
-                        const rate = Number(item.rate || 0);
-                        const vatAmount = Math.abs(Number(item.vat_amount || 0));
-                        const isCost = item.type === 'cost' || Number(item.net_amount || 0) < 0;
+                    // Group transactions by type and rate
+                    const salesByRate: Record<number, { net: number; vat: number; gross: number; count: number }> = {};
+                    const costsByRate: Record<number, { net: number; vat: number; gross: number; count: number }> = {};
+
+                    for (const tx of transactions) {
+                        const amount = Number(tx.amount || 0);
+                        const netAmount = Number(tx.net_amount || 0);
+                        const vatAmount = Number(tx.vat_amount || 0);
+                        const rate = Number(tx.vat_rate || 0);
+                        const isCost = tx.type === 'cost' || amount < 0;
 
                         if (isCost) {
-                            incoming += vatAmount;
+                            // Cost transaction
+                            incoming += Math.abs(vatAmount);
+                            if (!costsByRate[rate]) costsByRate[rate] = { net: 0, vat: 0, gross: 0, count: 0 };
+                            costsByRate[rate].net += Math.abs(netAmount);
+                            costsByRate[rate].vat += Math.abs(vatAmount);
+                            costsByRate[rate].gross += Math.abs(amount);
+                            costsByRate[rate].count++;
                         } else {
+                            // Sale transaction
                             if (rate === 25) outgoing25 += vatAmount;
                             else if (rate === 12) outgoing12 += vatAmount;
                             else if (rate === 6) outgoing6 += vatAmount;
+
+                            if (!salesByRate[rate]) salesByRate[rate] = { net: 0, vat: 0, gross: 0, count: 0 };
+                            salesByRate[rate].net += netAmount;
+                            salesByRate[rate].vat += vatAmount;
+                            salesByRate[rate].gross += amount;
+                            salesByRate[rate].count++;
                         }
                     }
+
+                    // Build sales items
+                    if (salesByRate[25]) {
+                        salesItems.push({
+                            rate: 25,
+                            type: 'sale',
+                            net_amount: salesByRate[25].net,
+                            vat_amount: salesByRate[25].vat,
+                            gross_amount: salesByRate[25].gross,
+                            transaction_count: salesByRate[25].count,
+                            bas_account: '3010',
+                            description: 'Privatladdning 25% moms'
+                        });
+                    }
+                    if (salesByRate[0]) {
+                        salesItems.push({
+                            rate: 0,
+                            type: 'sale',
+                            net_amount: salesByRate[0].net,
+                            vat_amount: 0,
+                            gross_amount: salesByRate[0].gross,
+                            transaction_count: salesByRate[0].count,
+                            bas_account: '3011',
+                            description: 'Roaming-försäljning momsfri (OCPI)'
+                        });
+                    }
+
+                    // Build cost items
+                    for (const [rate, totals] of Object.entries(costsByRate)) {
+                        costItems.push({
+                            rate: Number(rate),
+                            type: 'cost',
+                            net_amount: totals.net,
+                            vat_amount: totals.vat,
+                            gross_amount: totals.gross,
+                            transaction_count: totals.count,
+                            bas_account: '6590',
+                            description: Number(rate) === 25 ? 'Abonnemang och avgifter' : 'Plattformsavgifter'
+                        });
+                    }
+
+                    console.log('[Britta] Sales items:', salesItems);
+                    console.log('[Britta] Cost items:', costItems);
+                    console.log('[Britta] Summary:', summary);
 
                     const totalOutgoing = outgoing25 + outgoing12 + outgoing6;
                     const netVat = totalOutgoing - incoming;
