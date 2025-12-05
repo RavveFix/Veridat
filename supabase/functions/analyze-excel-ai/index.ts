@@ -1,5 +1,5 @@
-// AI-First Excel Analysis - 3-Step Pipeline
-// Gemini (parse) → Python (calculate) → Claude (validate)
+// Claude + Python Excel Analysis - Smart & Accurate
+// Excel → Claude (analys) → Python (verifiering) → Färdig rapport
 /// <reference path="../../types/deno.d.ts" />
 
 import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
@@ -8,8 +8,6 @@ import { RateLimiterService } from "../../services/RateLimiterService.ts";
 
 // @ts-expect-error - Deno npm: specifier
 import { createClient } from "npm:@supabase/supabase-js@2";
-// @ts-expect-error - Deno npm: specifier
-import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 // @ts-expect-error - Deno npm: specifier
 import Anthropic from "npm:@anthropic-ai/sdk@0.32.1";
 // @ts-expect-error - Deno npm: specifier
@@ -20,39 +18,10 @@ const logger = createLogger('analyze-excel-ai');
 interface AnalyzeRequest {
   file_data: string;      // base64 encoded Excel
   filename: string;
+  conversation_id?: string;
   company_name?: string;
   org_number?: string;
   period?: string;
-}
-
-interface ColumnMapping {
-  amount: string | null;
-  net_amount: string | null;
-  vat_amount: string | null;
-  vat_rate: string | null;
-  description: string | null;
-  date: string | null;
-  transaction_type: 'sale' | 'cost' | 'mixed';
-}
-
-interface AIAnalysisResult {
-  file_type: string;
-  confidence: number;
-  row_count: number;
-  date_range?: { from: string; to: string };
-  column_mapping: ColumnMapping;
-  unmapped_columns: string[];
-  notes: string;
-}
-
-interface NormalizedTransaction {
-  amount: number;
-  net_amount: number;
-  vat_amount: number;
-  vat_rate: number;
-  description: string;
-  date: string | null;
-  type: 'sale' | 'cost';
 }
 
 Deno.serve(async (req: Request) => {
@@ -63,720 +32,442 @@ Deno.serve(async (req: Request) => {
   }
 
   const encoder = new TextEncoder();
-
-  // Create a streaming response
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
 
-  // Helper to send progress updates
   const sendProgress = async (data: Record<string, unknown>) => {
     await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
   };
 
-  // Start processing in background
   (async () => {
     try {
       const body: AnalyzeRequest = await req.json();
 
       if (!body.file_data || !body.filename) {
-        await sendProgress({
-          step: 'error',
-          error: 'file_data and filename are required'
-        });
-        await writer.close();
-        return;
+        throw new Error('file_data and filename are required');
       }
 
-      // Initialize services
+      // Initialize Supabase
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-      const geminiKey = Deno.env.get('GEMINI_API_KEY');
 
-      if (!geminiKey) {
-        await sendProgress({ step: 'error', error: 'GEMINI_API_KEY not configured' });
-        await writer.close();
-        return;
-      }
+      // Get User ID from header
+      const userId = req.headers.get('x-user-id');
 
       // Rate limiting
-      const userId = req.headers.get('x-user-id') || 'anonymous';
       const rateLimiter = new RateLimiterService(supabaseAdmin);
-      const rateLimit = await rateLimiter.checkAndIncrement(userId, 'analyze-excel-ai');
+      const rateLimit = await rateLimiter.checkAndIncrement(userId || 'anonymous', 'analyze-excel-ai');
 
       if (!rateLimit.allowed) {
-        await sendProgress({
-          step: 'error',
-          error: 'rate_limit_exceeded',
-          message: rateLimit.message
-        });
-        await writer.close();
-        return;
+        throw new Error(`Rate limit exceeded: ${rateLimit.message}`);
       }
 
-      // Step 1: Parse Excel
+      // ═══════════════════════════════════════════════════════════════════
+      // STEG 1: Läs Excel-fil
+      // ═══════════════════════════════════════════════════════════════════
       await sendProgress({
         step: 'parsing',
         message: 'Läser Excel-fil...',
         progress: 0.1
       });
 
-      logger.info('Parsing Excel file', { filename: body.filename });
+      let rawData: unknown[][];
+      let columns: string[];
+      let dataRows: unknown[][];
 
-      const fileBuffer = Uint8Array.from(atob(body.file_data), c => c.charCodeAt(0));
-      const workbook = XLSX.read(fileBuffer, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const rawData: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      try {
+        const fileBuffer = Uint8Array.from(atob(body.file_data), c => c.charCodeAt(0));
+        const workbook = XLSX.read(fileBuffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-      if (rawData.length < 2) {
-        await sendProgress({
-          step: 'error',
-          error: 'Excel-filen innehåller ingen data'
-        });
-        await writer.close();
-        return;
+        if (!rawData || rawData.length < 2) {
+          throw new Error('Excel-filen är tom eller saknar data');
+        }
+
+        columns = rawData[0] as string[];
+        dataRows = rawData.slice(1);
+
+        logger.info('Excel parsed', { rows: dataRows.length, columns: columns.length });
+      } catch (parseError) {
+        logger.error('Excel parsing failed', { error: parseError });
+        throw new Error('Kunde inte läsa Excel-filen. Kontrollera formatet.');
       }
 
-      const columns = rawData[0] as string[];
-      const dataRows = rawData.slice(1).filter(row =>
-        Array.isArray(row) && row.some(cell => cell !== null && cell !== undefined && cell !== '')
-      );
-
-      await sendProgress({
-        step: 'parsing',
-        message: `Hittade ${dataRows.length} rader med ${columns.length} kolumner`,
-        progress: 0.2,
-        details: {
-          columns_count: columns.length,
-          rows_count: dataRows.length,
-          sheet_name: sheetName
-        }
-      });
-
-      // Step 2: AI Analysis
+      // ═══════════════════════════════════════════════════════════════════
+      // STEG 2: Claude analyserar ALLT
+      // ═══════════════════════════════════════════════════════════════════
       await sendProgress({
         step: 'analyzing',
-        message: 'Analyserar kolumnstruktur med AI...',
+        message: 'Claude analyserar din data...',
         progress: 0.3
       });
 
-      const sampleRows = dataRows.slice(0, 5).map(row =>
-        columns.map((col, i) => `${col}: ${row[i]}`).join(', ')
-      );
+      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
+      if (!anthropicKey) {
+        throw new Error('ANTHROPIC_API_KEY not configured');
+      }
 
-      const analysisPrompt = `Du är en expert på svensk bokföring och Excel-analys.
+      const anthropic = new Anthropic({ apiKey: anthropicKey });
 
-Analysera denna Excel-fil och identifiera kolumnerna för momsredovisning.
+      // Prepare data for Claude (max 100 rows to save tokens, full columns)
+      const sampleRows = dataRows.slice(0, 100);
+      const excelDataForClaude = {
+        filename: body.filename,
+        columns: columns,
+        row_count: dataRows.length,
+        sample_data: sampleRows.map(row => {
+          const obj: Record<string, unknown> = {};
+          columns.forEach((col, i) => {
+            obj[col] = (row as unknown[])[i];
+          });
+          return obj;
+        })
+      };
 
-**Kolumner i filen (${columns.length} st):**
-${columns.join(', ')}
+      // Detect file type for adaptive prompt
+      const fileContent = JSON.stringify(excelDataForClaude).toLowerCase();
+      const isEvCharging = /monta|laddning|charging|kwh|ocpi|cpo|emsp|roaming|charge.*point|elbil/i.test(fileContent);
 
-**Exempel på data (första ${sampleRows.length} raderna):**
-${sampleRows.join('\n')}
+      const basePrompt = `Du är Britta, en svensk redovisningsexpert. Analysera denna Excel-fil och skapa en komplett momsrapport.
 
-**Total antal rader:** ${dataRows.length}
+EXCEL-DATA:
+${JSON.stringify(excelDataForClaude, null, 2)}
 
-**Din uppgift:**
-1. Identifiera vilken typ av data detta är (t.ex. försäljning, laddtransaktioner, fakturor, bokföringsexport)
-2. Mappa kolumner till dessa standardfält för svensk momsredovisning:
-   - amount: Totalbelopp INKLUSIVE moms (t.ex. priceInclVat, total, belopp)
-   - net_amount: Belopp EXKLUSIVE moms (t.ex. priceExclVat, netto, exklMoms)
-   - vat_amount: Momsbeloppet (t.ex. vatAmount, moms, tax)
-   - vat_rate: Momssats som procent 25, 12, 6, eller 0 (t.ex. vatPercent, momssats)
-   - description: Beskrivning av transaktionen (t.ex. description, text, namn)
-   - date: Transaktionsdatum (t.ex. date, datum, created, startTime)
+METADATA:
+- Filnamn: ${body.filename}
+- Företag: ${body.company_name || 'Ej angivet'}
+- Org.nr: ${body.org_number || 'Ej angivet'}
+- Period: ${body.period || 'Auto-detektera från data'}
+- Totalt antal rader: ${dataRows.length}`;
 
-3. Bestäm om transaktionerna är försäljning (sale), kostnad (cost), eller blandat (mixed).
+      let specificInstructions: string;
 
-4. Om viss kolumn saknas, sätt null. Om momssats saknas men du ser inkl/exkl moms, notera det.
+      if (isEvCharging) {
+        // ═══════════════════════════════════════════════════════════════
+        // SPECIALISERAD PROMPT FÖR ELBILSLADDNING
+        // ═══════════════════════════════════════════════════════════════
+        specificInstructions = `
+DIN UPPGIFT (Elbilsladdning/Monta):
 
-Svara ENDAST med giltig JSON (ingen markdown, inga kommentarer):
+1. **Identifiera kolumner automatiskt:**
+   - Belopp (brutto inkl moms): amount, totalAmount, total, belopp
+   - Netto (exkl moms): subAmount, netAmount, netto
+   - Moms: vat, moms, vatAmount
+   - Momssats: vatRate, momssats (25%, 12%, 6%, 0%)
+   - kWh: kWh, energy, energi
+   - Datum: date, startTime, datum
+   - Roaming: roamingOperator, operator (om ifyllt = 0% moms)
+
+2. **Beräkna svensk moms:**
+   - 25% moms: Privatkunder, företag
+   - 0% moms: OCPI roaming-transaktioner (momsfri export)
+   - Summera per momssats
+
+3. **Beräkna elbilsstatistik:**
+   - Total kWh levererad
+   - Antal roaming-transaktioner vs privatkunder
+   - Genomsnittspris per kWh
+
+4. **BAS-konton för elbilsladdning:**
+   - 3010: Laddning till privatkunder (25% moms)
+   - 3011: Roaming-försäljning momsfri (0% moms, OCPI)
+   - 3740: Öres-avrundning
+   - 2611: Utgående moms 25%
+   - 2641: Debiterad ingående moms`;
+
+      } else {
+        // ═══════════════════════════════════════════════════════════════
+        // GENERELL PROMPT FÖR ALLMÄN BOKFÖRING
+        // ═══════════════════════════════════════════════════════════════
+        specificInstructions = `
+DIN UPPGIFT (Allmän bokföring):
+
+1. **Identifiera kolumner automatiskt:**
+   - Belopp: amount, total, belopp, summa
+   - Moms: vat, moms
+   - Momssats: vatRate, momssats
+   - Datum: date, datum
+   - Beskrivning: description, text, namn
+
+2. **Beräkna svensk moms:**
+   - 25% moms: Standard
+   - 12% moms: Livsmedel, hotell
+   - 6% moms: Böcker, kultur
+   - 0% moms: Export, momsfritt
+   - Summera per momssats
+
+3. **BAS-konton (standard):**
+   - 3001: Försäljning tjänster 25%
+   - 3002: Försäljning varor 25%
+   - 2611: Utgående moms 25%
+   - 2621: Utgående moms 12%
+   - 2631: Utgående moms 6%`;
+      }
+
+      const fullPrompt = `${basePrompt}
+
+${specificInstructions}
+
+SVARA MED EXAKT DENNA JSON-STRUKTUR:
 {
-  "file_type": "beskrivning av filtypen",
-  "confidence": 0.0-1.0,
-  "row_count": antal,
-  "date_range": { "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" } eller null,
+  "success": true,
+  "period": "YYYY-MM",
+  "company_name": "Företagsnamn",
   "column_mapping": {
-    "amount": "kolumnnamn eller null",
-    "net_amount": "kolumnnamn eller null",
-    "vat_amount": "kolumnnamn eller null",
-    "vat_rate": "kolumnnamn eller null",
-    "description": "kolumnnamn eller null",
-    "date": "kolumnnamn eller null",
-    "transaction_type": "sale" eller "cost" eller "mixed"
+    "amount": "kolumnnamn för brutto",
+    "net_amount": "kolumnnamn för netto",
+    "vat_amount": "kolumnnamn för moms",
+    "vat_rate": "kolumnnamn för momssats",
+    "date": "kolumnnamn för datum",
+    "kwh": "kolumnnamn för kWh (om finns)",
+    "roaming": "kolumnnamn för roaming (om finns)"
   },
-  "unmapped_columns": ["lista", "av", "oanvända", "kolumner"],
-  "notes": "Viktiga observationer om datan, t.ex. 'Alla transaktioner verkar vara försäljning med 25% moms'"
-}`;
+  "summary": {
+    "total_sales": 12345.67,
+    "total_vat": 2469.13,
+    "total_net": 9876.54,
+    "transaction_count": 150,
+    "total_kwh": 1234.56,
+    "avg_price_per_kwh": 3.45,
+    "roaming_count": 45,
+    "private_count": 105
+  },
+  "vat_breakdown": [
+    {
+      "rate": 25,
+      "net_amount": 7901.23,
+      "vat_amount": 1975.31,
+      "gross_amount": 9876.54,
+      "transaction_count": 105,
+      "bas_account": "3010",
+      "description": "Privatladdning 25% moms"
+    }
+  ],
+  "transactions": [
+    {
+      "amount": 125.00,
+      "net_amount": 100.00,
+      "vat_amount": 25.00,
+      "vat_rate": 25,
+      "description": "Laddning",
+      "date": "2024-01-15",
+      "type": "sale",
+      "kwh": 15.5,
+      "is_roaming": false
+    }
+  ],
+  "validation": {
+    "passed": true,
+    "warnings": [],
+    "notes": "Analysen baserad på data."
+  }
+}
 
-      const genAI = new GoogleGenerativeAI(geminiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+VIKTIGT:
+- Extrahera ALLA ${dataRows.length} transaktioner till "transactions" arrayen
+- Om fler än 200 transaktioner: extrahera alla, men begränsa JSON-storlek genom kortare descriptions
+- Beräkna summary baserat på alla rader
+- Alla belopp i SEK med 2 decimaler
+- Svara ENDAST med JSON, ingen annan text`;
 
-      logger.info('Sending to Gemini for analysis');
+      await sendProgress({
+        step: 'calculating',
+        message: isEvCharging
+          ? 'Claude beräknar moms & kWh...'
+          : 'Claude beräknar moms...',
+        progress: 0.5
+      });
 
-      const result = await model.generateContent(analysisPrompt);
-      const responseText = result.response.text();
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: fullPrompt }]
+      });
 
-      // Parse AI response
-      let aiAnalysis: AIAnalysisResult;
+      const claudeText = response.content[0].type === 'text' ? response.content[0].text : '';
+
+      // Parse Claude's response
+      let claudeReport: Record<string, unknown>;
       try {
-        // Clean the response - remove any markdown code blocks
-        const cleanedResponse = responseText
+        // Clean up potential markdown formatting
+        const cleanJson = claudeText
           .replace(/```json\n?/g, '')
           .replace(/```\n?/g, '')
           .trim();
-        aiAnalysis = JSON.parse(cleanedResponse);
+        claudeReport = JSON.parse(cleanJson);
+        logger.info('Claude analysis complete', {
+          success: claudeReport.success,
+          transactions: (claudeReport.transactions as unknown[])?.length || 0
+        });
       } catch (parseError) {
-        logger.error('Failed to parse AI response', { responseText, error: parseError });
-        await sendProgress({
-          step: 'error',
-          error: 'Kunde inte tolka AI-analysen',
-          details: responseText
+        logger.error('Failed to parse Claude response', {
+          error: parseError,
+          response: claudeText.substring(0, 500)
         });
-        await writer.close();
-        return;
+        throw new Error('Claude returnerade ogiltigt format. Försök igen.');
       }
 
+      // ═══════════════════════════════════════════════════════════════════
+      // STEG 3: Python verifierar beräkningarna
+      // ═══════════════════════════════════════════════════════════════════
       await sendProgress({
-        step: 'mapping',
-        message: `Identifierade: ${aiAnalysis.file_type}`,
-        progress: 0.5,
-        details: {
-          file_type: aiAnalysis.file_type,
-          confidence: aiAnalysis.confidence,
-          mapping: aiAnalysis.column_mapping,
-          notes: aiAnalysis.notes
-        }
-      });
-
-      logger.info('AI analysis complete', {
-        file_type: aiAnalysis.file_type,
-        confidence: aiAnalysis.confidence,
-        mapping: aiAnalysis.column_mapping
-      });
-
-      // Step 3: Validate mapping
-      const mapping = aiAnalysis.column_mapping;
-      const hasAmount = mapping.amount || (mapping.net_amount && mapping.vat_amount);
-
-      if (!hasAmount) {
-        await sendProgress({
-          step: 'error',
-          error: 'Kunde inte identifiera beloppskolumner',
-          suggestion: 'Kontrollera att filen innehåller kolumner för belopp (inkl eller exkl moms)',
-          ai_notes: aiAnalysis.notes
-        });
-        await writer.close();
-        return;
-      }
-
-      // Step 4: Normalize transactions
-      await sendProgress({
-        step: 'normalizing',
-        message: 'Normaliserar transaktionsdata...',
-        progress: 0.6
-      });
-
-      const getColumnIndex = (colName: string | null): number => {
-        if (!colName) return -1;
-        return columns.findIndex(c => c === colName);
-      };
-
-      const amountIdx = getColumnIndex(mapping.amount);
-      const netAmountIdx = getColumnIndex(mapping.net_amount);
-      const vatAmountIdx = getColumnIndex(mapping.vat_amount);
-      const vatRateIdx = getColumnIndex(mapping.vat_rate);
-      const descriptionIdx = getColumnIndex(mapping.description);
-      const dateIdx = getColumnIndex(mapping.date);
-
-      const normalizedTransactions: NormalizedTransaction[] = [];
-
-      for (const row of dataRows) {
-        const rowArray = row as unknown[];
-
-        // Get values
-        let amount = amountIdx >= 0 ? parseFloat(String(rowArray[amountIdx] || 0)) : 0;
-        let netAmount = netAmountIdx >= 0 ? parseFloat(String(rowArray[netAmountIdx] || 0)) : 0;
-        let vatAmount = vatAmountIdx >= 0 ? parseFloat(String(rowArray[vatAmountIdx] || 0)) : 0;
-        let vatRate = vatRateIdx >= 0 ? parseFloat(String(rowArray[vatRateIdx] || 25)) : 25;
-
-        // Calculate missing values
-        if (amount === 0 && netAmount > 0 && vatAmount > 0) {
-          amount = netAmount + vatAmount;
-        }
-        if (netAmount === 0 && amount > 0 && vatAmount > 0) {
-          netAmount = amount - vatAmount;
-        }
-        if (vatAmount === 0 && amount > 0 && netAmount > 0) {
-          vatAmount = amount - netAmount;
-        }
-        if (vatAmount === 0 && amount > 0 && vatRate > 0) {
-          vatAmount = amount * (vatRate / (100 + vatRate));
-          netAmount = amount - vatAmount;
-        }
-
-        // Skip rows with no monetary value
-        if (amount === 0 && netAmount === 0) continue;
-
-        const description = descriptionIdx >= 0 ? String(rowArray[descriptionIdx] || '') : '';
-        const date = dateIdx >= 0 ? String(rowArray[dateIdx] || '') : null;
-
-        normalizedTransactions.push({
-          amount: Math.round(amount * 100) / 100,
-          net_amount: Math.round(netAmount * 100) / 100,
-          vat_amount: Math.round(vatAmount * 100) / 100,
-          vat_rate: vatRate,
-          description: description.substring(0, 200),
-          date,
-          type: mapping.transaction_type === 'mixed' ? 'sale' : mapping.transaction_type
-        });
-      }
-
-      await sendProgress({
-        step: 'normalizing',
-        message: `Normaliserade ${normalizedTransactions.length} transaktioner`,
-        progress: 0.5,
-        details: {
-          total_transactions: normalizedTransactions.length,
-          skipped: dataRows.length - normalizedTransactions.length
-        }
-      });
-
-      // ============================================================
-      // STEP 2: PYTHON API - Exact VAT Calculations
-      // ============================================================
-      await sendProgress({
-        step: 'python-calculating',
-        message: 'Python beräknar exakt moms...',
-        progress: 0.6
+        step: 'verifying',
+        message: 'Python verifierar beräkningar...',
+        progress: 0.7
       });
 
       const pythonApiUrl = Deno.env.get('PYTHON_API_URL');
       const pythonApiKey = Deno.env.get('PYTHON_API_KEY');
 
-      let pythonReport: Record<string, unknown> | null = null;
+      let finalReport = claudeReport;
+      let pythonVerified = false;
 
-      if (pythonApiUrl) {
+      if (pythonApiUrl && claudeReport.transactions) {
         try {
-          logger.info('Calling Python API for calculations', {
-            url: pythonApiUrl,
-            transactions: normalizedTransactions.length
-          });
+          const transactions = claudeReport.transactions as Array<{
+            amount: number;
+            net_amount: number;
+            vat_amount: number;
+            vat_rate: number;
+            description?: string;
+            date?: string;
+            type?: string;
+          }>;
 
-          // Determine period
-          let period = body.period;
-          if (!period && aiAnalysis.date_range) {
-            const fromDate = new Date(aiAnalysis.date_range.from);
-            const toDate = new Date(aiAnalysis.date_range.to);
-            if (fromDate.getFullYear() === toDate.getFullYear()) {
-              if (fromDate.getMonth() === toDate.getMonth()) {
-                period = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, '0')}`;
-              } else {
-                period = `${fromDate.getFullYear()}`;
-              }
-            } else {
-              period = `${fromDate.getFullYear()}-${toDate.getFullYear()}`;
-            }
-          }
-          if (!period) {
-            period = new Date().toISOString().substring(0, 7);
-          }
-
-          const pythonResponse = await fetch(`${pythonApiUrl}/api/vat/calculate-normalized`, {
+          const pythonResponse = await fetch(`${pythonApiUrl}/api/v1/vat/calculate-normalized`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               ...(pythonApiKey ? { 'X-API-Key': pythonApiKey } : {})
             },
             body: JSON.stringify({
-              transactions: normalizedTransactions,
-              company_name: body.company_name || 'Företag',
+              transactions: transactions.map(t => ({
+                amount: t.amount,
+                net_amount: t.net_amount,
+                vat_amount: t.vat_amount,
+                vat_rate: t.vat_rate,
+                description: t.description || '',
+                date: t.date || null,
+                type: t.type || 'sale'
+              })),
+              company_name: claudeReport.company_name || body.company_name || 'Företag',
               org_number: body.org_number || '',
-              period,
-              ai_analysis: {
-                file_type: aiAnalysis.file_type,
-                confidence: aiAnalysis.confidence,
-                column_mapping: aiAnalysis.column_mapping,
-                notes: aiAnalysis.notes
-              }
+              period: claudeReport.period || body.period || new Date().toISOString().substring(0, 7)
             })
           });
 
           if (pythonResponse.ok) {
-            pythonReport = await pythonResponse.json();
-            logger.info('Python API calculation successful');
+            const pythonResult = await pythonResponse.json();
+            pythonVerified = true;
 
-            await sendProgress({
-              step: 'python-calculating',
-              message: 'Python beräkningar klara',
-              progress: 0.7,
-              details: {
-                period: (pythonReport as Record<string, unknown>).data &&
-                        ((pythonReport as Record<string, unknown>).data as Record<string, unknown>).period,
-                valid: (pythonReport as Record<string, unknown>).data &&
-                       ((pythonReport as Record<string, unknown>).data as Record<string, unknown>).validation &&
-                       (((pythonReport as Record<string, unknown>).data as Record<string, unknown>).validation as Record<string, unknown>).is_valid
-              }
+            // Merge Python's exact calculations with Claude's analysis
+            const pythonData = pythonResult.data;
+            const claudeSummary = claudeReport.summary as Record<string, unknown>;
+            const pythonSummary = pythonData?.summary || {};
+
+            // Use Python's exact numbers, keep Claude's enrichments (kWh, etc)
+            finalReport = {
+              ...claudeReport,
+              summary: {
+                ...claudeSummary,
+                // Python's exact calculations
+                total_sales: pythonSummary.total_amount || claudeSummary.total_sales,
+                total_vat: pythonSummary.total_vat || claudeSummary.total_vat,
+                total_net: pythonSummary.total_net || claudeSummary.total_net,
+                // Keep Claude's enrichments
+                total_kwh: claudeSummary.total_kwh,
+                avg_price_per_kwh: claudeSummary.avg_price_per_kwh,
+                roaming_count: claudeSummary.roaming_count,
+                private_count: claudeSummary.private_count
+              },
+              // Use Python's VAT breakdown if available
+              vat_breakdown: pythonData?.vat || claudeReport.vat_breakdown,
+              python_verified: true
+            };
+
+            logger.info('Python verification complete', {
+              claude_total: claudeSummary.total_vat,
+              python_total: pythonSummary.total_vat
             });
           } else {
-            const errorText = await pythonResponse.text();
-            logger.warn('Python API failed, will use fallback', { status: pythonResponse.status, error: errorText });
+            logger.warn('Python verification failed, using Claude results', {
+              status: pythonResponse.status
+            });
           }
         } catch (pythonError) {
-          logger.warn('Python API error, will use fallback', { error: pythonError });
+          logger.warn('Python API error, using Claude results', { error: pythonError });
         }
-      } else {
-        logger.warn('PYTHON_API_URL not configured, skipping Python step');
       }
 
-      // ============================================================
-      // STEP 3: CLAUDE - Validation & BAS Account Enrichment
-      // ============================================================
-      await sendProgress({
-        step: 'claude-validating',
-        message: 'Claude validerar bokföring...',
-        progress: 0.8
-      });
-
-      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
-      let finalReport = pythonReport;
-
-      if (anthropicKey && pythonReport) {
-        try {
-          logger.info('Calling Claude for validation');
-
-          const anthropic = new Anthropic({ apiKey: anthropicKey });
-
-          // Detect if this is EV charging data
-          const isEvCharging = /elbilsladdning|laddning|charging|kwh|ocpi|cpo|emsp|roaming|charge.*amp|monta/i.test(
-            aiAnalysis.file_type + ' ' + aiAnalysis.notes + ' ' + JSON.stringify(aiAnalysis.column_mapping)
-          );
-
-          logger.info('Claude analysis type', { isEvCharging, fileType: aiAnalysis.file_type });
-
-          let claudePrompt: string;
-
-          if (isEvCharging) {
-            // SPECIALIZED PROMPT FOR EV CHARGING
-            claudePrompt = `Du är Britta, en svensk redovisningsassistent specialiserad på momsredovisning för elbilsladdning (CPO/eMSP).
-
-MOMSRAPPORT (från Python):
-${JSON.stringify(pythonReport, null, 2)}
-
-AI-ANALYS (från Gemini):
-- Filtyp: ${aiAnalysis.file_type}
-- Konfidens: ${aiAnalysis.confidence}
-- Observationer: ${aiAnalysis.notes}
-- Kolumnmappning: ${JSON.stringify(aiAnalysis.column_mapping, null, 2)}
-
-NORMALISERAD DATA (sample):
-${JSON.stringify(normalizedTransactions.slice(0, 3), null, 2)}
-
-## DIN UPPGIFT (Elbilsladdning):
-
-1. **Berika rapporten med elbilsladdningsdata:**
-   - Beräkna total kWh (om kolumn finns)
-   - Identifiera OCPI roaming-transaktioner (0% moms)
-   - Identifiera privatkund-laddning (25% moms)
-   - Analysera kostnader (plattformsavgifter, abonnemang)
-
-2. **BAS-konton för elbilsladdning:**
-   - 3010: Laddning till privatkunder (25% moms)
-   - 3011: Roaming-försäljning momsfri (0% moms, OCPI)
-   - 6590: Externa tjänster/plattformsavgifter
-   - 2611: Utgående moms 25%
-   - 2641: Ingående moms 25%
-
-3. **Validera transaktioner:**
-   - TEAM# → OPERATOR# = privatkund (3010, 25%)
-   - OPERATOR# → TEAM# = roaming (3011, 0%)
-   - Negativa belopp = kostnader (6590)
-
-Svara ENDAST med JSON:
-{
-  "validation_passed": true/false,
-  "suggestions": ["förslag1", "förslag2"],
-  "warnings": ["varning1"],
-  "bas_account_adjustments": [
-    {"original": "3001", "suggested": "3010", "reason": "Specifikt för elbilsladdning till privatkunder"}
-  ],
-  "enrichments": {
-    "total_kwh": 1234.56,
-    "roaming_transactions": 45,
-    "private_customer_transactions": 120,
-    "platform_fees": 450.00,
-    "cost_breakdown": {
-      "platform_fees": 450.00,
-      "subscriptions": 0,
-      "other": 0
-    }
-  },
-  "confidence_boost": 0.0-0.1
-}`;
-          } else {
-            // GENERAL PROMPT FOR STANDARD VAT
-            claudePrompt = `Du är en svensk bokföringsexpert. Granska denna momsrapport och ge förbättringsförslag.
-
-MOMSRAPPORT (från Python):
-${JSON.stringify(pythonReport, null, 2)}
-
-AI-ANALYS (från Gemini):
-- Filtyp: ${aiAnalysis.file_type}
-- Konfidens: ${aiAnalysis.confidence}
-- Observationer: ${aiAnalysis.notes}
-
-UPPGIFT:
-1. Validera att BAS-konton är korrekta för denna typ av verksamhet
-2. Kontrollera att momsberäkningarna är rimliga
-3. Ge varningar om något ser konstigt ut
-4. Föreslå eventuella justeringar
-
-Svara ENDAST med JSON:
-{
-  "validation_passed": true/false,
-  "suggestions": ["förslag1", "förslag2"],
-  "warnings": ["varning1"],
-  "bas_account_adjustments": [
-    {"original": "3001", "suggested": "3010", "reason": "Mer specifikt konto"}
-  ],
-  "confidence_boost": 0.0-0.1
-}`;
-          }
-
-          const claudeResponse = await anthropic.messages.create({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 2048,  // Increased for detailed enrichments
-            messages: [{ role: 'user', content: claudePrompt }]
-          });
-
-          const claudeText = claudeResponse.content[0].type === 'text'
-            ? claudeResponse.content[0].text
-            : '';
-
-          // Parse Claude's response
-          try {
-            const cleanedClaude = claudeText
-              .replace(/```json\n?/g, '')
-              .replace(/```\n?/g, '')
-              .trim();
-            const claudeValidation = JSON.parse(cleanedClaude);
-
-            // Enrich report with Claude's validation
-            if (finalReport && (finalReport as Record<string, unknown>).data) {
-              const reportData = (finalReport as Record<string, unknown>).data as Record<string, unknown>;
-
-              // Add Claude's insights
-              reportData.claude_validation = claudeValidation;
-
-              // Add enrichments to summary (kWh, costs breakdown, etc.)
-              if (claudeValidation.enrichments) {
-                const summary = reportData.summary as Record<string, unknown>;
-
-                // Add EV charging specific data
-                if (claudeValidation.enrichments.total_kwh) {
-                  summary.total_kwh = claudeValidation.enrichments.total_kwh;
-                }
-                if (claudeValidation.enrichments.roaming_transactions) {
-                  summary.roaming_transactions = claudeValidation.enrichments.roaming_transactions;
-                }
-                if (claudeValidation.enrichments.private_customer_transactions) {
-                  summary.private_customer_transactions = claudeValidation.enrichments.private_customer_transactions;
-                }
-                if (claudeValidation.enrichments.cost_breakdown) {
-                  summary.cost_breakdown = claudeValidation.enrichments.cost_breakdown;
-                }
-              }
-
-              // Apply BAS account adjustments if suggested
-              if (claudeValidation.bas_account_adjustments && Array.isArray(claudeValidation.bas_account_adjustments)) {
-                const journalEntries = reportData.journal_entries as Array<Record<string, unknown>>;
-                if (journalEntries) {
-                  claudeValidation.bas_account_adjustments.forEach((adjustment: Record<string, unknown>) => {
-                    journalEntries.forEach(entry => {
-                      if (entry.account === adjustment.original) {
-                        entry.account = adjustment.suggested;
-                        entry.claude_note = adjustment.reason;
-                      }
-                    });
-                  });
-                }
-              }
-
-              // Add suggestions to warnings if any
-              if (claudeValidation.warnings && Array.isArray(claudeValidation.warnings)) {
-                const validation = reportData.validation as Record<string, unknown>;
-                const existingWarnings = (validation.warnings || []) as string[];
-                validation.warnings = [...existingWarnings, ...claudeValidation.warnings];
-              }
-
-              // Boost confidence if Claude agrees
-              if (claudeValidation.confidence_boost && reportData.ai_analysis) {
-                const aiAnalysisData = reportData.ai_analysis as Record<string, unknown>;
-                const currentConfidence = (aiAnalysisData.confidence as number) || 0;
-                aiAnalysisData.confidence = Math.min(1.0, currentConfidence + claudeValidation.confidence_boost);
-              }
-            }
-
-            logger.info('Claude validation complete', {
-              passed: claudeValidation.validation_passed,
-              suggestions: claudeValidation.suggestions?.length || 0
-            });
-
-            await sendProgress({
-              step: 'claude-validating',
-              message: 'Claude validering klar',
-              progress: 0.9,
-              details: {
-                passed: claudeValidation.validation_passed,
-                suggestions: claudeValidation.suggestions?.length || 0,
-                warnings: claudeValidation.warnings?.length || 0
-              }
-            });
-
-          } catch (parseError) {
-            logger.warn('Failed to parse Claude response', { error: parseError });
-          }
-
-        } catch (claudeError) {
-          logger.warn('Claude validation failed, continuing without', { error: claudeError });
+      // Add verification status to report
+      const report = {
+        ...finalReport,
+        verification: {
+          python_verified: pythonVerified,
+          method: pythonVerified ? 'claude+python' : 'claude-only'
         }
-      } else if (!anthropicKey) {
-        logger.warn('ANTHROPIC_API_KEY not configured, skipping Claude step');
-      }
+      };
 
-      // ============================================================
-      // FALLBACK: If Python failed, use local calculations
-      // ============================================================
-      if (!finalReport) {
-        logger.info('Using fallback calculations (Python unavailable)');
-
+      // ═══════════════════════════════════════════════════════════════════
+      // STEG 4: Spara till databas (om användare är inloggad)
+      // ═══════════════════════════════════════════════════════════════════
+      if (userId && body.conversation_id) {
         await sendProgress({
-          step: 'calculating',
-          message: 'Använder lokal beräkning...',
-          progress: 0.85
+          step: 'saving',
+          message: 'Sparar rapport...',
+          progress: 0.9
         });
 
-        // Group by type and VAT rate
-        const sales = normalizedTransactions.filter(t => t.type === 'sale');
-        const costs = normalizedTransactions.filter(t => t.type === 'cost');
+        const { error: dbError } = await supabaseAdmin
+          .from('vat_reports')
+          .insert({
+            user_id: userId,
+            conversation_id: body.conversation_id,
+            period: (finalReport as Record<string, unknown>).period || body.period,
+            company_name: (finalReport as Record<string, unknown>).company_name || body.company_name,
+            report_data: report,
+            source_filename: body.filename
+          });
 
-        const sumByRate = (transactions: NormalizedTransaction[], rate: number) => {
-          return transactions
-            .filter(t => Math.round(t.vat_rate) === rate)
-            .reduce((sum, t) => ({
-              net: sum.net + t.net_amount,
-              vat: sum.vat + t.vat_amount,
-              total: sum.total + t.amount
-            }), { net: 0, vat: 0, total: 0 });
-        };
-
-        const sales25 = sumByRate(sales, 25);
-        const sales12 = sumByRate(sales, 12);
-        const sales6 = sumByRate(sales, 6);
-        const sales0 = sumByRate(sales, 0);
-
-        const totalIncoming = costs.reduce((sum, t) => sum + t.vat_amount, 0);
-        const totalOutgoing = sales25.vat + sales12.vat + sales6.vat;
-        const netVat = totalOutgoing - totalIncoming;
-
-        let period = body.period;
-        if (!period && aiAnalysis.date_range) {
-          const fromDate = new Date(aiAnalysis.date_range.from);
-          period = `${fromDate.getFullYear()}-${String(fromDate.getMonth() + 1).padStart(2, '0')}`;
+        if (dbError) {
+          logger.warn('Failed to save report', { error: dbError });
         }
-        if (!period) {
-          period = new Date().toISOString().substring(0, 7);
-        }
-
-        finalReport = {
-          type: 'vat_report',
-          data: {
-            type: 'vat_report',
-            period,
-            company: {
-              name: body.company_name || 'Företag',
-              org_number: body.org_number || ''
-            },
-            summary: {
-              total_income: Math.round((sales25.total + sales12.total + sales6.total + sales0.total) * 100) / 100,
-              total_costs: Math.round(costs.reduce((sum, t) => sum + t.amount, 0) * 100) / 100,
-              result: Math.round((sales25.net + sales12.net + sales6.net + sales0.net - costs.reduce((sum, t) => sum + t.net_amount, 0)) * 100) / 100
-            },
-            sales: [
-              { description: 'Försäljning 25%', net: sales25.net, vat: sales25.vat, rate: 25 },
-              { description: 'Försäljning 12%', net: sales12.net, vat: sales12.vat, rate: 12 },
-              { description: 'Försäljning 6%', net: sales6.net, vat: sales6.vat, rate: 6 },
-              { description: 'Momsfri försäljning', net: sales0.net, vat: 0, rate: 0 }
-            ].filter(s => s.net !== 0),
-            costs: costs.length > 0 ? [
-              { description: 'Inköp med avdragsrätt', net: costs.reduce((sum, t) => sum + t.net_amount, 0), vat: totalIncoming, rate: 25 }
-            ] : [],
-            vat: {
-              outgoing_25: Math.round(sales25.vat * 100) / 100,
-              outgoing_12: Math.round(sales12.vat * 100) / 100,
-              outgoing_6: Math.round(sales6.vat * 100) / 100,
-              incoming: Math.round(totalIncoming * 100) / 100,
-              net: Math.round(netVat * 100) / 100,
-              to_pay: netVat > 0 ? Math.round(netVat * 100) / 100 : 0,
-              to_refund: netVat < 0 ? Math.round(Math.abs(netVat) * 100) / 100 : 0
-            },
-            journal_entries: [
-              { account: '3001', name: 'Försäljning 25%', debit: 0, credit: sales25.net },
-              { account: '3002', name: 'Försäljning 12%', debit: 0, credit: sales12.net },
-              { account: '3003', name: 'Försäljning 6%', debit: 0, credit: sales6.net },
-              { account: '2611', name: 'Utgående moms 25%', debit: 0, credit: sales25.vat },
-              { account: '2621', name: 'Utgående moms 12%', debit: 0, credit: sales12.vat },
-              { account: '2631', name: 'Utgående moms 6%', debit: 0, credit: sales6.vat },
-              { account: '2641', name: 'Ingående moms', debit: totalIncoming, credit: 0 }
-            ].filter(j => j.debit !== 0 || j.credit !== 0),
-            validation: {
-              is_valid: true,
-              errors: [],
-              warnings: aiAnalysis.confidence < 0.8
-                ? [{ field: 'mapping', message: 'Låg konfidens i kolumnmappning, verifiera resultatet', severity: 'warning' }]
-                : []
-            },
-            ai_analysis: {
-              file_type: aiAnalysis.file_type,
-              confidence: aiAnalysis.confidence,
-              column_mapping: aiAnalysis.column_mapping,
-              notes: aiAnalysis.notes
-            },
-            backend: 'fallback'
-          }
-        };
       }
 
-      // ============================================================
-      // COMPLETE
-      // ============================================================
+      // ═══════════════════════════════════════════════════════════════════
+      // KLART!
+      // ═══════════════════════════════════════════════════════════════════
       await sendProgress({
         step: 'complete',
         message: 'Analys klar!',
         progress: 1.0,
-        report: finalReport
-      });
-
-      logger.info('Analysis complete', {
-        filename: body.filename,
-        transactions: normalizedTransactions.length,
-        backend: pythonReport ? 'python+claude' : 'fallback'
+        report: {
+          success: true,
+          data: report,
+          metadata: {
+            filename: body.filename,
+            rows_analyzed: dataRows.length,
+            file_type: isEvCharging ? 'ev_charging' : 'general',
+            ai_model: 'claude-sonnet-4-20250514'
+          }
+        }
       });
 
       await writer.close();
 
     } catch (error) {
-      logger.error('Analysis failed', error);
+      logger.error('Analysis failed', { error });
       await sendProgress({
         step: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Okänt fel uppstod'
       });
       await writer.close();
     }
   })();
 
-  // Return streaming response
   return new Response(stream.readable, {
     headers: {
       ...corsHeaders,

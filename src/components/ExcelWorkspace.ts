@@ -304,11 +304,11 @@ export class ExcelWorkspace {
                 </div>
 
                 <div class="analysis-steps" id="ai-analysis-steps">
-                    <!-- STEG 1: GEMINI -->
-                    <div class="step-group" data-ai="gemini">
+                    <!-- STEG 1: CLAUDE -->
+                    <div class="step-group" data-ai="claude">
                         <div class="step-group-header">
-                            <span class="ai-badge gemini">Gemini</span>
-                            <span class="step-group-title">Läser & mappar kolumner</span>
+                            <span class="ai-badge claude">Claude</span>
+                            <span class="step-group-title">Analyserar & beräknar</span>
                         </div>
                         <div class="step-item" data-step="parsing">
                             <div class="step-indicator pending"></div>
@@ -320,21 +320,14 @@ export class ExcelWorkspace {
                         <div class="step-item" data-step="analyzing">
                             <div class="step-indicator pending"></div>
                             <div class="step-content">
-                                <div class="step-title">Analyserar kolumnstruktur</div>
+                                <div class="step-title">Identifierar kolumner</div>
                                 <div class="step-detail"></div>
                             </div>
                         </div>
-                        <div class="step-item" data-step="mapping">
+                        <div class="step-item" data-step="calculating">
                             <div class="step-indicator pending"></div>
                             <div class="step-content">
-                                <div class="step-title">Identifierar momsfält</div>
-                                <div class="step-detail"></div>
-                            </div>
-                        </div>
-                        <div class="step-item" data-step="normalizing">
-                            <div class="step-indicator pending"></div>
-                            <div class="step-content">
-                                <div class="step-title">Normaliserar data</div>
+                                <div class="step-title">Beräknar moms & kWh</div>
                                 <div class="step-detail"></div>
                             </div>
                         </div>
@@ -344,27 +337,12 @@ export class ExcelWorkspace {
                     <div class="step-group" data-ai="python">
                         <div class="step-group-header">
                             <span class="ai-badge python">Python</span>
-                            <span class="step-group-title">Exakta beräkningar</span>
+                            <span class="step-group-title">Verifierar beräkningar</span>
                         </div>
-                        <div class="step-item" data-step="python-calculating">
+                        <div class="step-item" data-step="verifying">
                             <div class="step-indicator pending"></div>
                             <div class="step-content">
-                                <div class="step-title">Beräknar moms per momssats</div>
-                                <div class="step-detail"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- STEG 3: CLAUDE -->
-                    <div class="step-group" data-ai="claude">
-                        <div class="step-group-header">
-                            <span class="ai-badge claude">Claude</span>
-                            <span class="step-group-title">Validering & BAS-konton</span>
-                        </div>
-                        <div class="step-item" data-step="claude-validating">
-                            <div class="step-indicator pending"></div>
-                            <div class="step-content">
-                                <div class="step-title">Validerar bokföring</div>
+                                <div class="step-title">Kontrollerar moms exakt</div>
                                 <div class="step-detail"></div>
                             </div>
                         </div>
