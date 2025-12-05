@@ -421,12 +421,91 @@ export class ExcelWorkspace {
             this.showAINotes(progress.details);
         }
 
-        // Handle complete state
-        if (progress.step === 'complete') {
+        // Handle complete state - show the VAT report
+        if (progress.step === 'complete' && progress.report) {
             const thinkingText = this.elements.container.querySelector('.thinking-text');
             if (thinkingText) {
                 thinkingText.textContent = 'Analys klar!';
             }
+
+            // After a brief delay to show "Analys klar!", display the actual report
+            setTimeout(() => {
+                const reportData = progress.report as unknown as {
+                    success?: boolean;
+                    data?: Record<string, unknown>;
+                    metadata?: Record<string, unknown>;
+                };
+
+                if (reportData?.data) {
+                    const data = reportData.data;
+                    const summary = data.summary as Record<string, unknown> || {};
+                    const vatBreakdown = data.vat_breakdown as Array<Record<string, unknown>> || [];
+
+                    // Calculate totals from vat_breakdown
+                    let totalIncome = 0;
+                    let outgoing25 = 0;
+                    let outgoing12 = 0;
+                    let outgoing6 = 0;
+
+                    for (const item of vatBreakdown) {
+                        const rate = Number(item.rate || 0);
+                        const netAmount = Number(item.net_amount || 0);
+                        const vatAmount = Number(item.vat_amount || 0);
+                        totalIncome += netAmount;
+
+                        if (rate === 25) outgoing25 = vatAmount;
+                        else if (rate === 12) outgoing12 = vatAmount;
+                        else if (rate === 6) outgoing6 = vatAmount;
+                    }
+
+                    // Transform Claude's response to VATReportData format
+                    const vatData: VATReportData = {
+                        type: 'vat_report',
+                        period: String(data.period || ''),
+                        company: {
+                            name: String(data.company_name || ''),
+                            org_number: ''
+                        },
+                        summary: {
+                            total_income: Number(summary.total_net || totalIncome || 0),
+                            total_costs: 0,
+                            result: Number(summary.total_net || totalIncome || 0)
+                        },
+                        sales: vatBreakdown.map(item => ({
+                            description: String(item.description || `${item.rate}% moms`),
+                            net: Number(item.net_amount || 0),
+                            vat: Number(item.vat_amount || 0),
+                            rate: Number(item.rate || 25)
+                        })),
+                        costs: [],
+                        vat: {
+                            outgoing_25: outgoing25,
+                            outgoing_12: outgoing12,
+                            outgoing_6: outgoing6,
+                            incoming: 0,
+                            net: outgoing25 + outgoing12 + outgoing6,
+                            to_pay: outgoing25 + outgoing12 + outgoing6
+                        },
+                        journal_entries: [],
+                        validation: {
+                            is_valid: Boolean((data.validation as Record<string, unknown>)?.passed ?? true),
+                            errors: [],
+                            warnings: ((data.validation as Record<string, unknown>)?.warnings as string[]) || []
+                        },
+                        // Add EV charging specific data if available
+                        charging_sessions: summary.total_kwh ? [{
+                            id: 'summary',
+                            kwh: Number(summary.total_kwh || 0),
+                            amount: Number(summary.total_sales || 0),
+                            roaming_count: Number(summary.roaming_count || 0),
+                            private_count: Number(summary.private_count || 0)
+                        }] : undefined
+                    };
+
+                    // Show the VAT report
+                    this.openVATReport(vatData);
+                }
+            }, 800); // Brief delay to show completion
         }
 
         // Handle error state
