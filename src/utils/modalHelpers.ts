@@ -20,11 +20,14 @@ export function mountModal({ containerId, Component, props }: ModalMountOptions)
         document.body.appendChild(container);
     }
 
-    mountPreactComponent(Component, props, container);
+    const unmount = mountPreactComponent(Component, props, container);
 
     // Return cleanup function
     return () => {
-        if (container) {
+        if (unmount) {
+            unmount();
+        } else if (container) {
+            // Fallback if no unmount function (shouldn't happen with correct adapter)
             container.innerHTML = '';
         }
     };

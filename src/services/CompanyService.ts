@@ -1,5 +1,5 @@
 /**
- * CompanyManager - Company management for Britta
+ * CompanyService - Company management for Britta
  *
  * Handles:
  * - Company CRUD operations
@@ -16,7 +16,7 @@ const STORAGE_KEYS = {
     CURRENT_COMPANY_ID: 'currentCompanyId'
 } as const;
 
-class CompanyManagerClass {
+class CompanyServiceClass {
     private companies: Company[] = [];
     private currentCompanyId: string | null = null;
     private initialized = false;
@@ -41,7 +41,7 @@ class CompanyManagerClass {
         }
 
         this.initialized = true;
-        logger.debug('CompanyManager initialized', {
+        logger.debug('CompanyService initialized', {
             companyCount: this.companies.length,
             currentCompanyId: this.currentCompanyId
         });
@@ -201,9 +201,9 @@ class CompanyManagerClass {
     /**
      * Set conversation ID for current company
      */
-    setConversationId(conversationId: string): void {
+    setConversationId(conversationId: string | null): void {
         const current = this.getCurrent();
-        current.conversationId = conversationId;
+        current.conversationId = conversationId ?? undefined; // Convert null to undefined if type expects optional string
         this.saveToStorage();
         logger.debug('Set conversation ID for company', {
             companyId: current.id,
@@ -290,7 +290,7 @@ class CompanyManagerClass {
 }
 
 // Singleton instance
-export const companyManager = new CompanyManagerClass();
+export const companyService = new CompanyServiceClass();
 
-// Also export class for testing
-export { CompanyManagerClass };
+// Backward-compatible alias
+export const companyManager = companyService;

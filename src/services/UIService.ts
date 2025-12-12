@@ -1,6 +1,6 @@
 /**
- * UIController - Centralized DOM management for the main application
- * 
+ * UIService - Centralized DOM management for the main application
+ *
  * This service handles:
  * - DOM element references (queried once at init)
  * - UI state management (loader, modals, sidebars)
@@ -30,23 +30,16 @@ export interface UIElements {
     voiceConfirmBtn: HTMLElement | null;
     waveformBars: NodeListOf<Element>;
 
-    // Navigation/sidebar
-    historyToggle: HTMLElement | null;
-    historySidebar: HTMLElement | null;
-    closeHistoryBtn: HTMLElement | null;
-    historyList: HTMLElement | null;
+    // Navigation
     newChatBtn: HTMLElement | null;
 
     // Company
     companySelector: HTMLElement | null;
-    addCompanyBtn: HTMLElement | null;
-    editCompanyBtn: HTMLElement | null;
     companyModal: HTMLElement | null;
 
     // Header/settings
     settingsBtn: HTMLElement | null;
     themeToggle: HTMLElement | null;
-    logoutBtn: HTMLElement | null;
 
     // Loader
     appLoader: HTMLElement | null;
@@ -87,23 +80,16 @@ class UIControllerService {
             voiceConfirmBtn: document.getElementById('voice-confirm-btn'),
             waveformBars: document.querySelectorAll('.waveform-bar'),
 
-            // Navigation/sidebar
-            historyToggle: document.getElementById('history-toggle'),
-            historySidebar: document.getElementById('history-sidebar'),
-            closeHistoryBtn: document.getElementById('close-history-btn'),
-            historyList: document.getElementById('history-list'),
+            // Navigation
             newChatBtn: document.getElementById('new-chat-btn'),
 
             // Company
             companySelector: document.getElementById('company-selector'),
-            addCompanyBtn: document.getElementById('add-company-btn'),
-            editCompanyBtn: document.getElementById('edit-company-btn'),
             companyModal: document.getElementById('company-modal'),
 
             // Header/settings
             settingsBtn: document.getElementById('settings-btn'),
             themeToggle: document.getElementById('theme-toggle'),
-            logoutBtn: document.getElementById('logout-btn'),
 
             // Loader
             appLoader: document.getElementById('app-loader'),
@@ -181,41 +167,6 @@ class UIControllerService {
         if (fileInput) fileInput.value = '';
         if (filePreview) filePreview.classList.add('hidden');
         if (userInput) userInput.focus();
-    }
-
-    // ========== History Sidebar Methods ==========
-
-    /**
-     * Toggle history sidebar visibility
-     */
-    toggleHistorySidebar(): void {
-        this.elements.historySidebar?.classList.toggle('hidden');
-    }
-
-    /**
-     * Show history sidebar
-     */
-    showHistorySidebar(): void {
-        this.elements.historySidebar?.classList.remove('hidden');
-    }
-
-    /**
-     * Hide history sidebar
-     */
-    hideHistorySidebar(): void {
-        this.elements.historySidebar?.classList.add('hidden');
-    }
-
-    /**
-     * Check if click is outside sidebar (for closing)
-     */
-    isClickOutsideSidebar(target: Node): boolean {
-        const { historySidebar, historyToggle } = this.elements;
-        if (!historySidebar) return false;
-
-        return !historySidebar.classList.contains('hidden') &&
-            !historySidebar.contains(target) &&
-            !historyToggle?.contains(target);
     }
 
     // ========== Voice UI Methods ==========
@@ -319,7 +270,17 @@ class UIControllerService {
             this.elements.userInput.value = '';
         }
     }
+
+    /**
+     * Show error message (dispatches global chat-error event)
+     */
+    showError(message: string): void {
+        window.dispatchEvent(new CustomEvent('chat-error', {
+            detail: { message }
+        }));
+    }
 }
+
 
 // Export singleton instance
 export const uiController = new UIControllerService();

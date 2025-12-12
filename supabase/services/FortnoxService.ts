@@ -2,7 +2,12 @@
 
 // @ts-expect-error - Deno npm: specifier
 import { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import type { CustomerResponse, ArticleResponse, InvoiceCreateRequest } from '../functions/fortnox/types.ts';
+import type {
+    FortnoxCustomerListResponse,
+    FortnoxArticleListResponse,
+    FortnoxInvoice,
+    FortnoxInvoiceResponse
+} from '../functions/fortnox/types.ts';
 
 export interface FortnoxConfig {
     clientId: string;
@@ -10,14 +15,21 @@ export interface FortnoxConfig {
     redirectUri: string;
 }
 
+interface FortnoxTokenRecord {
+    id: string;
+    access_token: string;
+    refresh_token: string;
+    expires_at: string;
+}
+
 export class FortnoxService {
     private clientId: string;
     private clientSecret: string;
     private baseUrl: string = 'https://api.fortnox.se/3';
     private authUrl: string = 'https://apps.fortnox.se/oauth-v1/token';
-    private supabase: any;
+    private supabase: SupabaseClient;
 
-    constructor(config: FortnoxConfig, supabaseClient: any) {
+    constructor(config: FortnoxConfig, supabaseClient: SupabaseClient) {
         this.clientId = config.clientId;
         this.clientSecret = config.clientSecret;
         this.supabase = supabaseClient;

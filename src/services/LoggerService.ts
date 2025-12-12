@@ -59,6 +59,18 @@ class LoggerServiceClass {
     }
 
     /**
+     * Success level - confirmation of successful operations
+     */
+    success(message: string, data?: unknown): void {
+        const formattedMessage = `${this.prefix} ${message}`;
+        if (this.isDev) {
+            console.log(`%c${formattedMessage}`, 'color: #00F0FF; font-weight: bold', data !== undefined ? data : '');
+        } else {
+            console.log(formattedMessage, data !== undefined ? data : '');
+        }
+    }
+
+    /**
      * Start a performance timer
      */
     startTimer(label: string): void {
@@ -175,6 +187,3 @@ class LoggerServiceClass {
 
 // Singleton instance
 export const logger = new LoggerServiceClass();
-
-// Also export class for testing
-export { LoggerServiceClass };

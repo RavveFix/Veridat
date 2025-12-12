@@ -399,8 +399,12 @@ Deno.serve(async (req: Request) => {
         console.log('Formatted Excel text length:', excelText.length);
 
         // Call Claude with text instead of document
+        // Model can be overridden via Supabase secrets/env
+        // Example: supabase secrets set CLAUDE_MODEL=claude-sonnet-4-20250514
+        const modelName = Deno.env.get('CLAUDE_MODEL') || Deno.env.get('ANTHROPIC_MODEL') || "claude-sonnet-4-20250514";
+
         const response = await client.messages.create({
-            model: "claude-sonnet-4-20250514",
+            model: modelName,
             max_tokens: 8000,
             system: SWEDISH_ACCOUNTING_PROMPT,
             tools: [VAT_REPORT_TOOL],

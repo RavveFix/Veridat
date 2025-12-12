@@ -1,5 +1,4 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from '@supabase/supabase-js';
 
 // Email template function
 function generateConsentEmailHTML(params: {
@@ -64,7 +63,7 @@ function generateConsentEmailHTML(params: {
 </html>`;
 }
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   // CORS headers
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -186,8 +185,9 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in send-consent-email function:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

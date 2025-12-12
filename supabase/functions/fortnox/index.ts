@@ -1,16 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 import { FortnoxService } from "../../services/FortnoxService.ts";
 import { FortnoxInvoice } from "./types.ts";
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
 
 Deno.serve(async (req: Request) => {
+    const corsHeaders = getCorsHeaders();
+
     // Handle CORS preflight request
     if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders });
+        return createOptionsResponse();
     }
 
     try {
@@ -61,10 +59,11 @@ Deno.serve(async (req: Request) => {
             }
         );
 
-    } catch (error: any) {
-        console.error("Fortnox Function Error:", error);
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error("Fortnox Function Error:", errorMessage);
         return new Response(
-            JSON.stringify({ error: error.message || 'Unknown error' }),
+            JSON.stringify({ error: errorMessage }),
             {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 400

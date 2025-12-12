@@ -5,7 +5,7 @@
 // @ts-expect-error - Deno npm: specifier not recognized by VSCode but works in Deno runtime
 import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 
-const SYSTEM_INSTRUCTION = `Du är Britta, en autonom AI-agent och expert på svensk bokföring.
+export const SYSTEM_INSTRUCTION = `Du är Britta, en autonom AI-agent och expert på svensk bokföring.
 Du hjälper användaren att hantera bokföring och fakturering i Fortnox via API.
 Du kan läsa och analysera uppladdade dokument (PDF, bilder) som fakturor, kvitton och skattekonton.
 
@@ -206,9 +206,16 @@ export interface FileData {
     data: string; // base64 encoded
 }
 
+// Tool argument types for different Fortnox operations
+export interface CreateInvoiceArgs {
+    customer_number: string;
+    article_number: string;
+    quantity: number;
+}
+
 export interface ToolCall {
-    tool: string;
-    args: any;
+    tool: 'create_invoice' | 'get_customers' | 'get_articles';
+    args: CreateInvoiceArgs | Record<string, never>; // CreateInvoiceArgs for create_invoice, empty object for get_* tools
 }
 
 export interface GeminiResponse {
@@ -231,9 +238,12 @@ export const sendMessageToGemini = async (
 
         const genAI = new GoogleGenerativeAI(key);
 
-        // Using gemini-2.5-flash
+        // Default model can be overridden via Supabase secrets/env
+        // Example: supabase secrets set GEMINI_MODEL=gemini-2.5-pro
+        const modelName = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash";
+
         const model = genAI.getGenerativeModel({
-            model: "gemini-2.5-flash",
+            model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
             tools: tools,
         });
@@ -252,7 +262,8 @@ export const sendMessageToGemini = async (
         }
 
         // Add current message with optional file
-        const currentParts: any[] = [];
+        type ContentPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+        const currentParts: ContentPart[] = [];
 
         // Add file if present
         if (fileData) {

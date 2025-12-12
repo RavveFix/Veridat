@@ -151,7 +151,7 @@ class AuthServiceClass {
             }
 
             logger.info('Consent synced successfully to database');
-            localStorage.removeItem('consent_sync_pending');
+            this.clearLocalConsent();
             return true;
         } catch (syncError) {
             logger.error('Exception during consent sync', syncError);
@@ -265,6 +265,3 @@ class AuthServiceClass {
 
 // Singleton instance
 export const authService = new AuthServiceClass();
-
-// Also export class for testing
-export { AuthServiceClass };

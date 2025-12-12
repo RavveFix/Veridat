@@ -12,7 +12,7 @@ export default defineConfig({
                 server.middlewares.use((req, res, next) => {
                     if (req.url === '/login') {
                         req.url = '/login.html';
-                    } else if (req.url === '/app') {
+                    } else if (req.url === '/app' || req.url === '/app/newchat') {
                         req.url = '/app/index.html';
                     } else if (req.url === '/privacy') {
                         req.url = '/privacy.html';
@@ -32,7 +32,6 @@ export default defineConfig({
                 main: resolve(__dirname, 'index.html'),
                 login: resolve(__dirname, 'login.html'),
                 app: resolve(__dirname, 'app/index.html'),
-                news: resolve(__dirname, 'app/nyheter.html'),
                 privacy: resolve(__dirname, 'privacy.html'),
                 terms: resolve(__dirname, 'terms.html'),
             },

@@ -2,15 +2,15 @@ import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { CURRENT_TERMS_VERSION } from '../constants/termsVersion';
 import { CHANGELOG, type ChangelogEntry } from '../constants/changelog';
-import type { User } from '../types/user';
+import type { User } from '@supabase/supabase-js';
 
 interface SettingsModalProps {
-    user: User;
     onClose: () => void;
     onLogout: () => void;
 }
 
-export function SettingsModal({ user, onClose, onLogout }: SettingsModalProps) {
+export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
+    const [user, setUser] = useState<User | null>(null);
     const [fullName, setFullName] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -18,15 +18,23 @@ export function SettingsModal({ user, onClose, onLogout }: SettingsModalProps) {
     const [termsVersion, setTermsVersion] = useState<string>('-');
 
     useEffect(() => {
-        loadProfile();
+        loadData();
     }, []);
 
-    async function loadProfile() {
+    async function loadData() {
         try {
+            // Get user first
+            const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+            if (userError) throw userError;
+            if (!currentUser) throw new Error('No user found');
+
+            setUser(currentUser);
+
+            // Then get profile
             const { data, error } = await supabase
                 .from('profiles')
                 .select('full_name, terms_version')
-                .eq('id', user.id)
+                .eq('id', currentUser.id)
                 .single();
 
             if (error) throw error;
@@ -36,7 +44,8 @@ export function SettingsModal({ user, onClose, onLogout }: SettingsModalProps) {
                 setTermsVersion(data.terms_version || '-');
             }
         } catch (error) {
-            console.error('Error loading profile:', error);
+            console.error('Error loading settings data:', error);
+            setMessage({ type: 'error', text: 'Kunde inte ladda användardata.' });
         } finally {
             setLoading(false);
         }
@@ -44,6 +53,8 @@ export function SettingsModal({ user, onClose, onLogout }: SettingsModalProps) {
 
     async function handleSave(e: Event) {
         e.preventDefault();
+        if (!user) return; // Guard clause for null user
+
         setSaving(true);
         setMessage(null);
 
@@ -81,7 +92,13 @@ export function SettingsModal({ user, onClose, onLogout }: SettingsModalProps) {
             justifyContent: 'center',
             zIndex: 1000,
             animation: 'fadeIn 0.3s ease-out'
-        }}>
+        }}
+            onClick={(e) => {
+                // Only close if clicking the overlay itself (backdrop), not the content
+                if (e.target === e.currentTarget) {
+                    onClose();
+                }
+            }}>
             <div className="modal-content glass-panel" style={{
                 background: 'var(--glass-bg)',
                 border: '1px solid var(--glass-border)',
@@ -129,78 +146,80 @@ export function SettingsModal({ user, onClose, onLogout }: SettingsModalProps) {
                     <div className="settings-content">
                         <section style={{ marginBottom: '2rem' }}>
                             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Profil</h3>
-                            <form onSubmit={handleSave}>
-                                <div style={{ marginBottom: '1rem' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                                        E-post
-                                    </label>
-                                    <input
-                                        type="email"
-                                        value={user.email}
-                                        disabled
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.8rem',
-                                            borderRadius: '8px',
-                                            border: '1px solid var(--glass-border)',
-                                            background: 'rgba(255, 255, 255, 0.05)',
-                                            color: 'var(--text-secondary)',
-                                            cursor: 'not-allowed'
-                                        }}
-                                    />
-                                </div>
-                                <div style={{ marginBottom: '1rem' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                                        Namn
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={fullName}
-                                        onInput={(e) => setFullName((e.target as HTMLInputElement).value)}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.8rem',
-                                            borderRadius: '8px',
-                                            border: '1px solid var(--glass-border)',
-                                            background: 'rgba(255, 255, 255, 0.1)',
-                                            color: 'var(--text-primary)',
-                                            outline: 'none'
-                                        }}
-                                    />
-                                </div>
-
-                                {message && (
-                                    <div style={{
-                                        padding: '0.8rem',
-                                        borderRadius: '8px',
-                                        marginBottom: '1rem',
-                                        background: message.type === 'success' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                                        color: message.type === 'success' ? '#10b981' : '#ef4444',
-                                        border: `1px solid ${message.type === 'success' ? '#10b981' : '#ef4444'}`
-                                    }}>
-                                        {message.text}
+                            {user && (
+                                <form onSubmit={handleSave}>
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                            E-post
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={user.email}
+                                            disabled
+                                            style={{
+                                                width: '100%',
+                                                padding: '0.8rem',
+                                                borderRadius: '8px',
+                                                border: '1px solid var(--glass-border)',
+                                                background: 'rgba(255, 255, 255, 0.05)',
+                                                color: 'var(--text-secondary)',
+                                                cursor: 'not-allowed'
+                                            }}
+                                        />
                                     </div>
-                                )}
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                            Namn
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={fullName}
+                                            onInput={(e) => setFullName((e.target as HTMLInputElement).value)}
+                                            style={{
+                                                width: '100%',
+                                                padding: '0.8rem',
+                                                borderRadius: '8px',
+                                                border: '1px solid var(--glass-border)',
+                                                background: 'rgba(255, 255, 255, 0.1)',
+                                                color: 'var(--text-primary)',
+                                                outline: 'none'
+                                            }}
+                                        />
+                                    </div>
 
-                                <button
-                                    type="submit"
-                                    disabled={saving}
-                                    className="btn-glow"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.8rem',
-                                        borderRadius: '8px',
-                                        border: 'none',
-                                        background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
-                                        color: 'white',
-                                        fontWeight: '600',
-                                        cursor: saving ? 'wait' : 'pointer',
-                                        opacity: saving ? 0.7 : 1
-                                    }}
-                                >
-                                    {saving ? 'Sparar...' : 'Spara ändringar'}
-                                </button>
-                            </form>
+                                    {message && (
+                                        <div style={{
+                                            padding: '0.8rem',
+                                            borderRadius: '8px',
+                                            marginBottom: '1rem',
+                                            background: message.type === 'success' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                                            color: message.type === 'success' ? '#10b981' : '#ef4444',
+                                            border: `1px solid ${message.type === 'success' ? '#10b981' : '#ef4444'}`
+                                        }}>
+                                            {message.text}
+                                        </div>
+                                    )}
+
+                                    <button
+                                        type="submit"
+                                        disabled={saving}
+                                        className="btn-glow"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.8rem',
+                                            borderRadius: '8px',
+                                            border: 'none',
+                                            background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                                            color: 'white',
+                                            fontWeight: '600',
+                                            cursor: saving ? 'wait' : 'pointer',
+                                            opacity: saving ? 0.7 : 1
+                                        }}
+                                    >
+                                        {saving ? 'Sparar...' : 'Spara ändringar'}
+                                    </button>
+                                </form>
+                            )}
                         </section>
 
                         <section style={{ marginBottom: '2rem', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
@@ -218,8 +237,8 @@ export function SettingsModal({ user, onClose, onLogout }: SettingsModalProps) {
                                 </span>
                             </div>
                             <div style={{ display: 'flex', gap: '1rem' }}>
-                                <a href="/terms" target="_blank" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontSize: '0.9rem' }}>Användarvillkor</a>
-                                <a href="/privacy" target="_blank" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontSize: '0.9rem' }}>Integritetspolicy</a>
+                                <a href="/terms.html" target="_blank" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontSize: '0.9rem' }}>Användarvillkor</a>
+                                <a href="/privacy.html" target="_blank" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontSize: '0.9rem' }}>Integritetspolicy</a>
                             </div>
                         </section>
 

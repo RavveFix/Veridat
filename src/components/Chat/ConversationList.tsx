@@ -1,6 +1,7 @@
 import { FunctionComponent } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { supabase } from '../../lib/supabase';
+import { FetchErrorFallback } from '../ErrorBoundary';
 
 interface Conversation {
     id: string;
@@ -17,26 +18,68 @@ interface ConversationListProps {
 export const ConversationList: FunctionComponent<ConversationListProps> = ({ currentConversationId, onSelectConversation }) => {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [showConfirmModal, setShowConfirmModal] = useState<string | null>(null);
+    const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
     useEffect(() => {
         fetchConversations();
 
-        // Listen for new chat creation to refresh list
+        // Listen for new chat creation to refresh list (backwards compatibility)
         const handleRefresh = () => fetchConversations();
         window.addEventListener('refresh-conversation-list', handleRefresh);
-        return () => window.removeEventListener('refresh-conversation-list', handleRefresh);
+        window.addEventListener('chat-refresh', handleRefresh);
+
+        // Subscribe to realtime conversation changes
+        let channel: ReturnType<typeof supabase.channel> | null = null;
+
+        const setupRealtime = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return;
+
+            channel = supabase
+                .channel(`conversations:${session.user.id}`)
+                .on('postgres_changes', {
+                    event: '*', // INSERT, UPDATE, DELETE
+                    schema: 'public',
+                    table: 'conversations',
+                    filter: `user_id=eq.${session.user.id}`
+                }, () => {
+                    // Re-fetch on any change for simplicity
+                    fetchConversations();
+                })
+                .subscribe();
+        };
+
+        setupRealtime();
+
+        return () => {
+            window.removeEventListener('refresh-conversation-list', handleRefresh);
+            window.removeEventListener('chat-refresh', handleRefresh);
+            if (channel) supabase.removeChannel(channel);
+        };
     }, []);
 
     const fetchConversations = async () => {
+        setLoading(true);
+        setFetchError(null);
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) return;
+            console.log('Fetching conversations. Session:', session?.user?.id);
+
+            if (!session) {
+                setFetchError('Inte inloggad');
+                return;
+            }
 
             const { data, error } = await supabase
                 .from('conversations')
                 .select('*')
                 .eq('user_id', session.user.id)
                 .order('updated_at', { ascending: false });
+
+            console.log('Supabase response:', { data, error });
 
             if (error) throw error;
 
@@ -50,7 +93,9 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
             setConversations(typedData);
         } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : 'Kunde inte ladda konversationer';
             console.error('Error fetching conversations:', error);
+            setFetchError(errorMsg);
         } finally {
             setLoading(false);
         }
@@ -67,10 +112,6 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
         if (days < 7) return `${days} dagar sedan`;
         return date.toLocaleDateString('sv-SE');
     };
-
-    const [deletingId, setDeletingId] = useState<string | null>(null);
-    const [showConfirmModal, setShowConfirmModal] = useState<string | null>(null); // ID of conversation to delete
-    const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
@@ -125,10 +166,32 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
         );
     }
 
+    if (fetchError) {
+        return (
+            <div style="padding: 1rem;">
+                <FetchErrorFallback
+                    error={fetchError}
+                    onRetry={fetchConversations}
+                    title="Kunde inte ladda konversationer"
+                />
+            </div>
+        );
+    }
+
     if (conversations.length === 0) {
         return (
-            <div style="padding: 2rem; text-align: center; color: var(--text-secondary); font-style: italic; font-size: 0.9rem;">
-                Inga tidigare konversationer.
+            <div class="empty-state">
+                <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <h3>Inga konversationer ännu</h3>
+                <p>Starta en ny konversation för att börja chatta med Britta.</p>
+                <button
+                    class="empty-state-btn"
+                    onClick={() => window.dispatchEvent(new CustomEvent('create-new-chat'))}
+                >
+                    Ny konversation
+                </button>
             </div>
         );
     }

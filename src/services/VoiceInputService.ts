@@ -1,12 +1,12 @@
 /**
- * VoiceInputController - Manages voice recording and transcription
- * 
+ * VoiceInputService - Manages voice recording and transcription
+ *
  * Extracted from main.ts to provide a clean, testable voice input module.
- * Integrates with UIController for UI updates and VoiceService for recording.
+ * Integrates with UIService for UI updates and VoiceService for recording.
  */
 
-import { VoiceService } from '../utils/VoiceService';
-import { uiController } from './UIController';
+import { VoiceService } from './VoiceService';
+import { uiController } from './UIService';
 import { logger } from './LoggerService';
 
 type ResultCallback = (text: string) => void;
@@ -28,15 +28,26 @@ export class VoiceInputController {
     init(): boolean {
         const { micBtn, voiceCancelBtn, voiceConfirmBtn } = uiController.elements;
 
-        if (!micBtn || !this.isSupported) {
-            // Hide mic button if not supported
-            if (micBtn) micBtn.style.display = 'none';
-            logger.debug('Voice input not supported or mic button not found');
+        if (!micBtn) {
+            logger.debug('Mic button not found');
+            return false;
+        }
+
+        if (!this.isSupported) {
+            // Show mic button but with disabled state and feedback on click
+            micBtn.style.opacity = '0.5';
+            micBtn.title = 'Röststyrning stöds inte i denna webbläsare';
+            micBtn.addEventListener('click', () => {
+                // Show toast notification instead of doing nothing
+                this.showToast('Röststyrning stöds inte i denna webbläsare. Prova Chrome eller Edge.', 'warning');
+            });
+            logger.debug('Voice input not supported, mic button shows warning on click');
             return false;
         }
 
         // Mic button click - toggle recording
         micBtn.addEventListener('click', () => {
+            logger.debug('Mic button clicked, toggling voice');
             this.voiceService.toggle();
         });
 
@@ -118,6 +129,42 @@ export class VoiceInputController {
      */
     get supported(): boolean {
         return this.isSupported;
+    }
+
+    /**
+     * Show a toast notification
+     */
+    private showToast(message: string, type: 'success' | 'warning' | 'error' = 'warning'): void {
+        // Try to use the global showToast if available
+        if (typeof (window as any).showToast === 'function') {
+            (window as any).showToast(message, type);
+            return;
+        }
+
+        // Fallback: create a simple toast notification
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: ${type === 'error' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#10b981'};
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            z-index: 10000;
+            animation: fadeInUp 0.3s ease-out;
+        `;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transition = 'opacity 0.3s';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
     }
 }
 

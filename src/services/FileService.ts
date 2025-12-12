@@ -154,10 +154,11 @@ class FileServiceClass {
         // Check file size
         const maxSize = fileType === 'excel' ? MAX_EXCEL_SIZE : MAX_FILE_SIZE;
         if (file.size > maxSize) {
+            const actualSizeMB = (file.size / (1024 * 1024)).toFixed(1);
             const maxSizeMB = Math.round(maxSize / (1024 * 1024));
             return {
                 valid: false,
-                error: `Filen är för stor. Max storlek är ${maxSizeMB}MB.`,
+                error: `Filen är för stor (${actualSizeMB}MB). Max storlek är ${maxSizeMB}MB. Försök med en mindre fil eller exportera bara de relevanta raderna.`,
                 fileType,
                 suggestedBackend
             };
@@ -288,6 +289,3 @@ class FileServiceClass {
 
 // Singleton instance
 export const fileService = new FileServiceClass();
-
-// Also export class for testing
-export { FileServiceClass };

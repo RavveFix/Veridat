@@ -30,6 +30,17 @@ Din Gemini API-nyckel måste sparas som en secret i Supabase:
 supabase secrets set GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
+### (Valfritt) Byt AI-modeller via env
+
+Du kan byta modell utan kodändring genom att sätta dessa secrets:
+
+```bash
+supabase secrets set GEMINI_MODEL=gemini-2.5-pro
+supabase secrets set CLAUDE_MODEL=claude-sonnet-4-20250514
+```
+
+Mer detaljer: `docs/AI_MODELS.md`
+
 ## Steg 5: Deploya Edge Function
 
 ```bash

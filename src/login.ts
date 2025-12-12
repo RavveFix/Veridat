@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import './landing/styles/landing.css';
-import { logger } from './utils/logger';
+import { logger } from './services/LoggerService';
 import { CURRENT_TERMS_VERSION } from './constants/termsVersion';
 
 // Initialize Supabase client
@@ -33,7 +33,23 @@ async function initLogin() {
         }, 500);
     }
 
+    // Clear any stale local consent from abandoned attempts to avoid cross-user leakage
+    try {
+        const staleConsent = localStorage.getItem('has_accepted_terms_local');
+        const staleName = localStorage.getItem('user_full_name_local');
+        if (staleConsent || staleName) {
+            localStorage.removeItem('has_accepted_terms_local');
+            localStorage.removeItem('user_full_name_local');
+            localStorage.removeItem('terms_accepted_at_local');
+            localStorage.removeItem('terms_version_local');
+            localStorage.removeItem('consent_sync_pending');
+        }
+    } catch {
+        // Ignore storage errors; login still works without cleanup
+    }
+
     // Get form elements
+    const fullNameInput = document.getElementById('full-name') as HTMLInputElement;
     const emailInput = document.getElementById('email') as HTMLInputElement;
     const messageEl = document.getElementById('message') as HTMLDivElement;
     const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
@@ -47,15 +63,20 @@ async function initLogin() {
     // Enable email field and submit button when checkbox is checked
     consentCheckbox?.addEventListener('change', () => {
         const isChecked = consentCheckbox.checked;
+        fullNameInput.disabled = !isChecked;
         emailInput.disabled = !isChecked;
         submitBtn.disabled = !isChecked;
 
         if (isChecked) {
+            fullNameInput.style.opacity = '1';
+            fullNameInput.style.cursor = 'text';
             emailInput.style.opacity = '1';
             emailInput.style.cursor = 'text';
             submitBtn.style.opacity = '1';
             submitBtn.style.cursor = 'pointer';
         } else {
+            fullNameInput.style.opacity = '0.5';
+            fullNameInput.style.cursor = 'not-allowed';
             emailInput.style.opacity = '0.5';
             emailInput.style.cursor = 'not-allowed';
             submitBtn.style.opacity = '0.5';
@@ -68,8 +89,9 @@ async function initLogin() {
         e.preventDefault();
         logger.debug('Login form submitted');
 
+        const fullName = fullNameInput.value.trim();
         const email = emailInput.value.trim();
-        logger.debug('Email:', email);
+        logger.debug('Login form data', { email, hasFullName: fullName.length > 0 });
 
         if (!email) {
             logger.warn('No email entered');
@@ -85,8 +107,18 @@ async function initLogin() {
             return;
         }
 
+        if (!fullName) {
+            logger.warn('No full name entered');
+            if (messageEl) {
+                messageEl.textContent = 'Vänligen ange ditt fullständiga namn.';
+                messageEl.classList.add('error');
+            }
+            return;
+        }
+
         // Save consent to localStorage
         localStorage.setItem('has_accepted_terms_local', 'true');
+        localStorage.setItem('user_full_name_local', fullName);
         localStorage.setItem('terms_accepted_at_local', new Date().toISOString());
         localStorage.setItem('terms_version_local', CURRENT_TERMS_VERSION);
 

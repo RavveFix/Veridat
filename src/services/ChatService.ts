@@ -11,7 +11,7 @@
 import { supabase } from '../lib/supabase';
 import { logger } from './LoggerService';
 import { fileService } from './FileService';
-import { companyManager } from './CompanyManager';
+import { companyManager } from './CompanyService';
 import type { VATReportResponse } from '../types/vat';
 
 export interface ChatMessage {
@@ -193,13 +193,51 @@ class ChatServiceClass {
     /**
      * AI-First Excel Analysis with streaming progress
      * Uses Gemini to intelligently parse ANY Excel format
+     * Large files (>500KB) are routed to Python API to avoid Edge Function timeout
      */
     async analyzeExcelWithAI(
         file: File,
-        onProgress: ProgressCallback
+        onProgress: ProgressCallback,
+        conversationId?: string
     ): Promise<AnalysisResult> {
         logger.startTimer('excel-analysis-ai');
-        logger.info('Starting AI Excel analysis', { filename: file.name });
+        logger.info('Starting AI Excel analysis', { filename: file.name, size: file.size });
+
+        // Route large files to Python API (Edge Functions timeout on large files)
+        const LARGE_FILE_THRESHOLD = 500 * 1024; // 500KB
+        if (file.size > LARGE_FILE_THRESHOLD) {
+            logger.info('Large file detected, routing to Python API', {
+                size: file.size,
+                threshold: LARGE_FILE_THRESHOLD
+            });
+
+            onProgress({ step: 'calculating', message: 'Stor fil - använder Python API...', progress: 0.3 });
+
+            try {
+                const pythonResponse = await this.analyzeExcelWithPython(file, conversationId);
+                logger.endTimer('excel-analysis-ai');
+                logger.info('Large file analysis succeeded via Python API');
+
+                // Signal completion to UI
+                onProgress({ step: 'complete', message: 'Analys klar!', progress: 1.0 });
+
+                // Return in same format as Edge Function path
+                return {
+                    success: true,
+                    response: pythonResponse,
+                    backend: 'python'
+                };
+            } catch (pythonError) {
+                logger.endTimer('excel-analysis-ai');
+                logger.error('Python API failed for large file', pythonError);
+
+                return {
+                    success: false,
+                    error: pythonError instanceof Error ? pythonError.message : 'Python API fel',
+                    backend: 'python'
+                };
+            }
+        }
 
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -213,6 +251,18 @@ class ChatServiceClass {
             // Get company info
             const company = companyManager.getCurrent();
 
+            const requestBody: Record<string, unknown> = {
+                file_data: base64Result.data,
+                filename: file.name,
+                company_name: company.name,
+                org_number: company.orgNumber,
+                period: this.getCurrentPeriod()
+            };
+
+            if (conversationId) {
+                requestBody.conversation_id = conversationId;
+            }
+
             // Call streaming endpoint
             const response = await fetch(`${this.supabaseUrl}/functions/v1/analyze-excel-ai`, {
                 method: 'POST',
@@ -221,13 +271,7 @@ class ChatServiceClass {
                     'Authorization': `Bearer ${session.access_token}`,
                     'x-user-id': session.user.id
                 },
-                body: JSON.stringify({
-                    file_data: base64Result.data,
-                    filename: file.name,
-                    company_name: company.name,
-                    org_number: company.orgNumber,
-                    period: this.getCurrentPeriod()
-                })
+                body: JSON.stringify(requestBody)
             });
 
             if (!response.ok) {
@@ -305,7 +349,7 @@ class ChatServiceClass {
     /**
      * Analyze Excel with Python API
      */
-    private async analyzeExcelWithPython(file: File): Promise<VATReportResponse> {
+    private async analyzeExcelWithPython(file: File, conversationId?: string): Promise<VATReportResponse> {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
             throw new Error('Inte inloggad');
@@ -331,7 +375,8 @@ class ChatServiceClass {
                 filename: file.name,
                 company_name: companyManager.getCurrent().name,
                 org_number: companyManager.getCurrent().orgNumber,
-                period: this.getCurrentPeriod()
+                period: this.getCurrentPeriod(),
+                conversation_id: conversationId
             })
         });
 
@@ -488,6 +533,3 @@ class ChatServiceClass {
 
 // Singleton instance
 export const chatService = new ChatServiceClass();
-
-// Also export class for testing
-export { ChatServiceClass };

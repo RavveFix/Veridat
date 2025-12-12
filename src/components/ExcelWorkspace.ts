@@ -551,13 +551,13 @@ export class ExcelWorkspace {
                             description: String(item.description || `${item.rate}% moms`),
                             net: Number(item.net_amount || 0),
                             vat: Number(item.vat_amount || 0),
-                            rate: Number(item.rate || 25)
+                            rate: typeof item.rate === 'number' ? Number(item.rate) : 25  // Fix: 0 är ett giltigt värde
                         })),
                         costs: costItems.map(item => ({
                             description: String(item.description || 'Kostnad'),
                             net: Math.abs(Number(item.net_amount || 0)),
                             vat: Math.abs(Number(item.vat_amount || 0)),
-                            rate: Number(item.rate || 25)
+                            rate: typeof item.rate === 'number' ? Number(item.rate) : 25  // Fix: 0 är ett giltigt värde
                         })),
                         vat: {
                             outgoing_25: outgoing25,
@@ -568,7 +568,7 @@ export class ExcelWorkspace {
                             to_pay: netVat > 0 ? netVat : 0,
                             to_refund: netVat < 0 ? Math.abs(netVat) : 0
                         },
-                        journal_entries: [],
+                        journal_entries: this.generateJournalEntries(salesItems, costItems, outgoing25, incoming),
                         validation: {
                             is_valid: Boolean((data.validation as Record<string, unknown>)?.passed ?? true),
                             errors: [],
@@ -699,8 +699,9 @@ export class ExcelWorkspace {
      *
      * @param data - VAT report data to display
      * @param fileUrl - Optional URL to the original Excel file
+     * @param skipSave - Skip saving to messages (when opening from button)
      */
-    openVATReport(data: VATReportData, fileUrl?: string): void {
+    openVATReport(data: VATReportData, fileUrl?: string, skipSave = false): void {
         try {
             // Unmount previous Preact component if exists
             this.vatReportUnmount?.();
@@ -725,7 +726,15 @@ export class ExcelWorkspace {
             // Open the panel
             this.elements.panel.classList.add('open');
 
-            console.log('VAT report opened in panel (Preact):', data.period);
+            // Dispatch event so main.ts can save the VAT report to messages table
+            // Only if not opening from a button (skipSave = false)
+            if (!skipSave) {
+                window.dispatchEvent(new CustomEvent('vat-report-ready', {
+                    detail: { data, fileUrl }
+                }));
+            }
+
+            console.log('VAT report opened in panel (Preact):', data.period, skipSave ? '(from button)' : '(new)');
         } catch (error) {
             console.error('Error opening VAT report:', error);
             const errorMessage = error instanceof Error ? error.message : 'Okänt fel';
@@ -735,6 +744,106 @@ export class ExcelWorkspace {
                 this.options.onError(error);
             }
         }
+    }
+
+    /**
+     * Generate journal entries (verifikationer) according to Swedish BAS account plan
+     *
+     * @param salesItems - Sales transactions grouped by VAT rate
+     * @param costItems - Cost transactions grouped by VAT rate
+     * @param outgoingVat - Total outgoing VAT (utgående moms)
+     * @param incomingVat - Total incoming VAT (ingående moms)
+     * @returns Array of journal entries
+     */
+    private generateJournalEntries(
+        salesItems: Array<Record<string, unknown>>,
+        costItems: Array<Record<string, unknown>>,
+        outgoingVat: number,
+        incomingVat: number
+    ): Array<{ account: string; name: string; debit: number; credit: number }> {
+        const entries: Array<{ account: string; name: string; debit: number; credit: number }> = [];
+
+        // Calculate totals
+        const totalSalesNet = salesItems.reduce((sum, item) => sum + Number(item.net_amount || 0), 0);
+        const totalSalesGross = totalSalesNet + outgoingVat;
+        const totalCostsNet = costItems.reduce((sum, item) => sum + Number(item.net_amount || 0), 0);
+        const totalCostsGross = totalCostsNet + incomingVat;
+
+        // INKOMSTER (SALES) - Kredit sida
+        // 1930 Bankkonto (inkomster) - DEBET
+        if (totalSalesGross > 0) {
+            entries.push({
+                account: '1930',
+                name: 'Företagskonto (inkomster)',
+                debit: totalSalesGross,
+                credit: 0
+            });
+        }
+
+        // Sales by type
+        for (const item of salesItems) {
+            const net = Number(item.net_amount || 0);
+            const account = String(item.bas_account || '3000');
+            const description = String(item.description || 'Försäljning');
+
+            if (net > 0) {
+                entries.push({
+                    account: account,
+                    name: description,
+                    debit: 0,
+                    credit: net
+                });
+            }
+        }
+
+        // 2610 Utgående moms - KREDIT
+        if (outgoingVat > 0) {
+            entries.push({
+                account: '2610',
+                name: 'Utgående moms 25%',
+                debit: 0,
+                credit: outgoingVat
+            });
+        }
+
+        // KOSTNADER (COSTS) - Debet sida
+        // Costs by type
+        for (const item of costItems) {
+            const net = Number(item.net_amount || 0);
+            const account = String(item.bas_account || '6000');
+            const description = String(item.description || 'Kostnad');
+
+            if (net > 0) {
+                entries.push({
+                    account: account,
+                    name: description,
+                    debit: net,
+                    credit: 0
+                });
+            }
+        }
+
+        // 2640 Ingående moms - DEBET
+        if (incomingVat > 0) {
+            entries.push({
+                account: '2640',
+                name: 'Ingående moms',
+                debit: incomingVat,
+                credit: 0
+            });
+        }
+
+        // 1930 Bankkonto (kostnader) - KREDIT
+        if (totalCostsGross > 0) {
+            entries.push({
+                account: '1930',
+                name: 'Företagskonto (kostnader)',
+                debit: 0,
+                credit: totalCostsGross
+            });
+        }
+
+        return entries;
     }
 
     /**

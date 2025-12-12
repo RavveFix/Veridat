@@ -1,6 +1,7 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
-import { CURRENT_TERMS_VERSION } from '../constants/termsVersion';
+import { CURRENT_TERMS_VERSION, getVersionChanges, getVersionsSince } from '../constants/termsVersion';
+import { authService } from '../services/AuthService';
 
 interface LegalConsentModalProps {
     onAccepted: (fullName: string) => void;
@@ -12,6 +13,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
     const [error, setError] = useState<string | null>(null);
     const [fullName, setFullName] = useState('');
     const [touched, setTouched] = useState(false);
+    const [previousTermsVersion, setPreviousTermsVersion] = useState<string | null>(null);
 
     // Check for prior local consent (from login checkbox)
     const localConsent = typeof localStorage !== 'undefined' ? localStorage.getItem('has_accepted_terms_local') : null;
@@ -21,6 +23,51 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
     const isProfileCompletion = mode === 'authenticated' && localConsent === 'true';
 
     const isValid = fullName.trim().length > 0;
+
+    // Prefill name and capture previous terms version for re-consent UX
+    useEffect(() => {
+        if (mode !== 'authenticated') return;
+
+        let cancelled = false;
+
+        (async () => {
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user || cancelled) return;
+
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('full_name, terms_version, has_accepted_terms')
+                    .eq('id', user.id)
+                    .single();
+
+                if (cancelled || !profile) return;
+
+                setPreviousTermsVersion(profile.terms_version ?? null);
+
+                // Only prefill if user hasn't started typing
+                if (!fullName && profile.full_name) {
+                    setFullName(profile.full_name);
+                }
+            } catch {
+                // Non-blocking; modal still works without prefill
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [mode]);
+
+    const isReconsent =
+        mode === 'authenticated' &&
+        !!previousTermsVersion &&
+        previousTermsVersion !== CURRENT_TERMS_VERSION;
+
+    const versionsSince = isReconsent ? getVersionsSince(previousTermsVersion) : [];
+    const majorChanges = isReconsent
+        ? versionsSince.flatMap((v) => getVersionChanges(v)).filter(Boolean)
+        : [];
 
     const handleAccept = async () => {
         if (!isValid) {
@@ -60,6 +107,9 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                     });
 
                 if (updateError) throw updateError;
+
+                // Clear any local consent so it can't leak across users/devices
+                authService.clearLocalConsent();
 
                 // Send consent confirmation email with retry logic (non-blocking)
                 const sendEmailWithRetry = async (maxRetries = 3) => {
@@ -162,6 +212,34 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                 paddingTop: '1.5rem',
                 borderTop: '1px solid var(--glass-border)'
             }}>
+                {isReconsent && (
+                    <div
+                        className="message-box"
+                        style={{
+                            marginBottom: '1rem',
+                            padding: '0.9rem',
+                            borderRadius: '10px',
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid var(--glass-border)',
+                            color: 'var(--text-secondary)',
+                            fontSize: '0.85rem',
+                            lineHeight: '1.5'
+                        }}
+                    >
+                        <div style={{ marginBottom: majorChanges.length > 0 ? '0.5rem' : 0 }}>
+                            Våra villkor har uppdaterats till version <strong>{CURRENT_TERMS_VERSION}</strong>.
+                            <br />
+                            Du behöver godkänna de nya villkoren för att fortsätta.
+                        </div>
+                        {majorChanges.length > 0 && (
+                            <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
+                                {majorChanges.map((change) => (
+                                    <li key={change}>{change}</li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                )}
                 {/* Name Input */}
                 <div className="input-group" style={{ textAlign: 'left' }}>
                     <label htmlFor="fullName" style={{ marginLeft: '0.25rem', display: 'block', color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.5rem', fontWeight: '500' }}>

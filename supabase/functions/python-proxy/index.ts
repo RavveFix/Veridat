@@ -4,27 +4,29 @@
 
 import { PythonAPIService, type VATAnalysisRequest } from "../../services/PythonAPIService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
+import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
+import { createLogger } from "../../services/LoggerService.ts";
 
 // @ts-expect-error - Deno npm: specifier
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-user-id",
-};
+const logger = createLogger('python-proxy');
 
 interface RequestBody {
   file_data: string;      // base64 encoded Excel file
   filename: string;
+  conversation_id?: string;
   company_name: string;
   org_number: string;
   period: string;         // Format: YYYY-MM
 }
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders();
+
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return createOptionsResponse();
   }
 
   try {
@@ -47,19 +49,40 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get user ID from header or use 'anonymous'
-    const userId = req.headers.get("x-user-id") ||
-                   req.headers.get("authorization")?.split(" ")[1] ||
-                   "anonymous";
+    // Require auth and resolve actual user id from token (don’t trust client-provided IDs)
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
 
-    console.log(`[python-proxy] Request from user: ${userId}`);
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const userId = user.id;
+
+    logger.info('Request received', { userId });
 
     // Check rate limit
     const rateLimiter = new RateLimiterService(supabaseAdmin);
     const rateLimit = await rateLimiter.checkAndIncrement(userId, "python-proxy");
 
     if (!rateLimit.allowed) {
-      console.log("[python-proxy] Rate limit exceeded for user:", userId);
+      logger.warn('Rate limit exceeded', { userId });
       return new Response(
         JSON.stringify({
           error: "rate_limit_exceeded",
@@ -79,17 +102,16 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log("[python-proxy] Rate limit check passed:", {
-      userId,
-      remaining: rateLimit.remaining,
-    });
+    logger.info('Rate limit check passed', { userId, remaining: rateLimit.remaining });
 
     // Initialize Python API Service
     const pythonAPI = new PythonAPIService();
 
     // Debug: Log received data size
-    console.log("[python-proxy] Received file_data length:", body.file_data?.length || 0);
-    console.log("[python-proxy] Received file_data first 50 chars:", body.file_data?.substring(0, 50));
+    logger.debug('File data received', {
+      length: body.file_data?.length || 0,
+      preview: body.file_data?.substring(0, 50)
+    });
 
     // Prepare request for Python API
     const vatRequest: VATAnalysisRequest = {
@@ -100,7 +122,7 @@ Deno.serve(async (req: Request) => {
       period: body.period || new Date().toISOString().substring(0, 7), // Default to current month (YYYY-MM)
     };
 
-    console.log("[python-proxy] Forwarding request to Python API:", {
+    logger.info('Forwarding to Python API', {
       filename: vatRequest.filename,
       company: vatRequest.company_name,
       period: vatRequest.period,
@@ -110,7 +132,48 @@ Deno.serve(async (req: Request) => {
     // Call Python API for VAT analysis
     const vatReport = await pythonAPI.analyzeVAT(vatRequest);
 
-    console.log("[python-proxy] Successfully received VAT report");
+    logger.info('VAT report received successfully');
+
+    // Save to database if we have a real user id + conversation id
+    if (userId && body.conversation_id) {
+      type VatReportData = {
+        period?: string;
+        company?: { name?: string; org_number?: string };
+        summary?: unknown;
+        vat?: unknown;
+        [key: string]: unknown;
+      };
+
+      type VatReportResponse = {
+        type?: string;
+        data?: VatReportData;
+        [key: string]: unknown;
+      };
+
+      const typedReport = vatReport as unknown as VatReportResponse;
+      const reportData = typedReport.data;
+      const companyName = reportData?.company?.name || body.company_name || '';
+      const orgNumber = reportData?.company?.org_number || body.org_number || '';
+
+      const normalizedReportData = reportData
+        ? { ...reportData, company_name: companyName, org_number: orgNumber }
+        : typedReport;
+
+      const { error: dbError } = await supabaseAdmin
+        .from('vat_reports')
+        .insert({
+          user_id: userId,
+          conversation_id: body.conversation_id,
+          period: reportData?.period || body.period,
+          company_name: companyName,
+          report_data: normalizedReportData,
+          source_filename: body.filename
+        });
+
+      if (dbError) {
+        logger.warn('Failed to save report', { error: dbError });
+      }
+    }
 
     // Return the result to frontend
     return new Response(JSON.stringify(vatReport), {
@@ -122,13 +185,13 @@ Deno.serve(async (req: Request) => {
     });
 
   } catch (error) {
-    console.error("[python-proxy] Error:", error);
+    logger.error('Request failed', error);
 
     // Preserve error details from Python API for better debugging
     let errorResponse: {
       error: string;
       message: string;
-      details?: any;
+      details?: { status_code: number };
       source?: string;
     };
 
@@ -157,7 +220,7 @@ Deno.serve(async (req: Request) => {
       };
     }
 
-    console.error("[python-proxy] Error response:", errorResponse);
+    logger.error('Sending error response', undefined, errorResponse);
 
     return new Response(JSON.stringify(errorResponse), {
       status: 500,
