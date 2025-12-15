@@ -1,8 +1,7 @@
 // Conversation Service for Supabase Edge Functions
 // Handles CRUD operations for conversations and messages
 
-// @ts-expect-error - Deno npm: specifier
-import { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 export interface Conversation {
     id: string;

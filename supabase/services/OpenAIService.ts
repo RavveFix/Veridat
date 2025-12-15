@@ -3,7 +3,7 @@
 /// <reference path="../types/deno.d.ts" />
 
 import { createLogger } from "./LoggerService.ts";
-import type { FileData, GeminiResponse, ToolCall } from "./GeminiService.ts";
+import type { CreateInvoiceArgs, FileData, GeminiResponse, ToolCall } from "./GeminiService.ts";
 import { SYSTEM_INSTRUCTION } from "./GeminiService.ts";
 
 const logger = createLogger("openai");
@@ -16,6 +16,10 @@ type OpenAITool = {
     parameters: Record<string, unknown>;
   };
 };
+
+function usesMaxCompletionTokens(model: string): boolean {
+  return /^gpt-5/i.test(model) || /^o\d/i.test(model);
+}
 
 const tools: OpenAITool[] = [
   {
@@ -97,16 +101,65 @@ type OpenAIChatCompletion = {
   error?: { message?: string };
 };
 
-function toToolCall(name: string, args: unknown): ToolCall | null {
-  if (name === "create_invoice" || name === "get_customers" || name === "get_articles") {
-    return { tool: name, args: (args ?? {}) as any };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeCreateInvoiceArgs(value: unknown): CreateInvoiceArgs | null {
+  if (!isRecord(value)) return null;
+
+  const rawCustomerNumber = value.CustomerNumber;
+  const rawRows = value.InvoiceRows;
+
+  const customerNumber = (typeof rawCustomerNumber === "string" || typeof rawCustomerNumber === "number")
+    ? String(rawCustomerNumber).trim()
+    : "";
+  if (!customerNumber) return null;
+
+  if (!Array.isArray(rawRows) || rawRows.length === 0) return null;
+
+  const rows: CreateInvoiceArgs["InvoiceRows"] = [];
+  for (const row of rawRows) {
+    if (!isRecord(row)) continue;
+    const rawArticleNumber = row.ArticleNumber;
+    const rawDeliveredQuantity = row.DeliveredQuantity;
+
+    const articleNumber = (typeof rawArticleNumber === "string" || typeof rawArticleNumber === "number")
+      ? String(rawArticleNumber).trim()
+      : "";
+    const deliveredQuantity = (typeof rawDeliveredQuantity === "string" || typeof rawDeliveredQuantity === "number")
+      ? String(rawDeliveredQuantity).trim()
+      : "";
+
+    if (!articleNumber || !deliveredQuantity) continue;
+    rows.push({ ...row, ArticleNumber: articleNumber, DeliveredQuantity: deliveredQuantity });
   }
+
+  if (rows.length === 0) return null;
+
+  return {
+    ...value,
+    CustomerNumber: customerNumber,
+    InvoiceRows: rows,
+  } as CreateInvoiceArgs;
+}
+
+function toToolCall(name: string, args: unknown): ToolCall | null {
+  if (name === "get_customers" || name === "get_articles") return { tool: name, args: {} };
+
+  if (name === "create_invoice") {
+    const normalized = normalizeCreateInvoiceArgs(args);
+    if (!normalized) return null;
+    return { tool: "create_invoice", args: normalized };
+  }
+
   return null;
 }
 
 export async function sendMessageToOpenAI(
   message: string,
   fileData?: FileData,
+  fileDataPages?: Array<FileData & { pageNumber?: number }>,
   history?: Array<{ role: string; content: string }>,
 ): Promise<GeminiResponse> {
   const apiKey = Deno.env.get("OPENAI_API_KEY");
@@ -129,21 +182,32 @@ export async function sendMessageToOpenAI(
     }
   }
 
-  // Current user message + optional image
-  if (fileData?.mimeType?.startsWith("image/") && fileData.data) {
-    const dataUrl = `data:${fileData.mimeType};base64,${fileData.data}`;
-    messages.push({
-      role: "user",
-      content: [
-        { type: "image_url", image_url: { url: dataUrl } },
-        { type: "text", text: message },
-      ],
+  // Current user message + optional images (single image or multi-page PDF rendered to images)
+  const contentParts: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [];
+  contentParts.push({ type: "text", text: message });
+
+  const pageImages = (fileDataPages || []).filter((p) => p?.mimeType?.startsWith("image/") && p.data);
+  if (pageImages.length > 0) {
+    for (const p of pageImages) {
+      if (typeof p.pageNumber === "number") {
+        contentParts.push({ type: "text", text: `Sida ${p.pageNumber}` });
+      }
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: `data:${p.mimeType};base64,${p.data}` },
+      });
+    }
+  } else if (fileData?.mimeType?.startsWith("image/") && fileData.data) {
+    contentParts.push({
+      type: "image_url",
+      image_url: { url: `data:${fileData.mimeType};base64,${fileData.data}` },
     });
-  } else {
-    // For non-image attachments (PDF, etc), OpenAI chat-completions support varies.
-    // Let caller decide whether to fall back to Gemini.
-    messages.push({ role: "user", content: message });
   }
+
+  messages.push({
+    role: "user",
+    content: contentParts,
+  });
 
   const payload: Record<string, unknown> = {
     model,
@@ -151,8 +215,15 @@ export async function sendMessageToOpenAI(
     tools,
     tool_choice: "auto",
     temperature: 0.4,
-    max_tokens: 2048,
   };
+
+  const maxCompletionTokens = 2048;
+  if (usesMaxCompletionTokens(model)) {
+    payload.max_completion_tokens = maxCompletionTokens;
+    payload.reasoning_effort = "none";
+  } else {
+    payload.max_tokens = maxCompletionTokens;
+  }
 
   const url = `${baseUrl}/chat/completions`;
   logger.info("Calling OpenAI", { model });
@@ -191,4 +262,3 @@ export async function sendMessageToOpenAI(
   const text = choice?.content ?? "";
   return { text: text || "Jag kunde inte generera ett svar just nu." };
 }
-

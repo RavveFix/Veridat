@@ -1,8 +1,7 @@
 // Deno-compatible Rate Limiter Service for Supabase Edge Functions
 /// <reference path="../types/deno.d.ts" />
 
-// @ts-expect-error - Deno npm: specifier not recognized by VSCode but works in Deno runtime
-import { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 interface RateLimitConfig {
     requestsPerDay: number;

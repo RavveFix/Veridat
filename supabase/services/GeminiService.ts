@@ -2,8 +2,11 @@
 // Using @google/generative-ai package compatible with Deno
 /// <reference path="../types/deno.d.ts" />
 
-// @ts-expect-error - Deno npm: specifier not recognized by VSCode but works in Deno runtime
-import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
+import { createLogger } from "./LoggerService.ts";
+
+import { GoogleGenerativeAI, SchemaType, type Tool } from "npm:@google/generative-ai@0.21.0";
+
+const logger = createLogger("gemini");
 
 export const SYSTEM_INSTRUCTION = `Du är Britta, en autonom AI-agent och expert på svensk bokföring.
 Du hjälper användaren att hantera bokföring och fakturering i Fortnox via API.
@@ -145,31 +148,31 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
 4. Var proaktiv - ge råd innan användaren frågar.
 `;
 
-const tools = [
+const tools: Tool[] = [
     {
         functionDeclarations: [
             {
                 name: "create_invoice",
                 description: "Skapar ett fakturautkast i Fortnox. Använd detta när användaren vill fakturera.",
                 parameters: {
-                    type: "OBJECT",
+                    type: SchemaType.OBJECT,
                     properties: {
                         CustomerNumber: {
-                            type: "STRING",
+                            type: SchemaType.STRING,
                             description: "Kundnumret i Fortnox (t.ex. '1001')"
                         },
                         InvoiceRows: {
-                            type: "ARRAY",
+                            type: SchemaType.ARRAY,
                             description: "Lista på fakturarader",
                             items: {
-                                type: "OBJECT",
+                                type: SchemaType.OBJECT,
                                 properties: {
                                     ArticleNumber: {
-                                        type: "STRING",
+                                        type: SchemaType.STRING,
                                         description: "Artikelnumret (t.ex. 'ART1')"
                                     },
                                     DeliveredQuantity: {
-                                        type: "STRING",
+                                        type: SchemaType.STRING,
                                         description: "Antal levererade enheter (t.ex. '10')"
                                     }
                                 },
@@ -184,7 +187,7 @@ const tools = [
                 name: "get_customers",
                 description: "Hämtar lista på kunder från Fortnox. Används för att slå upp kundnummer.",
                 parameters: {
-                    type: "OBJECT",
+                    type: SchemaType.OBJECT,
                     properties: {}, // No parameters needed
                 }
             },
@@ -192,7 +195,7 @@ const tools = [
                 name: "get_articles",
                 description: "Hämtar lista på artiklar från Fortnox. Används för att slå upp artikelnummer och priser.",
                 parameters: {
-                    type: "OBJECT",
+                    type: SchemaType.OBJECT,
                     properties: {}, // No parameters needed
                 }
             }
@@ -207,20 +210,69 @@ export interface FileData {
 }
 
 // Tool argument types for different Fortnox operations
-export interface CreateInvoiceArgs {
-    customer_number: string;
-    article_number: string;
-    quantity: number;
-}
+export type InvoiceRowArgs = {
+    ArticleNumber: string;
+    DeliveredQuantity: string;
+    [key: string]: unknown;
+};
 
-export interface ToolCall {
-    tool: 'create_invoice' | 'get_customers' | 'get_articles';
-    args: CreateInvoiceArgs | Record<string, never>; // CreateInvoiceArgs for create_invoice, empty object for get_* tools
-}
+export type CreateInvoiceArgs = {
+    CustomerNumber: string;
+    InvoiceRows: InvoiceRowArgs[];
+    [key: string]: unknown;
+};
+
+export type ToolCall =
+    | { tool: 'create_invoice'; args: CreateInvoiceArgs }
+    | { tool: 'get_customers'; args: Record<string, never> }
+    | { tool: 'get_articles'; args: Record<string, never> };
 
 export interface GeminiResponse {
     text?: string;
     toolCall?: ToolCall;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeCreateInvoiceArgs(value: unknown): CreateInvoiceArgs | null {
+    if (!isRecord(value)) return null;
+
+    const rawCustomerNumber = value.CustomerNumber;
+    const rawRows = value.InvoiceRows;
+
+    const customerNumber = (typeof rawCustomerNumber === 'string' || typeof rawCustomerNumber === 'number')
+        ? String(rawCustomerNumber).trim()
+        : '';
+    if (!customerNumber) return null;
+
+    if (!Array.isArray(rawRows) || rawRows.length === 0) return null;
+
+    const rows: InvoiceRowArgs[] = [];
+    for (const row of rawRows) {
+        if (!isRecord(row)) continue;
+        const rawArticleNumber = row.ArticleNumber;
+        const rawDeliveredQuantity = row.DeliveredQuantity;
+
+        const articleNumber = (typeof rawArticleNumber === 'string' || typeof rawArticleNumber === 'number')
+            ? String(rawArticleNumber).trim()
+            : '';
+        const deliveredQuantity = (typeof rawDeliveredQuantity === 'string' || typeof rawDeliveredQuantity === 'number')
+            ? String(rawDeliveredQuantity).trim()
+            : '';
+
+        if (!articleNumber || !deliveredQuantity) continue;
+        rows.push({ ...row, ArticleNumber: articleNumber, DeliveredQuantity: deliveredQuantity });
+    }
+
+    if (rows.length === 0) return null;
+
+    return {
+        ...value,
+        CustomerNumber: customerNumber,
+        InvoiceRows: rows
+    } as CreateInvoiceArgs;
 }
 
 export const sendMessageToGemini = async (
@@ -293,18 +345,36 @@ export const sendMessageToGemini = async (
         // Check for function calls
         const functionCall = response.functionCalls()?.[0];
         if (functionCall) {
-            return {
-                toolCall: {
-                    tool: functionCall.name,
-                    args: functionCall.args
+            if (functionCall.name === 'get_customers' || functionCall.name === 'get_articles') {
+                return {
+                    toolCall: {
+                        tool: functionCall.name,
+                        args: {}
+                    }
+                };
+            }
+
+            if (functionCall.name === 'create_invoice') {
+                const normalized = normalizeCreateInvoiceArgs(functionCall.args);
+                if (normalized) {
+                    return {
+                        toolCall: {
+                            tool: 'create_invoice',
+                            args: normalized
+                        }
+                    };
                 }
-            };
+
+                return {
+                    text: "Jag kan hjälpa dig skapa en faktura, men jag saknar kundnummer och/eller fakturarader. Vilken kund (kundnummer) och vilka artiklar/antal ska faktureras?"
+                };
+            }
         }
 
         const text = response.text();
         return { text: text || "Jag kunde inte generera ett svar just nu." };
     } catch (error) {
-        console.error("Gemini API Error:", error);
+        logger.error("Gemini API Error", error);
         throw error;
     }
 };

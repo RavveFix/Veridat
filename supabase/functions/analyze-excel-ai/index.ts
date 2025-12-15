@@ -8,11 +8,7 @@ import { createLogger } from "../../services/LoggerService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { ExpensePatternService, PatternSuggestion } from "../../services/ExpensePatternService.ts";
 
-// @ts-expect-error - Deno npm: specifier
 import { createClient } from "npm:@supabase/supabase-js@2";
-// @ts-expect-error - Deno npm: specifier
-import Anthropic from "npm:@anthropic-ai/sdk@0.32.1";
-// @ts-expect-error - Deno npm: specifier
 import * as XLSX from "npm:xlsx@0.18.5";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -174,11 +170,14 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
   // amount = BRUTTO (inkl moms) - för referens
   // subAmount = NETTO (exkl moms) - för redovisning ✓
   // vat = momsbelopp
-  const privateAmount = privateSales.reduce((sum, t) => sum + t.amount, 0);
-  const privateVat = privateSales.reduce((sum, t) => sum + t.vat, 0);
-  const privateNet = privateSales.reduce((sum, t) => sum + t.subAmount, 0);
+  const sumCents = (items: MontaTransaction[], pick: (t: MontaTransaction) => number): number =>
+    items.reduce((sum, t) => sum + Math.round(pick(t) * 100), 0);
 
-  const roamingAmount = roamingSales.reduce((sum, t) => sum + t.amount, 0);
+  const privateAmountC = sumCents(privateSales, (t) => t.amount);
+  const privateVatC = sumCents(privateSales, (t) => t.vat);
+  const privateNetC = sumCents(privateSales, (t) => t.subAmount);
+
+  const roamingAmountC = sumCents(roamingSales, (t) => t.amount);
   // Roaming = 0% moms så amount = net
 
   // KOSTNADER - gruppera per kategori
@@ -191,28 +190,50 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
   // amount = BRUTTO (inkl moms) - för referens
   // subAmount = NETTO (exkl moms) - för redovisning ✓
   // vat = avdragsgill ingående moms
-  const subAmount = Math.abs(subscriptions.reduce((sum, t) => sum + t.amount, 0));
-  const subVat = Math.abs(subscriptions.reduce((sum, t) => sum + t.vat, 0));
-  const subNet = Math.abs(subscriptions.reduce((sum, t) => sum + t.subAmount, 0));
+  const subAmountC = Math.abs(sumCents(subscriptions, (t) => t.amount));
+  const subVatC = Math.abs(sumCents(subscriptions, (t) => t.vat));
+  const subNetC = Math.abs(sumCents(subscriptions, (t) => t.subAmount));
 
   // KOSTNADER OPERATÖRSAVGIFTER
-  const opAmount = Math.abs(operatorFees.reduce((sum, t) => sum + t.amount, 0));
-  const opVat = Math.abs(operatorFees.reduce((sum, t) => sum + t.vat, 0));
-  const opNet = Math.abs(operatorFees.reduce((sum, t) => sum + t.subAmount, 0));
+  const opAmountC = Math.abs(sumCents(operatorFees, (t) => t.amount));
+  const opVatC = Math.abs(sumCents(operatorFees, (t) => t.vat));
+  const opNetC = Math.abs(sumCents(operatorFees, (t) => t.subAmount));
 
-  const pfAmount = Math.abs(platformFees.reduce((sum, t) => sum + t.amount, 0));
+  const pfAmountC = Math.abs(sumCents(platformFees, (t) => t.amount));
   // Platform fees = 0% moms så amount = net
 
-  const roamingFeeAmount = Math.abs(roamingFees.reduce((sum, t) => sum + t.amount, 0));
+  const roamingFeeAmountC = Math.abs(sumCents(roamingFees, (t) => t.amount));
   // Roaming fees = 0% moms så amount = net
 
   // TOTALER - Använd NETTO för redovisning (exkl moms)
   // Observera: roaming, pfAmount, roamingFeeAmount har 0% moms så amount = net
-  const totalSales = privateNet + roamingAmount;  // NETTO
-  const totalSalesVat = privateVat; // Endast privatladdning har utgående moms
+  const totalSalesC = privateNetC + roamingAmountC;  // NETTO
+  const totalSalesVatC = privateVatC; // Endast privatladdning har utgående moms
 
-  const totalCosts = subNet + opNet + pfAmount + roamingFeeAmount;  // NETTO
-  const incomingVat = subVat + opVat; // Endast 25% moms är avdragsgill
+  const totalCostsC = subNetC + opNetC + pfAmountC + roamingFeeAmountC;  // NETTO
+  const incomingVatC = subVatC + opVatC; // Endast 25% moms är avdragsgill
+
+  const privateAmount = centsToNumber(privateAmountC);
+  const privateVat = centsToNumber(privateVatC);
+  const privateNet = centsToNumber(privateNetC);
+  const roamingAmount = centsToNumber(roamingAmountC);
+
+  const subAmount = centsToNumber(subAmountC);
+  const subVat = centsToNumber(subVatC);
+  const subNet = centsToNumber(subNetC);
+
+  const opAmount = centsToNumber(opAmountC);
+  const opVat = centsToNumber(opVatC);
+  const opNet = centsToNumber(opNetC);
+
+  const pfAmount = centsToNumber(pfAmountC);
+  const roamingFeeAmount = centsToNumber(roamingFeeAmountC);
+
+  const totalSales = centsToNumber(totalSalesC);
+  const totalSalesVat = centsToNumber(totalSalesVatC);
+
+  const totalCosts = centsToNumber(totalCostsC);
+  const incomingVat = centsToNumber(incomingVatC);
 
   const totalKwh = activeTransactions.reduce((sum, t) => sum + t.kwh, 0);
 
@@ -324,9 +345,9 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
     },
     vat_breakdown: vatBreakdown,
     transactions: activeTransactions.map(t => ({
-      amount: t.amount,
-      net_amount: t.subAmount,
-      vat_amount: t.vat,
+      amount: centsToNumber(Math.round(t.amount * 100)),
+      net_amount: centsToNumber(Math.round(t.subAmount * 100)),
+      vat_amount: centsToNumber(Math.round(t.vat * 100)),
       vat_rate: t.vatRate,
       description: t.transactionName || t.note || t.reference || 'Transaktion',
       date: t.created,
@@ -363,6 +384,25 @@ const AMOUNT_COLUMN_NAMES = [
   'belopp', 'amount', 'summa', 'total', 'pris', 'price', 'kostnad', 'cost'
 ];
 
+const NET_AMOUNT_COLUMN_NAMES = [
+  'netto', 'net', 'exkl', 'exkl moms', 'subtotal'
+];
+
+const VAT_AMOUNT_COLUMN_NAMES = [
+  'moms', 'vat', 'tax'
+];
+
+const VAT_RATE_COLUMN_NAMES = [
+  'momssats', 'moms %', 'moms%', 'vat rate', 'vat%', 'tax rate', '%'
+];
+
+const DATE_COLUMN_NAMES = [
+  'datum', 'date', 'bokföringsdatum', 'verifikationsdatum', 'transaktionsdatum'
+];
+
+const DEBIT_COLUMN_NAMES = ['debet', 'debit'];
+const CREDIT_COLUMN_NAMES = ['kredit', 'credit'];
+
 function findColumnByNames(columns: string[], candidateNames: string[]): string | null {
   const columnsLower = columns.map(c => c.toLowerCase());
   for (const name of candidateNames) {
@@ -370,6 +410,91 @@ function findColumnByNames(columns: string[], candidateNames: string[]): string 
     if (idx >= 0) return columns[idx];
   }
   return null;
+}
+
+function centsToNumber(cents: number): number {
+  return Number((cents / 100).toFixed(2));
+}
+
+function parseMoneyToCents(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return Math.round(value * 100);
+  }
+
+  const raw = String(value).replace(/\u00A0/g, ' ').trim();
+  if (!raw) return null;
+
+  let isNegative = false;
+  let s = raw;
+
+  if (s.startsWith('(') && s.endsWith(')')) {
+    isNegative = true;
+    s = s.slice(1, -1);
+  }
+
+  if (s.includes('-')) {
+    const trimmed = s.trim();
+    if (trimmed.startsWith('-')) isNegative = true;
+  }
+
+  // Keep digits and separators only
+  s = s.replace(/[^\d.,]/g, '');
+  if (!s) return null;
+
+  const hasDot = s.includes('.');
+  const hasComma = s.includes(',');
+
+  let decimalSep: '.' | ',' | null = null;
+  if (hasDot && hasComma) {
+    decimalSep = s.lastIndexOf('.') > s.lastIndexOf(',') ? '.' : ',';
+  } else if (hasComma) {
+    decimalSep = ',';
+  } else if (hasDot) {
+    decimalSep = '.';
+  }
+
+  let normalized = s;
+  if (decimalSep) {
+    const thousandsSep = decimalSep === '.' ? ',' : '.';
+    normalized = normalized.split(thousandsSep).join('');
+    normalized = normalized.replace(decimalSep, '.');
+  }
+
+  const num = Number.parseFloat(normalized);
+  if (!Number.isFinite(num)) return null;
+
+  const cents = Math.round(num * 100);
+  return isNegative ? -cents : cents;
+}
+
+function normalizeVatRate(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    const raw = value > 0 && value < 1 ? value * 100 : value;
+    return nearestVatRate(raw);
+  }
+
+  const s = String(value).replace('%', '').replace(',', '.').trim();
+  if (!s) return null;
+  const n = Number.parseFloat(s);
+  if (!Number.isFinite(n)) return null;
+  const raw = n > 0 && n < 1 ? n * 100 : n;
+  return nearestVatRate(raw);
+}
+
+function nearestVatRate(rate: number): number {
+  const candidates = [0, 6, 12, 25];
+  const closest = candidates.reduce((best, curr) => (
+    Math.abs(curr - rate) < Math.abs(best - rate) ? curr : best
+  ), candidates[0]);
+
+  if (Math.abs(closest - rate) <= 1.5) return closest;
+  return Math.round(rate);
 }
 
 function extractTransactionInfo(row: Record<string, unknown>, columns: string[]): {
@@ -389,6 +514,158 @@ function extractTransactionInfo(row: Record<string, unknown>, columns: string[])
     supplier,
     description: supplier, // Use supplier as description for now
     amount: amountCol ? Number(row[amountCol]) || 0 : 0
+  };
+}
+
+type ColumnMapping = {
+  amount_column: string | null;
+  amount_kind: 'gross' | 'net' | 'unknown';
+  net_amount_column: string | null;
+  vat_amount_column: string | null;
+  vat_rate_column: string | null;
+  debit_column: string | null;
+  credit_column: string | null;
+  supplier_column: string | null;
+  description_column: string | null;
+  date_column: string | null;
+};
+
+type OpenAIChatCompletion = {
+  choices?: Array<{
+    message?: {
+      tool_calls?: Array<{
+        function?: { name?: string; arguments?: string };
+      }>;
+      content?: string | null;
+    };
+  }>;
+};
+
+function normalizeMappedColumn(columns: string[], value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return columns.includes(trimmed) ? trimmed : null;
+}
+
+async function mapColumnsWithOpenAI(
+  columns: string[],
+  sampleRows: Array<Record<string, unknown>>,
+  filename: string,
+): Promise<ColumnMapping> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY saknas. Jag kan inte tolka den här Excel-mallen utan OpenAI-mappning.');
+  }
+
+  const baseUrl = (Deno.env.get('OPENAI_BASE_URL') || 'https://api.openai.com/v1').replace(/\/$/, '');
+  const model = Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini';
+  const usesMaxCompletionTokens = /^gpt-5/i.test(model) || /^o\d/i.test(model);
+
+  const tool = {
+    type: 'function',
+    function: {
+      name: 'map_excel_columns',
+      description: 'Mappar Excel-kolumner till ett normaliserat transaktionsschema (utan att räkna).',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          amount_column: { type: ['string', 'null'] },
+          amount_kind: { type: 'string', enum: ['gross', 'net', 'unknown'] },
+          net_amount_column: { type: ['string', 'null'] },
+          vat_amount_column: { type: ['string', 'null'] },
+          vat_rate_column: { type: ['string', 'null'] },
+          debit_column: { type: ['string', 'null'] },
+          credit_column: { type: ['string', 'null'] },
+          supplier_column: { type: ['string', 'null'] },
+          description_column: { type: ['string', 'null'] },
+          date_column: { type: ['string', 'null'] },
+        },
+        required: ['amount_kind'],
+      },
+    },
+  } as const;
+
+  const prompt = `Du får en Excel-export (kolumner + exempelrader). Ditt jobb är att MAPPA kolumner till fälten nedan.
+
+VIKTIGT:
+- Räkna INTE totalsummor.
+- Ange exakta kolumnnamn (måste matcha listan).
+- Om ett fält inte finns, sätt null.
+- amount_column = kolumnen som innehåller beloppet per rad (helst brutto om moms-kolumn finns).
+- Om beloppet ligger i två kolumner (debet/kredit), sätt debit_column/credit_column och amount_column = null.
+- amount_kind: gross|net|unknown.
+
+Filen heter: ${filename}
+
+KOLUMNER:
+${JSON.stringify(columns)}
+
+EXEMPELRADER (första 20):
+${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
+
+  const payload: Record<string, unknown> = {
+    model,
+    temperature: 0,
+    tools: [tool],
+    tool_choice: { type: 'function', function: { name: 'map_excel_columns' } },
+    messages: [
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
+  };
+
+  if (usesMaxCompletionTokens) {
+    payload.max_completion_tokens = 800;
+    payload.reasoning_effort = 'none';
+  } else {
+    payload.max_tokens = 800;
+  }
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`OpenAI-mappning misslyckades (${res.status}): ${text || res.statusText}`);
+  }
+
+  const data = (await res.json()) as OpenAIChatCompletion;
+  const call = data.choices?.[0]?.message?.tool_calls?.[0];
+  const args = call?.function?.arguments || '';
+  if (!args) {
+    throw new Error('OpenAI returnerade ingen kolumnmappning.');
+  }
+
+  let parsed: Partial<ColumnMapping>;
+  try {
+    parsed = JSON.parse(args) as Partial<ColumnMapping>;
+  } catch {
+    throw new Error('OpenAI returnerade ogiltig JSON för kolumnmappning.');
+  }
+
+  return {
+    amount_column: normalizeMappedColumn(columns, parsed.amount_column),
+    amount_kind: (parsed.amount_kind === 'gross' || parsed.amount_kind === 'net' || parsed.amount_kind === 'unknown')
+      ? parsed.amount_kind
+      : 'unknown',
+    net_amount_column: normalizeMappedColumn(columns, parsed.net_amount_column),
+    vat_amount_column: normalizeMappedColumn(columns, parsed.vat_amount_column),
+    vat_rate_column: normalizeMappedColumn(columns, parsed.vat_rate_column),
+    debit_column: normalizeMappedColumn(columns, parsed.debit_column),
+    credit_column: normalizeMappedColumn(columns, parsed.credit_column),
+    supplier_column: normalizeMappedColumn(columns, parsed.supplier_column),
+    description_column: normalizeMappedColumn(columns, parsed.description_column),
+    date_column: normalizeMappedColumn(columns, parsed.date_column),
   };
 }
 
@@ -520,7 +797,7 @@ Deno.serve(async (req: Request) => {
 
         logger.info('Excel parsed', { rows: dataRows.length, columns: columns.length, totalMs: t4 - t0 });
       } catch (parseError) {
-        logger.error('Excel parsing failed', { error: parseError });
+        logger.error('Excel parsing failed', parseError);
         throw new Error('Kunde inte läsa Excel-filen. Kontrollera formatet.');
       }
 
@@ -606,9 +883,9 @@ Deno.serve(async (req: Request) => {
 
       } else {
         // ═══════════════════════════════════════════════════════════════
-        // GENERELL FIL: Layered Intelligence
-        // Layer 2: Check learned patterns first
-        // Layer 4: Fall back to Claude AI
+        // GENERELL FIL: Deterministisk analys (exakt matematik)
+        // - Kolumnmappning: heuristik → (fallback) OpenAI-mappning
+        // - Summeringar: beräknas alltid deterministiskt (öre)
         // ═══════════════════════════════════════════════════════════════
 
         // Layer 2: Try to find learned patterns for suppliers in this file
@@ -617,7 +894,7 @@ Deno.serve(async (req: Request) => {
 
         if (userId) {
           await sendProgress({
-            step: 'patterns',
+            step: 'mapping',
             message: 'Söker inlärda mönster...',
             progress: 0.4
           });
@@ -654,89 +931,308 @@ Deno.serve(async (req: Request) => {
           });
         }
 
-        // Layer 4: Use Claude AI with pattern context
+        await sendProgress({
+          step: 'mapping',
+          message: 'Identifierar kolumner...',
+          progress: 0.48,
+          details: {
+            patterns_found: patternSuggestions.length
+          }
+        });
+
+        let mapping: ColumnMapping = {
+          amount_column: findColumnByNames(columns, AMOUNT_COLUMN_NAMES),
+          amount_kind: 'unknown',
+          net_amount_column: findColumnByNames(columns, NET_AMOUNT_COLUMN_NAMES),
+          vat_amount_column: findColumnByNames(columns, VAT_AMOUNT_COLUMN_NAMES),
+          vat_rate_column: findColumnByNames(columns, VAT_RATE_COLUMN_NAMES),
+          debit_column: findColumnByNames(columns, DEBIT_COLUMN_NAMES),
+          credit_column: findColumnByNames(columns, CREDIT_COLUMN_NAMES),
+          supplier_column: findColumnByNames(columns, SUPPLIER_COLUMN_NAMES),
+          description_column: null,
+          date_column: findColumnByNames(columns, DATE_COLUMN_NAMES),
+        };
+
+        // Heuristik: om netto-kolumn finns men ingen amount-kolumn, använd netto som amount.
+        if (!mapping.amount_column && mapping.net_amount_column) {
+          mapping.amount_column = mapping.net_amount_column;
+          mapping.amount_kind = 'net';
+        }
+
+        // Heuristik: om vi har både netto + amount, anta att amount är brutto.
+        if (mapping.amount_column && mapping.net_amount_column) {
+          mapping.amount_kind = 'gross';
+        }
+
+        // Om moms-belopp finns och amount_kind fortfarande okänd, anta brutto.
+        if (mapping.vat_amount_column && mapping.amount_column && mapping.amount_kind === 'unknown') {
+          mapping.amount_kind = 'gross';
+        }
+
+        const needsAiMapping = !mapping.amount_column && !(mapping.debit_column && mapping.credit_column);
+        if (needsAiMapping) {
+          await sendProgress({
+            step: 'mapping',
+            message: 'Behöver AI-hjälp för att tolka kolumner...',
+            progress: 0.52
+          });
+          mapping = await mapColumnsWithOpenAI(columns, rowObjects.slice(0, 50), body.filename);
+        }
+
         await sendProgress({
           step: 'calculating',
-          message: patternSuggestions.length > 0
-            ? `Analyserar med ${patternSuggestions.length} inlärda mönster...`
-            : 'Claude analyserar data...',
-          progress: 0.5
-        });
-
-        const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
-        if (!anthropicKey) {
-          throw new Error('ANTHROPIC_API_KEY not configured');
-        }
-
-        const anthropic = new Anthropic({ apiKey: anthropicKey });
-
-        // Build pattern context for AI prompt
-        let patternContext = '';
-        if (patternSuggestions.length > 0) {
-          patternContext = `
-
-INLÄRDA MÖNSTER (använd dessa för kategorisering):
-${patternSuggestions.map(p =>
-  `• "${p.supplier}" → ${p.suggestions[0].pattern.bas_account} (${p.suggestions[0].pattern.bas_account_name}), ${p.suggestions[0].pattern.vat_rate}% moms, säkerhet: ${Math.round(p.suggestions[0].pattern.confidence_score * 100)}%`
-).join('\n')}
-
-VIKTIGT: Prioritera inlärda mönster framför egna gissningar. Om ett mönster matchar, använd det BAS-kontot.`;
-        }
-
-        const sampleRows = rowObjects.slice(0, 50);
-        const prompt = `Du är Britta, en svensk redovisningsexpert. Analysera denna Excel-fil och skapa en momsrapport.
-
-EXCEL-DATA:
-${JSON.stringify({ columns, sample_data: sampleRows, row_count: rowObjects.length }, null, 2)}
-
-METADATA:
-- Filnamn: ${body.filename}
-- Företag: ${body.company_name || 'Auto-detektera'}
-- Period: ${body.period || 'Auto-detektera'}${patternContext}
-
-Svara med JSON:
-{
-  "success": true,
-  "period": "YYYY-MM",
-  "company_name": "Företagsnamn",
-  "summary": {
-    "total_sales": 0,
-    "total_sales_vat": 0,
-    "total_costs": 0,
-    "total_costs_vat": 0,
-    "result": 0
-  },
-  "vat_breakdown": [
-    { "rate": 25, "type": "sale", "net_amount": 0, "vat_amount": 0, "description": "Försäljning 25%", "bas_account": "3010" }
-  ],
-  "transactions": [],
-  "vat": {
-    "outgoing_25": 0,
-    "incoming": 0,
-    "net": 0
-  },
-  "patterns_used": []
-}`;
-
-        const modelName = Deno.env.get('ANTHROPIC_MODEL') || Deno.env.get('CLAUDE_MODEL') || 'claude-sonnet-4-20250514';
-        const response = await anthropic.messages.create({
-          model: modelName,
-          max_tokens: 4096,
-          messages: [{ role: 'user', content: prompt }]
-        });
-
-        const claudeText = response.content[0].type === 'text' ? response.content[0].text : '';
-
-        try {
-          const cleanJson = claudeText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-          report = JSON.parse(cleanJson);
-          report.verification = {
-            method: patternSuggestions.length > 0 ? 'patterns+claude-ai' : 'claude-ai',
+          message: 'Beräknar moms (deterministiskt)...',
+          progress: 0.6,
+          details: {
+            mapping,
             patterns_found: patternSuggestions.length
-          };
-        } catch {
-          throw new Error('Kunde inte tolka AI-svar. Försök igen.');
+          }
+        });
+
+        const patternBySupplier = new Map<string, { bas_account: string; vat_rate: number }>();
+        for (const p of patternSuggestions) {
+          const best = p.suggestions[0]?.pattern;
+          if (best?.bas_account && typeof best.vat_rate === 'number') {
+            patternBySupplier.set(p.supplier, { bas_account: best.bas_account, vat_rate: best.vat_rate });
+          }
         }
+
+        const supplierCol = mapping.supplier_column;
+        const descriptionCol = mapping.description_column || mapping.supplier_column;
+        const dateCol = mapping.date_column;
+
+        type ParsedTx = {
+          amountCents: number;
+          netCents: number;
+          vatCents: number;
+          vatRate: number;
+          description: string;
+          date: string;
+          type: 'sale' | 'cost';
+          basAccount: string;
+        };
+
+        const parsedTxs: ParsedTx[] = [];
+        const warnings: string[] = [];
+        const errors: string[] = [];
+
+        for (let i = 0; i < rowObjects.length; i++) {
+          const row = rowObjects[i];
+
+          const supplier = supplierCol ? String(row[supplierCol] || '').trim() : '';
+          const description = (descriptionCol ? String(row[descriptionCol] || '').trim() : '') || supplier || 'Transaktion';
+          const date = dateCol ? String(row[dateCol] || '').trim() : '';
+
+          let amountCents: number | null = null;
+          if (mapping.debit_column && mapping.credit_column) {
+            const debit = parseMoneyToCents(row[mapping.debit_column]);
+            const credit = parseMoneyToCents(row[mapping.credit_column]);
+            if (debit !== null || credit !== null) {
+              amountCents = (credit || 0) - (debit || 0);
+            }
+          } else if (mapping.amount_column) {
+            amountCents = parseMoneyToCents(row[mapping.amount_column]);
+          }
+
+          if (amountCents === null || amountCents === 0) continue;
+
+          const type: 'sale' | 'cost' = amountCents < 0 ? 'cost' : 'sale';
+
+          let netCents = mapping.net_amount_column ? parseMoneyToCents(row[mapping.net_amount_column]) : null;
+          let vatCents = mapping.vat_amount_column ? parseMoneyToCents(row[mapping.vat_amount_column]) : null;
+          let vatRate = mapping.vat_rate_column ? normalizeVatRate(row[mapping.vat_rate_column]) : null;
+
+          // Fallback: använd inlärda mönster för VAT-rate om den saknas
+          if (vatRate === null && supplier && patternBySupplier.has(supplier)) {
+            vatRate = patternBySupplier.get(supplier)!.vat_rate;
+          }
+
+          // Sätt tecken enligt amount
+          if (netCents !== null && netCents !== 0 && Math.sign(netCents) !== Math.sign(amountCents)) netCents *= -1;
+          if (vatCents !== null && vatCents !== 0 && Math.sign(vatCents) !== Math.sign(amountCents)) vatCents *= -1;
+
+          // Om vi har moms-belopp men inget netto: anta brutto (netto = belopp - moms)
+          if (netCents === null && vatCents !== null && mapping.amount_kind !== 'net') {
+            netCents = amountCents - vatCents;
+          }
+
+          // Om vi saknar moms men har momssats: beräkna deterministiskt
+          if (vatCents === null && vatRate !== null && vatRate > 0) {
+            if (netCents !== null) {
+              vatCents = Math.round(netCents * (vatRate / 100));
+            } else {
+              const divisor = 1 + (vatRate / 100);
+              netCents = Math.round(amountCents / divisor);
+              vatCents = amountCents - netCents;
+            }
+          }
+
+          // Om vi saknar momssats men har net + moms: gissa närmaste (0/6/12/25)
+          if (vatRate === null && netCents !== null && vatCents !== null && netCents !== 0) {
+            const guess = (Math.abs(vatCents) / Math.abs(netCents)) * 100;
+            vatRate = nearestVatRate(guess);
+          }
+
+          if (vatCents === null) vatCents = 0;
+          if (netCents === null) {
+            // Sista fallback: anta att beloppet är netto om amount_kind=net, annars brutto (net=amount - vat)
+            netCents = mapping.amount_kind === 'net' ? amountCents : (amountCents - vatCents);
+          }
+          if (vatRate === null) vatRate = vatCents === 0 ? 0 : nearestVatRate((Math.abs(vatCents) / Math.max(1, Math.abs(netCents))) * 100);
+
+          const expectedGross = netCents + vatCents;
+          if (mapping.amount_kind !== 'net' && Math.abs(expectedGross - amountCents) > 1) {
+            warnings.push(`Rad ${i + 2}: belopp (${centsToNumber(amountCents)}) ≠ netto+moms (${centsToNumber(expectedGross)})`);
+          }
+
+          const defaultBas = type === 'sale'
+            ? (vatRate === 0 ? '3011' : '3010')
+            : '6590';
+          const basAccount = (type === 'cost' && supplier && patternBySupplier.has(supplier))
+            ? patternBySupplier.get(supplier)!.bas_account
+            : defaultBas;
+
+          parsedTxs.push({
+            amountCents,
+            netCents,
+            vatCents,
+            vatRate,
+            description,
+            date,
+            type,
+            basAccount
+          });
+        }
+
+        if (parsedTxs.length === 0) {
+          errors.push('Kunde inte hitta några rader med belopp. Kontrollera att filen har en beloppskolumn.');
+        }
+
+        if (errors.length > 0) {
+          throw new Error(errors.join(' '));
+        }
+
+        // Summeringar i öre (exakt)
+        let totalSalesNet = 0;
+        let totalSalesVat = 0;
+        let totalCostsNet = 0;
+        let totalCostsVat = 0;
+
+        const outgoingByRate: Record<number, number> = { 25: 0, 12: 0, 6: 0 };
+        let incomingVat = 0;
+
+        const breakdown = new Map<string, {
+          rate: number;
+          type: 'sale' | 'cost';
+          net: number;
+          vat: number;
+          gross: number;
+          count: number;
+          bas_account: string;
+          description: string;
+        }>();
+
+        for (const tx of parsedTxs) {
+          const gross = tx.amountCents;
+          const net = tx.netCents;
+          const vat = tx.vatCents;
+          const rate = tx.vatRate;
+
+          if (tx.type === 'cost') {
+            totalCostsNet += Math.abs(net);
+            totalCostsVat += Math.abs(vat);
+            incomingVat += Math.abs(vat);
+          } else {
+            totalSalesNet += net;
+            totalSalesVat += vat;
+            if (rate === 25 || rate === 12 || rate === 6) {
+              outgoingByRate[rate] += vat;
+            }
+          }
+
+          const key = `${tx.type}:${rate}:${tx.basAccount}`;
+          const existing = breakdown.get(key);
+          if (existing) {
+            existing.net += tx.type === 'cost' ? Math.abs(net) : net;
+            existing.vat += tx.type === 'cost' ? Math.abs(vat) : vat;
+            existing.gross += tx.type === 'cost' ? Math.abs(gross) : gross;
+            existing.count += 1;
+          } else {
+            breakdown.set(key, {
+              rate,
+              type: tx.type,
+              net: tx.type === 'cost' ? Math.abs(net) : net,
+              vat: tx.type === 'cost' ? Math.abs(vat) : vat,
+              gross: tx.type === 'cost' ? Math.abs(gross) : gross,
+              count: 1,
+              bas_account: tx.basAccount,
+              description: tx.type === 'sale'
+                ? (rate === 0 ? 'Försäljning 0% (momsfritt)' : `Försäljning ${rate}%`)
+                : `Kostnader ${rate}%`,
+            });
+          }
+        }
+
+        const outgoing25 = outgoingByRate[25] || 0;
+        const outgoing12 = outgoingByRate[12] || 0;
+        const outgoing6 = outgoingByRate[6] || 0;
+        const totalOutgoing = outgoing25 + outgoing12 + outgoing6;
+        const netVat = totalOutgoing - incomingVat;
+
+        const period = body.period || new Date().toISOString().substring(0, 7);
+        const companyName = body.company_name || 'Företag';
+
+        report = {
+          success: true,
+          period,
+          company_name: companyName,
+          summary: {
+            total_sales: centsToNumber(totalSalesNet),
+            total_sales_vat: centsToNumber(totalSalesVat),
+            total_costs: centsToNumber(totalCostsNet),
+            total_costs_vat: centsToNumber(totalCostsVat),
+            result: centsToNumber(totalSalesNet - totalCostsNet)
+          },
+          vat_breakdown: Array.from(breakdown.values()).map((b) => ({
+            rate: b.rate,
+            type: b.type,
+            net_amount: centsToNumber(b.net),
+            vat_amount: centsToNumber(b.vat),
+            gross_amount: centsToNumber(b.gross),
+            transaction_count: b.count,
+            bas_account: b.bas_account,
+            description: b.description
+          })),
+          transactions: parsedTxs.map((t) => ({
+            amount: centsToNumber(t.amountCents),
+            net_amount: centsToNumber(t.netCents),
+            vat_amount: centsToNumber(t.vatCents),
+            vat_rate: t.vatRate,
+            description: t.description,
+            date: t.date,
+            type: t.type,
+            bas_account: t.basAccount
+          })),
+          vat: {
+            outgoing_25: centsToNumber(outgoing25),
+            outgoing_12: centsToNumber(outgoing12),
+            outgoing_6: centsToNumber(outgoing6),
+            incoming: centsToNumber(incomingVat),
+            net: centsToNumber(netVat),
+            to_pay: netVat > 0 ? centsToNumber(netVat) : 0,
+            to_refund: netVat < 0 ? centsToNumber(Math.abs(netVat)) : 0
+          },
+          validation: {
+            passed: warnings.length === 0,
+            warnings,
+            notes: `Deterministisk beräkning av ${parsedTxs.length} rader (öre).`
+          },
+          verification: {
+            method: patternSuggestions.length > 0 ? 'patterns+deterministic' : 'deterministic-general',
+            patterns_found: patternSuggestions.length,
+            mapping
+          }
+        };
       }
 
       // ═══════════════════════════════════════════════════════════════════
@@ -744,24 +1240,41 @@ Svara med JSON:
       // ═══════════════════════════════════════════════════════════════════
       if (userId && body.conversation_id) {
         await sendProgress({
-          step: 'saving',
+          step: 'normalizing',
           message: 'Sparar rapport...',
           progress: 0.9
         });
 
-        const { error: dbError } = await supabaseAdmin
-          .from('vat_reports')
-          .insert({
-            user_id: userId,
-            conversation_id: body.conversation_id,
-            period: report.period || body.period,
-            company_name: report.company_name || body.company_name,
-            report_data: report,
-            source_filename: body.filename
-          });
+        const { data: conversation, error: conversationError } = await supabaseAdmin
+          .from('conversations')
+          .select('id')
+          .eq('id', body.conversation_id)
+          .eq('user_id', userId)
+          .maybeSingle();
 
-        if (dbError) {
-          logger.warn('Failed to save report', { error: dbError });
+        if (conversationError) {
+          logger.warn('Failed to verify conversation ownership, skipping report save', {
+            conversationId: body.conversation_id,
+            userId,
+            error: conversationError.message
+          });
+        } else if (!conversation) {
+          logger.warn('Conversation not found or not owned, skipping report save', { conversationId: body.conversation_id, userId });
+        } else {
+          const { error: dbError } = await supabaseAdmin
+            .from('vat_reports')
+            .insert({
+              user_id: userId,
+              conversation_id: body.conversation_id,
+              period: report.period || body.period,
+              company_name: report.company_name || body.company_name,
+              report_data: report,
+              source_filename: body.filename
+            });
+
+          if (dbError) {
+            logger.warn('Failed to save report', { error: dbError.message });
+          }
         }
       }
 
@@ -779,7 +1292,7 @@ Svara med JSON:
             filename: body.filename,
             rows_analyzed: dataRows.length,
             file_type: isMontaFile ? 'monta_ev_charging' : 'general',
-            parser: (report.verification as { method?: string })?.method || (isMontaFile ? 'deterministic' : 'claude-ai')
+            parser: (report.verification as { method?: string })?.method || (isMontaFile ? 'deterministic' : 'deterministic-general')
           }
         }
       });
@@ -787,7 +1300,7 @@ Svara med JSON:
       await writer.close();
 
     } catch (error) {
-      logger.error('Analysis failed', { error });
+      logger.error('Analysis failed', error);
       await sendProgress({
         step: 'error',
         error: error instanceof Error ? error.message : 'Okänt fel uppstod'

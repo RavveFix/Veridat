@@ -4,9 +4,9 @@
   "description": "Britta - AI Bokföringsexpert för svenska småföretagare",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
+    "dev": "vite --config apps/web/vite.config.ts",
+    "build": "tsc -p apps/web/tsconfig.json && vite build --config apps/web/vite.config.ts",
+    "preview": "vite preview --config apps/web/vite.config.ts",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:serve": "supabase functions serve gemini-chat",
@@ -33,6 +33,7 @@
     "@supabase/supabase-js": "^2.39.0",
     "@types/dompurify": "^3.0.5",
     "dompurify": "^3.3.1",
+    "pdfjs-dist": "^4.10.38",
     "preact": "^10.27.2",
     "xlsx": "^0.18.5"
   }

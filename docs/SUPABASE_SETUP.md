@@ -22,21 +22,22 @@ supabase login
 supabase link --project-ref your-project-ref-here
 ```
 
-## Steg 4: Sätt Gemini API-nyckel
+## Steg 4: Sätt AI-secrets (OpenAI eller Gemini)
 
-Din Gemini API-nyckel måste sparas som en secret i Supabase:
+### OpenAI (rekommenderat)
+
+```bash
+supabase secrets set OPENAI_API_KEY=sk-...
+supabase secrets set OPENAI_MODEL=gpt-5.2
+supabase secrets set LLM_PROVIDER=openai
+```
+
+### Gemini (om du vill köra Gemini)
 
 ```bash
 supabase secrets set GEMINI_API_KEY=your_gemini_api_key_here
-```
-
-### (Valfritt) Byt AI-modeller via env
-
-Du kan byta modell utan kodändring genom att sätta dessa secrets:
-
-```bash
-supabase secrets set GEMINI_MODEL=gemini-2.5-pro
-supabase secrets set CLAUDE_MODEL=claude-sonnet-4-20250514
+supabase secrets set GEMINI_MODEL=gemini-2.5-flash
+supabase secrets set LLM_PROVIDER=gemini
 ```
 
 Mer detaljer: `docs/AI_MODELS.md`

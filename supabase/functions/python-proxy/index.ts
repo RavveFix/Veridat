@@ -7,7 +7,6 @@ import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
 
-// @ts-expect-error - Deno npm: specifier
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const logger = createLogger('python-proxy');
@@ -107,12 +106,6 @@ Deno.serve(async (req: Request) => {
     // Initialize Python API Service
     const pythonAPI = new PythonAPIService();
 
-    // Debug: Log received data size
-    logger.debug('File data received', {
-      length: body.file_data?.length || 0,
-      preview: body.file_data?.substring(0, 50)
-    });
-
     // Prepare request for Python API
     const vatRequest: VATAnalysisRequest = {
       file_data: body.file_data,
@@ -136,42 +129,59 @@ Deno.serve(async (req: Request) => {
 
     // Save to database if we have a real user id + conversation id
     if (userId && body.conversation_id) {
-      type VatReportData = {
-        period?: string;
-        company?: { name?: string; org_number?: string };
-        summary?: unknown;
-        vat?: unknown;
-        [key: string]: unknown;
-      };
+      const { data: conversation, error: conversationError } = await supabaseAdmin
+        .from('conversations')
+        .select('id')
+        .eq('id', body.conversation_id)
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      type VatReportResponse = {
-        type?: string;
-        data?: VatReportData;
-        [key: string]: unknown;
-      };
-
-      const typedReport = vatReport as unknown as VatReportResponse;
-      const reportData = typedReport.data;
-      const companyName = reportData?.company?.name || body.company_name || '';
-      const orgNumber = reportData?.company?.org_number || body.org_number || '';
-
-      const normalizedReportData = reportData
-        ? { ...reportData, company_name: companyName, org_number: orgNumber }
-        : typedReport;
-
-      const { error: dbError } = await supabaseAdmin
-        .from('vat_reports')
-        .insert({
-          user_id: userId,
-          conversation_id: body.conversation_id,
-          period: reportData?.period || body.period,
-          company_name: companyName,
-          report_data: normalizedReportData,
-          source_filename: body.filename
+      if (conversationError) {
+        logger.warn('Failed to verify conversation ownership, skipping report save', {
+          conversationId: body.conversation_id,
+          userId,
+          error: conversationError.message
         });
+      } else if (!conversation) {
+        logger.warn('Conversation not found or not owned, skipping report save', { conversationId: body.conversation_id, userId });
+      } else {
+        type VatReportData = {
+          period?: string;
+          company?: { name?: string; org_number?: string };
+          summary?: unknown;
+          vat?: unknown;
+          [key: string]: unknown;
+        };
 
-      if (dbError) {
-        logger.warn('Failed to save report', { error: dbError });
+        type VatReportResponse = {
+          type?: string;
+          data?: VatReportData;
+          [key: string]: unknown;
+        };
+
+        const typedReport = vatReport as unknown as VatReportResponse;
+        const reportData = typedReport.data;
+        const companyName = reportData?.company?.name || body.company_name || '';
+        const orgNumber = reportData?.company?.org_number || body.org_number || '';
+
+        const normalizedReportData = reportData
+          ? { ...reportData, company_name: companyName, org_number: orgNumber }
+          : typedReport;
+
+        const { error: dbError } = await supabaseAdmin
+          .from('vat_reports')
+          .insert({
+            user_id: userId,
+            conversation_id: body.conversation_id,
+            period: reportData?.period || body.period,
+            company_name: companyName,
+            report_data: normalizedReportData,
+            source_filename: body.filename
+          });
+
+        if (dbError) {
+          logger.warn('Failed to save report', { error: dbError.message });
+        }
       }
     }
 
@@ -185,8 +195,6 @@ Deno.serve(async (req: Request) => {
     });
 
   } catch (error) {
-    logger.error('Request failed', error);
-
     // Preserve error details from Python API for better debugging
     let errorResponse: {
       error: string;
@@ -220,7 +228,7 @@ Deno.serve(async (req: Request) => {
       };
     }
 
-    logger.error('Sending error response', undefined, errorResponse);
+    logger.error('Request failed', error, errorResponse);
 
     return new Response(JSON.stringify(errorResponse), {
       status: 500,

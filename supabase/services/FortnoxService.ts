@@ -1,7 +1,6 @@
 /// <reference path="../types/deno.d.ts" />
 
-// @ts-expect-error - Deno npm: specifier
-import { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { createLogger } from './LoggerService.ts';
 import type {
     FortnoxCustomerListResponse,

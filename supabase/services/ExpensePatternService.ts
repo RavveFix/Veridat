@@ -1,8 +1,7 @@
 // Expense Pattern Service for Supabase Edge Functions
 // Handles pattern matching and learning for expense categorization
 
-// @ts-expect-error - Deno npm: specifier
-import { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 // =============================================================================
 // INTERFACES

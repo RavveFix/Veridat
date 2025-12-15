@@ -2,12 +2,12 @@
 /// <reference path="../../types/deno.d.ts" />
 
 import { sendMessageToGemini, type FileData } from "../../services/GeminiService.ts";
+import { sendMessageToOpenAI } from "../../services/OpenAIService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { ConversationService } from "../../services/ConversationService.ts";
 import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
 
-// @ts-expect-error - Deno npm: specifier
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { FortnoxService } from "../../services/FortnoxService.ts";
 
@@ -16,6 +16,8 @@ const logger = createLogger('gemini-chat');
 interface RequestBody {
     message: string;
     fileData?: FileData;
+    fileDataPages?: Array<FileData & { pageNumber?: number }>;
+    documentText?: string | null;
     history?: Array<{ role: string, content: string }>;
     conversationId?: string;
     companyId?: string | null;
@@ -44,7 +46,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        let { message, fileData, history, conversationId, companyId, fileUrl, fileName, vatReportContext }: RequestBody = await req.json();
+        let { message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext }: RequestBody = await req.json();
 
         if (!message) {
             return new Response(
@@ -114,6 +116,38 @@ Deno.serve(async (req: Request) => {
 
         logger.info('Rate limit check passed', { userId, remaining: rateLimit.remaining });
 
+        // Verify that the conversation (if provided) belongs to the authenticated user.
+        // This prevents reading/writing data across users when using the service role key.
+        if (conversationId) {
+            const { data: conversation, error: conversationError } = await supabaseAdmin
+                .from('conversations')
+                .select('id')
+                .eq('id', conversationId)
+                .eq('user_id', userId)
+                .maybeSingle();
+
+            if (conversationError) {
+                logger.error('Failed to verify conversation ownership', conversationError, { conversationId, userId });
+                return new Response(
+                    JSON.stringify({ error: 'conversation_verification_failed' }),
+                    {
+                        status: 500,
+                        headers: { ...corsHeaders, "Content-Type": "application/json" },
+                    }
+                );
+            }
+
+            if (!conversation) {
+                return new Response(
+                    JSON.stringify({ error: 'conversation_not_found' }),
+                    {
+                        status: 404,
+                        headers: { ...corsHeaders, "Content-Type": "application/json" },
+                    }
+                );
+            }
+        }
+
         // Save messages to database if conversationId is provided
         // We save the user message FIRST, before calling Gemini, to ensure it's recorded
         // even if the AI call fails. This creates an audit trail of user requests.
@@ -141,7 +175,7 @@ Deno.serve(async (req: Request) => {
                 userMessageSaved = true;
                 logger.info('User message saved to database', { conversationId });
             } catch (saveError) {
-                logger.error('Failed to save user message', { error: saveError });
+                logger.error('Failed to save user message', saveError, { conversationId, userId });
                 // Continue anyway - user experience takes priority over persistence
                 // The message will still be processed by Gemini
             }
@@ -183,7 +217,10 @@ Deno.serve(async (req: Request) => {
                     logger.info('Fetched VAT report context from DB', { conversationId });
                 }
             } catch (fetchError) {
-                logger.warn('Failed to fetch VAT report from DB', fetchError);
+                logger.warn('Failed to fetch VAT report from DB', {
+                    conversationId,
+                    error: fetchError instanceof Error ? fetchError.message : String(fetchError)
+                });
             }
         }
 
@@ -218,8 +255,42 @@ ANVÄNDARFRÅGA:
             finalMessage = contextMessage + message;
         }
 
-        // Call Gemini Service with history
-        const geminiResponse = await sendMessageToGemini(finalMessage, fileData, history);
+        const safeDocumentText = (documentText || '').trim();
+        if (safeDocumentText) {
+            const MAX_DOC_CHARS = 50_000;
+            const truncated = safeDocumentText.length > MAX_DOC_CHARS
+                ? `${safeDocumentText.slice(0, MAX_DOC_CHARS)}\n\n[...trunkerad...]`
+                : safeDocumentText;
+            finalMessage = `DOKUMENTKONTEXT (text-utdrag från bifogat dokument):\n\n${truncated}\n\n${finalMessage}`;
+        }
+
+        // Provider switch (default: Gemini). When OpenAI is selected, we do NOT fall back silently.
+        const provider = (Deno.env.get('LLM_PROVIDER') || 'gemini').toLowerCase();
+
+        const primaryImage = fileData?.mimeType?.startsWith('image/') ? fileData : undefined;
+        const imagePages = (fileDataPages || []).filter((p) => p?.mimeType?.startsWith('image/') && !!p.data);
+        const geminiFileData = primaryImage || (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
+
+        const hasUnsupportedNonImage = provider === 'openai'
+            && !!fileData
+            && !fileData.mimeType.startsWith('image/')
+            && imagePages.length === 0
+            && !safeDocumentText;
+
+        if (hasUnsupportedNonImage) {
+            logger.warn('Unsupported non-image attachment for OpenAI', { mimeType: fileData?.mimeType, fileName });
+            return new Response(
+                JSON.stringify({
+                    error: 'unsupported_attachment',
+                    message: 'Jag kunde inte läsa den bifogade filen. Prova att ladda upp PDF:en igen (helst textbaserad) eller som bild.'
+                }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        const geminiResponse = provider === 'openai'
+            ? await sendMessageToOpenAI(finalMessage, primaryImage, imagePages, history)
+            : await sendMessageToGemini(finalMessage, geminiFileData, history);
 
 
         // Handle Tool Calls
@@ -280,7 +351,7 @@ ANVÄNDARFRÅGA:
                         responseText = `Jag vet inte hur jag ska använda verktyget ${tool}.`;
                 }
             } catch (err: unknown) {
-                logger.error('Tool execution failed', { tool, error: err });
+                logger.error('Tool execution failed', err, { tool, userId });
                 const errorMessage = err instanceof Error ? err.message : 'Unknown error';
 
                 // Categorize the error for better frontend handling
@@ -363,7 +434,7 @@ ANVÄNDARFRÅGA:
                     await conversationService.autoGenerateTitle(conversationId);
                 }
             } catch (saveError) {
-                logger.error('Failed to save AI response', { error: saveError, conversationId, userMessageSaved });
+                logger.error('Failed to save AI response', saveError, { conversationId, userId, userMessageSaved });
                 // Don't fail the request if saving fails - message still sent successfully
                 // User message exists in DB, this creates an "orphan" but preserves data integrity
             }
@@ -378,7 +449,7 @@ ANVÄNDARFRÅGA:
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
     } catch (error) {
-        logger.error('Edge Function Error', { error });
+        logger.error('Edge Function Error', error);
 
         return new Response(
             JSON.stringify({

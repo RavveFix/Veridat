@@ -5,56 +5,39 @@ Den här appen pratar med AI via Supabase Edge Functions. Frontend anropar bara 
 ## Var i koden sitter AI:n?
 
 - Chat: `supabase/functions/gemini-chat/index.ts`
+- OpenAI-klient: `supabase/services/OpenAIService.ts`
 - Gemini-klient: `supabase/services/GeminiService.ts`
-- Excel fallback (Claude): `supabase/functions/analyze-excel-ai/index.ts` och `supabase/functions/claude-analyze/index.ts`
-- Frontend-anropet till chat: `src/services/ChatService.ts`
+- PDF-prepp (text + ev. sidbilder): `apps/web/src/services/FileService.ts` (`extractPdfForChat`)
+- Excel (deterministisk matematik): `supabase/functions/analyze-excel-ai/index.ts`
+- Frontend-anropet till chat: `apps/web/src/services/ChatService.ts`
 
-## Snabbt: byt Gemini-modell (utan kod)
+## Kör OpenAI (GPT‑5.2)
 
-Gemini-modellen läses från env/secrets:
-
-- `GEMINI_MODEL` (default: `gemini-2.5-flash`)
-
-Sätt/ändra med Supabase CLI:
+Sätt secrets i Supabase:
 
 ```bash
-supabase secrets set GEMINI_MODEL=gemini-2.5-pro
+supabase secrets set OPENAI_API_KEY=sk-...
+supabase secrets set OPENAI_MODEL=gpt-5.2
+supabase secrets set LLM_PROVIDER=openai
 ```
 
-## Snabbt: byt Claude/Anthropic-modell (Excel-fallback)
+Obs:
+- GPT‑5-modeller kräver `max_completion_tokens` (inte `max_tokens`) i Chat Completions. Detta är redan hanterat i backend.
+- PDF skickas som extraherad text + ev. sidbilder (för scannade PDFs). Ingen “tyst” fallback till annan provider.
+- `analyze-excel-ai` räknar alltid deterministiskt (öre) och använder OpenAI bara för kolumnmappning om heuristiken inte räcker.
 
-Claude-modellen kan styras via:
-
-- `CLAUDE_MODEL` eller `ANTHROPIC_MODEL` (default: `claude-sonnet-4-20250514`)
-
-Exempel:
+## Kör Gemini (om du vill)
 
 ```bash
-supabase secrets set CLAUDE_MODEL=claude-sonnet-4-20250514
+supabase secrets set GEMINI_API_KEY=your_gemini_api_key_here
+supabase secrets set GEMINI_MODEL=gemini-2.5-flash
+supabase secrets set LLM_PROVIDER=gemini
 ```
-
-## Byta till ChatGPT/OpenAI senare (rekommenderat upplägg)
-
-Idag är `gemini-chat` kopplad till Gemini. För att enkelt kunna ha flera providers framåt, gör så här:
-
-1. Skapa en gemensam “provider”-interface (t.ex. `sendMessage({ message, history, fileData, tools })`).
-2. Implementera en adapter per provider:
-   - `GeminiProvider` (befintlig logik från `GeminiService.ts`)
-   - `OpenAIProvider` (ny) med `OPENAI_API_KEY` + `OPENAI_MODEL`
-   - (ev. Anthropic för chat)
-3. I `supabase/functions/gemini-chat/index.ts` väljer du provider via env:
-   - `LLM_PROVIDER=gemini|openai|anthropic`
-4. Logga/spara `provider` + `model` på varje AI-svar (bra för debugging, kostnad, QA).
-
-Minimal “toggle” du vill åt:
-
-- Ändra bara env: `LLM_PROVIDER` + `*_MODEL`, utan att ändra frontend.
 
 ## Deploy
 
-Efter kodändringar i Edge Functions:
+Efter kodändringar:
 
 ```bash
 supabase functions deploy gemini-chat analyze-excel-ai python-proxy
 ```
-
