@@ -5,6 +5,9 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.32.1";
 // @ts-expect-error - Deno npm: specifier
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { createLogger } from "../../services/LoggerService.ts";
+
+const logger = createLogger('claude-analyze');
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -371,7 +374,7 @@ Deno.serve(async (req: Request) => {
 
         const client = new Anthropic({ apiKey });
 
-        console.log(`Analyzing Excel file: ${filename} with ${Object.keys(sheets).length} sheets`);
+        logger.info(`Analyzing Excel file: ${filename}`, { sheetCount: Object.keys(sheets).length });
 
         // Convert sheets to formatted text for Claude
         let excelText = `Excel-fil: ${filename}\n\n`;
@@ -396,7 +399,7 @@ Deno.serve(async (req: Request) => {
             excelText += '\n';
         }
 
-        console.log('Formatted Excel text length:', excelText.length);
+        logger.debug('Formatted Excel text', { length: excelText.length });
 
         // Call Claude with text instead of document
         // Model can be overridden via Supabase secrets/env
@@ -449,7 +452,7 @@ Använd create_vat_report tool för att returnera strukturerad data.`
             }]
         });
 
-        console.log("Claude response received");
+        logger.info("Claude response received");
 
         // Extract tool use result
         const toolUse = response.content.find((c: any) => c.type === 'tool_use');
@@ -487,28 +490,29 @@ Använd create_vat_report tool för att returnera strukturerad data.`
         const totalSalesAmount = report.sales.reduce((sum: number, s: any) => sum + s.net + s.vat, 0);
         const totalCostsAmount = report.costs.reduce((sum: number, c: any) => sum + c.net + c.vat, 0);
 
-        console.log('Validation check:');
-        console.log(`- Sales count: ${report.sales.length}`);
-        console.log(`- Costs count: ${report.costs.length}`);
-        console.log(`- Total sales amount: ${totalSalesAmount.toFixed(2)} SEK`);
-        console.log(`- Total costs amount: ${totalCostsAmount.toFixed(2)} SEK`);
-        console.log(`- Reported total_income: ${report.summary.total_income.toFixed(2)} SEK`);
-        console.log(`- Reported total_costs: ${report.summary.total_costs.toFixed(2)} SEK`);
+        logger.info('Validation check', {
+            salesCount: report.sales.length,
+            costsCount: report.costs.length,
+            totalSalesAmount: totalSalesAmount.toFixed(2),
+            totalCostsAmount: totalCostsAmount.toFixed(2),
+            reportedTotalIncome: report.summary.total_income.toFixed(2),
+            reportedTotalCosts: report.summary.total_costs.toFixed(2)
+        });
 
         // Check if sums match (with 1 SEK tolerance for rounding)
         if (Math.abs(totalSalesAmount - report.summary.total_income) > 1) {
-            console.warn(`WARNING: Sales sum mismatch: ${totalSalesAmount} vs ${report.summary.total_income}`);
+            logger.warn(`Sales sum mismatch`, { calculated: totalSalesAmount, reported: report.summary.total_income });
             if (!report.validation.warnings) report.validation.warnings = [];
             report.validation.warnings.push(`Försäljningssumma stämmer inte: ${totalSalesAmount.toFixed(2)} SEK vs rapporterad ${report.summary.total_income.toFixed(2)} SEK`);
         }
 
         if (Math.abs(totalCostsAmount - report.summary.total_costs) > 1) {
-            console.warn(`WARNING: Costs sum mismatch: ${totalCostsAmount} vs ${report.summary.total_costs}`);
+            logger.warn(`Costs sum mismatch`, { calculated: totalCostsAmount, reported: report.summary.total_costs });
             if (!report.validation.warnings) report.validation.warnings = [];
             report.validation.warnings.push(`Kostnadssumma stämmer inte: ${totalCostsAmount.toFixed(2)} SEK vs rapporterad ${report.summary.total_costs.toFixed(2)} SEK`);
         }
 
-        console.log(`Analysis complete for period: ${report.period}`);
+        logger.info(`Analysis complete`, { period: report.period });
 
         return new Response(
             JSON.stringify({
@@ -522,7 +526,7 @@ Använd create_vat_report tool för att returnera strukturerad data.`
         );
 
     } catch (error) {
-        console.error("Claude analysis error:", error);
+        logger.error("Claude analysis error", error);
         return new Response(
             JSON.stringify({
                 error: error instanceof Error ? error.message : "Internal server error",

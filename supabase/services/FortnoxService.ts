@@ -2,6 +2,7 @@
 
 // @ts-expect-error - Deno npm: specifier
 import { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import { createLogger } from './LoggerService.ts';
 import type {
     FortnoxCustomerListResponse,
     FortnoxArticleListResponse,
@@ -21,6 +22,8 @@ interface FortnoxTokenRecord {
     refresh_token: string;
     expires_at: string;
 }
+
+const logger = createLogger('fortnox');
 
 export class FortnoxService {
     private clientId: string;
@@ -48,7 +51,7 @@ export class FortnoxService {
             .single();
 
         if (error || !data) {
-            console.error("Error fetching Fortnox tokens:", error);
+            logger.error("Error fetching Fortnox tokens", error);
             throw new Error("Could not retrieve Fortnox credentials.");
         }
 
@@ -59,7 +62,7 @@ export class FortnoxService {
 
         // Refresh if expired or expiring in less than 5 minutes
         if (now >= expiresAt - 5 * 60 * 1000) {
-            console.log("Token expired or expiring soon. Refreshing...");
+            logger.info("Token expired or expiring soon, refreshing");
             return await this.refreshAccessToken(data.refresh_token, data.id);
         }
 
@@ -110,14 +113,14 @@ export class FortnoxService {
                 .eq('id', rowId);
 
             if (updateError) {
-                console.error("Failed to update tokens in DB:", updateError);
-                // We still return the access token so the current request succeeds, 
+                logger.error("Failed to update tokens in DB", updateError);
+                // We still return the access token so the current request succeeds,
                 // but the next one might fail if DB isn't updated.
             }
 
             return access_token;
         } catch (error) {
-            console.error("Error refreshing Fortnox token:", error);
+            logger.error("Error refreshing Fortnox token", error);
             throw error;
         }
     }
