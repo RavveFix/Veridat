@@ -378,3 +378,112 @@ export const sendMessageToGemini = async (
         throw error;
     }
 };
+
+/**
+ * Send a message to Gemini and get a stream of responses
+ */
+export const sendMessageStreamToGemini = async (
+    message: string,
+    fileData?: FileData,
+    history?: Array<{ role: string, content: string }>,
+    apiKey?: string
+) => {
+    try {
+        const key = apiKey || Deno.env.get("GEMINI_API_KEY");
+        if (!key) throw new Error("GEMINI_API_KEY not found");
+
+        const genAI = new GoogleGenerativeAI(key);
+        const modelName = Deno.env.get("GEMINI_MODEL") || "gemini-2.0-flash";
+        const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: SYSTEM_INSTRUCTION,
+            tools: tools,
+        });
+
+        const contents = [];
+        if (history && history.length > 0) {
+            for (const msg of history) {
+                contents.push({
+                    role: msg.role === 'user' ? 'user' : 'model',
+                    parts: [{ text: msg.content }]
+                });
+            }
+        }
+
+        const currentParts = [];
+        if (fileData) {
+            currentParts.push({
+                inlineData: {
+                    mimeType: fileData.mimeType,
+                    data: fileData.data,
+                },
+            });
+        }
+        currentParts.push({ text: message });
+        contents.push({ role: "user", parts: currentParts });
+
+        // Start streaming
+        const result = await model.generateContentStream({
+            contents: contents,
+            generationConfig: {
+                temperature: 0.4,
+                maxOutputTokens: 2048,
+            },
+        });
+
+        return result.stream;
+    } catch (error) {
+        logger.error("Gemini Streaming API Error", error);
+        throw error;
+    }
+};
+
+/**
+ * Generate a short, descriptive title for a conversation (max 5 words)
+ * Uses Gemini Flash for speed and low cost
+ */
+export const generateConversationTitle = async (
+    userMessage: string,
+    aiResponse: string,
+    apiKey?: string
+): Promise<string> => {
+    try {
+        const key = apiKey || Deno.env.get("GEMINI_API_KEY");
+        if (!key) {
+            logger.warn("No API key for title generation, using fallback");
+            return userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : '');
+        }
+
+        const genAI = new GoogleGenerativeAI(key);
+        // Use flash model for speed and low cost
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+        const prompt = `Generera en kort svensk titel (max 5 ord) som sammanfattar denna konversation. Svara ENDAST med titeln, inget annat.
+
+Användare: ${userMessage.substring(0, 300)}
+AI: ${aiResponse.substring(0, 300)}
+
+Titel:`;
+
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+                temperature: 0.3,
+                maxOutputTokens: 30,
+            },
+        });
+
+        const title = result.response.text()?.trim();
+
+        // Validate and clean the title
+        if (!title || title.length < 2 || title.length > 60) {
+            return userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : '');
+        }
+
+        // Remove quotes if AI added them
+        return title.replace(/^["']|["']$/g, '').trim();
+    } catch (error) {
+        logger.warn("Title generation failed, using fallback", { error });
+        return userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : '');
+    }
+};
