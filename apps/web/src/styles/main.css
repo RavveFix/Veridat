@@ -969,8 +969,8 @@ h1 {
     /* Force flex item to respect overflow */
     overflow-y: auto;
     padding: 2rem;
-    padding-bottom: 120px;
-    /* Space for fixed footer */
+    padding-bottom: 1rem;
+    /* No need for large padding - flex layout handles input placement */
     display: flex;
     flex-direction: column;
     scroll-behavior: smooth;
@@ -991,8 +991,8 @@ h1 {
     flex-direction: column;
     gap: 1.5rem;
     /* Modern SaaS spacing */
-    padding-bottom: 2rem;
-    /* Space after last message */
+    padding-bottom: 1rem;
+    /* Just a small buffer after last message */
 }
 
 .message {
@@ -1630,15 +1630,13 @@ h1 {
 
 /* Floating Input */
 .floating-input-container {
-    padding: 2rem;
+    padding: 1rem 2rem 2rem;
     display: flex !important;
     justify-content: center;
-    background: linear-gradient(to top, var(--main-bg) 60%, transparent);
+    background: linear-gradient(to top, var(--main-bg) 80%, transparent);
     z-index: 100;
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    flex-shrink: 0;
+    /* No more position: absolute - proper flex child now */
     width: 100%;
     pointer-events: none;
     visibility: visible !important;
@@ -1753,9 +1751,7 @@ h1 {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    position: relative;
-    padding-bottom: 0;
-    /* floating input handles spacing via padding in chat-container if needed, or overlay */
+    /* No position: relative needed - using flex layout like Claude/ChatGPT */
 }
 
 .workspace-split {
