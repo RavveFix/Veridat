@@ -51,8 +51,17 @@
                         width: 48px;
                         height: 48px;
                         border-radius: 50%;
-                        background: radial-gradient(circle at 30% 25%, var(--orb-highlight) 0%, var(--orb-mid) 45%, var(--orb-shadow) 100%);
-                        box-shadow: inset 0 0 0 1px var(--orb-edge);
+                        /* Unified High-Fidelity 3D Shading (Grey) */
+                        background: radial-gradient(circle at 35% 35%, 
+                            #cbd5e1 0%,  /* High: Slate-300 */
+                            #94a3b8 45%, /* Mid: Slate-400 */
+                            #475569 100% /* Shadow: Slate-600 */
+                        );
+                        box-shadow: 
+                            inset 2px 2px 3px rgba(255, 255, 255, 0.9),
+                            inset -2px -2px 10px rgba(255, 255, 255, 0.4),
+                            inset -5px -5px 15px rgba(15, 23, 42, 0.5),
+                            0 4px 12px rgba(0, 0, 0, 0.2);
                         animation: loader-pulse 2s ease-in-out infinite;
                     }
 
@@ -79,8 +88,15 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
+                <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle sidebar">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="8" x2="21" y2="8"></line>
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="16" x2="21" y2="16"></line>
+                    </svg>
+                </button>
                 <div class="logo-area">
-                    <div class="logo-icon britta-orb"></div>
+                    <div class="logo-icon chat-orb"></div>
                     <span class="logo-text">Britta</span>
                 </div>
             </div>
@@ -92,11 +108,11 @@
                     </svg>
                     Ny konversation
                 </button>
+                <div id="conversation-search-root"></div>
             </div>
 
             <div class="sidebar-nav">
                 <div class="nav-section">
-                    <span class="nav-label">Sparade</span>
                     <div id="conversation-list-container">
                         <!-- ConversationList mounted here -->
                     </div>
@@ -104,25 +120,32 @@
             </div>
 
             <div class="sidebar-footer">
+                <button id="integrations-btn" class="nav-item">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                    </svg>
+                    <span>Integreringar</span>
+                </button>
                 <button id="contact-btn" class="nav-item">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
                         <polyline points="22,6 12,13 2,6"></polyline>
                     </svg>
-                    Kontakta oss
+                    <span>Kontakta oss</span>
                 </button>
                 <button id="settings-btn" class="nav-item">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                         <circle cx="12" cy="7" r="4"></circle>
                     </svg>
-                    Inställningar
+                    <span>Inställningar</span>
                 </button>
                 <button id="theme-toggle" class="nav-item">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
                     </svg>
-                    Tema
+                    <span>Tema</span>
                 </button>
             </div>
         </aside>
@@ -131,10 +154,24 @@
         <main class="main-content">
             <header class="top-bar">
                 <div class="current-context">
+                    <span class="current-company-name" id="current-company-name"></span>
                 </div>
                 <div class="actions">
+                    <div id="memory-indicator-root"></div>
                     <div class="company-selector">
-                        <select id="company-select" class="company-dropdown"></select>
+                        <span class="company-label">Företag</span>
+                        <div class="company-select">
+                            <select id="company-select" class="company-dropdown"></select>
+                            <svg class="company-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                        </div>
+                        <button id="edit-company-btn" class="edit-company-btn" title="Redigera företag">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                        </button>
                     </div>
                 </div>
             </header>
@@ -144,7 +181,7 @@
                 <div class="chat-wrapper chat-section">
                     <!-- Welcome Hero -->
                     <div class="welcome-hero">
-                        <div class="hero-avatar britta-orb large"></div>
+                        <div class="hero-avatar chat-orb large"></div>
                         <h1>Hej där 👋</h1>
                         <p>Berätta vad du behöver, så sköter vi resten.</p>
 
@@ -185,7 +222,7 @@
                                 <button type="button" class="remove-file">×</button>
                             </div>
 
-                            <div class="input-row">
+                            <div class="text-input-container">
                                 <!-- Combined Attach Button (formerly menu-btn) -->
                                 <input type="file" id="file-input" hidden>
                                 <button type="button" id="attach-btn" class="input-action-btn" title="Bifoga">
@@ -265,10 +302,11 @@
         </main>
     </div>
 
-    <!-- Modals (Settings, Company, Legal) remain -->
+    <!-- Modals (Settings, Company, Legal, Integrations) remain -->
     <div id="settings-modal-container"></div>
+    <div id="integrations-modal-container"></div>
     <div id="legal-modal-container"></div>
-    <div id="company-modal" class="modal hidden" style="display: none;">
+    <div id="company-modal" class="modal hidden">
         <!-- Content preserved from original ... -->
         <div class="modal-content">
             <div class="modal-header">
@@ -287,10 +325,28 @@
                 </div>
                 <!-- ... other fields ... -->
                 <div class="modal-footer">
-                    <button type="button" id="cancel-modal-btn" class="secondary-btn">Avbryt</button>
-                    <button type="submit" id="submit-btn" class="primary-btn">Skapa bolag</button>
+                    <button type="button" id="delete-company-btn" class="danger-btn hidden">Ta bort företag</button>
+                    <div class="modal-footer-right">
+                        <button type="button" id="cancel-modal-btn" class="secondary-btn">Avbryt</button>
+                        <button type="submit" id="submit-btn" class="primary-btn">Skapa bolag</button>
+                    </div>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Company Delete Confirmation Modal -->
+    <div id="confirm-delete-company" class="confirm-modal-overlay hidden">
+        <div class="confirm-modal">
+            <h3 class="confirm-modal-title">Ta bort företag?</h3>
+            <p class="confirm-modal-body">
+                Är du säker på att du vill ta bort <strong id="delete-company-name"></strong>?
+                Detta kan inte ångras.
+            </p>
+            <div class="confirm-modal-actions">
+                <button id="cancel-delete-company" class="confirm-modal-btn">Avbryt</button>
+                <button id="confirm-delete-company-btn" class="confirm-modal-btn-danger">Ta bort</button>
+            </div>
         </div>
     </div>
 

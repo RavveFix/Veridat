@@ -49,15 +49,15 @@ class CompanyServiceClass {
 
         this.loadFromStorage();
 
-        // Create default company if none exist
+        // Create default company if none exist (skip DB sync - syncWithDatabase handles this)
         if (this.companies.length === 0) {
             const defaultCompany = this.create({
                 name: 'Mitt Företag AB',
                 orgNumber: ''
-            });
+            }, true); // skipDbSync = true
             this.currentCompanyId = defaultCompany.id;
             this.saveToStorage();
-            logger.info('Created default company', { id: defaultCompany.id });
+            logger.info('Created default company (local only)', { id: defaultCompany.id });
         }
 
         this.initialized = true;
@@ -130,11 +130,11 @@ class CompanyServiceClass {
             return this.companies[0];
         }
 
-        // No companies - create default
+        // No companies - create default (skip DB sync - syncWithDatabase handles this)
         const defaultCompany = this.create({
             name: 'Mitt Företag AB',
             orgNumber: ''
-        });
+        }, true); // skipDbSync = true
         this.currentCompanyId = defaultCompany.id;
         this.saveToStorage();
         return defaultCompany;
@@ -149,13 +149,17 @@ class CompanyServiceClass {
 
     /**
      * Create a new company
+     * @param input - Company data
+     * @param skipDbSync - If true, don't immediately sync to DB (used for placeholder companies)
      */
-    create(input: CreateCompanyInput): Company {
+    create(input: CreateCompanyInput, skipDbSync = false): Company {
         const company = createEmptyCompany(input);
         this.companies.push(company);
         this.saveToStorage();
-        logger.info('Company created', { id: company.id, name: company.name });
-        void this.upsertCompanyToDatabase(company);
+        logger.info('Company created', { id: company.id, name: company.name, skipDbSync });
+        if (!skipDbSync) {
+            void this.upsertCompanyToDatabase(company);
+        }
         return company;
     }
 
@@ -224,6 +228,9 @@ class CompanyServiceClass {
         this.currentCompanyId = id;
         this.saveToStorage();
         logger.info('Switched to company', { id, name: company.name });
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('company-changed', { detail: { companyId: id } }));
+        }
         return company;
     }
 
@@ -346,6 +353,58 @@ class CompanyServiceClass {
             && hasNoData;
     }
 
+    /**
+     * Check if a DB row represents a placeholder company
+     */
+    private isDbRowPlaceholder(row: { name: string; org_number?: string; address?: string; phone?: string }): boolean {
+        return row.name === 'Mitt Företag AB'
+            && !row.org_number
+            && !row.address
+            && !row.phone;
+    }
+
+    /**
+     * Remove duplicate placeholder companies from DB, keeping only the oldest one
+     */
+    private async cleanupDuplicatePlaceholders(
+        userId: string,
+        dbCompanies: Array<{ id: string; name: string; org_number?: string; address?: string; phone?: string; created_at?: string }>
+    ): Promise<string[]> {
+        const placeholders = dbCompanies.filter(row => this.isDbRowPlaceholder(row));
+
+        if (placeholders.length <= 1) {
+            return []; // No duplicates to clean
+        }
+
+        // Sort by created_at ascending - keep the oldest
+        placeholders.sort((a, b) => {
+            const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return dateA - dateB;
+        });
+
+        // Delete all but the first (oldest)
+        const toDelete = placeholders.slice(1);
+        const deletedIds: string[] = [];
+
+        for (const row of toDelete) {
+            const { error } = await supabase
+                .from('companies')
+                .delete()
+                .eq('user_id', userId)
+                .eq('id', row.id);
+
+            if (error) {
+                logger.error('Failed to delete duplicate placeholder', { id: row.id, error });
+            } else {
+                deletedIds.push(row.id);
+                logger.info('Deleted duplicate placeholder company', { id: row.id, name: row.name });
+            }
+        }
+
+        return deletedIds;
+    }
+
     private async getAuthenticatedUserId(): Promise<string | null> {
         if (this.dbUserId) return this.dbUserId;
 
@@ -426,11 +485,15 @@ class CompanyServiceClass {
                 return;
             }
 
+            // Clean up any duplicate placeholder companies from previous buggy syncs
+            const deletedIds = await this.cleanupDuplicatePlaceholders(userId, dbCompanies || []);
+            const cleanDbCompanies = (dbCompanies || []).filter(row => !deletedIds.includes(row.id));
+
             const safeLocalCompanies = this.companies.map((c) => this.normalizeCompany(c));
             const localById = new Map(safeLocalCompanies.map((company) => [company.id, company]));
-            const dbIds = new Set((dbCompanies || []).map((row) => row.id));
+            const dbIds = new Set(cleanDbCompanies.map((row) => row.id));
 
-            const mergedCompanies: Company[] = (dbCompanies || []).map((row) => {
+            const mergedCompanies: Company[] = cleanDbCompanies.map((row) => {
                 const local = localById.get(row.id);
                 return {
                     id: row.id,
@@ -450,7 +513,7 @@ class CompanyServiceClass {
 
             const localNotInDb = safeLocalCompanies.filter((company) => !dbIds.has(company.id));
 
-            if ((dbCompanies || []).length === 0) {
+            if (cleanDbCompanies.length === 0) {
                 // First-time sync: push local companies up (including the default company).
                 if (safeLocalCompanies.length > 0) {
                     const rows = safeLocalCompanies.map((company) => ({
@@ -507,10 +570,11 @@ class CompanyServiceClass {
             }
 
             if (this.companies.length === 0) {
+                // No companies after sync - create a fallback and sync it
                 const fallbackCompany = this.create({
                     name: 'Mitt Företag AB',
                     orgNumber: ''
-                });
+                }, false); // DO sync this one since DB is empty
                 this.companies = [fallbackCompany];
             }
 

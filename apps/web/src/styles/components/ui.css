@@ -252,6 +252,204 @@
     transform: translateY(-1px);
 }
 
+/* Rate Limit Banner - Upgrade Button */
+.rate-limit-banner__upgrade {
+    padding: 0.5rem 1rem;
+    border-radius: 99px;
+    border: none;
+    background: #1a1a1a;
+    color: #fff;
+    font-weight: 500;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.rate-limit-banner__upgrade:hover {
+    background: #2a2a2a;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Rate Limited Input State */
+#user-input.rate-limited {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--surface-bg);
+}
+
+#user-input.rate-limited::placeholder {
+    color: var(--status-danger);
+    opacity: 0.8;
+}
+
+/* Upgrade Modal */
+.upgrade-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--overlay-bg);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.2s ease;
+}
+
+.upgrade-modal {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    width: 90%;
+    max-width: 420px;
+    padding: 1.5rem;
+    box-shadow: 0 8px 32px var(--shadow-soft);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.upgrade-modal__header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.upgrade-modal__icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.upgrade-modal__title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.upgrade-modal__subtitle {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.upgrade-modal__reset-info {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #f59e0b;
+}
+
+.upgrade-modal__benefits {
+    margin-bottom: 1.5rem;
+}
+
+.upgrade-modal__benefits-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.75rem;
+}
+
+.upgrade-modal__benefit {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.upgrade-modal__benefit:last-child {
+    border-bottom: none;
+}
+
+.upgrade-modal__benefit-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+}
+
+.upgrade-modal__benefit-text {
+    flex: 1;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.upgrade-modal__benefit-text strong {
+    color: var(--accent-primary);
+}
+
+.upgrade-modal__actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.upgrade-modal__btn {
+    flex: 1;
+    padding: 0.85rem 1rem;
+    border-radius: 99px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    text-decoration: none;
+}
+
+.upgrade-modal__btn--primary {
+    background: #1a1a1a;
+    color: #fff;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.upgrade-modal__btn--primary:hover {
+    background: #2a2a2a;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.upgrade-modal__btn--secondary {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+}
+
+.upgrade-modal__btn--secondary:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
 /* Typing Indicator (Animated Dots) */
 .typing-indicator {
     display: flex;
@@ -352,6 +550,16 @@
     }
 }
 
+/* Modal Loading Spinner */
+.modal-spinner {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 3px solid rgba(0, 240, 255, 0.15);
+    border-top-color: var(--accent-primary);
+    animation: spin 1s linear infinite;
+}
+
 /* Empty State */
 .empty-state {
     display: flex;
@@ -398,4 +606,128 @@
 .empty-state-btn:hover {
     transform: scale(1.05);
     box-shadow: 0 4px 20px var(--shadow-glow);
+}
+
+.empty-state-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+/* Confirmation Modal */
+.confirm-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--overlay-bg);
+    backdrop-filter: blur(4px);
+}
+
+.confirm-modal-overlay.hidden {
+    display: none;
+}
+
+.confirm-modal {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    padding: 24px;
+    border-radius: 16px;
+    width: min(360px, 92vw);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+
+.confirm-modal-title {
+    margin: 0 0 12px 0;
+    font-size: 18px;
+    color: var(--text-primary);
+}
+
+.confirm-modal-body {
+    margin: 0 0 24px 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.confirm-modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.confirm-modal-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font-sans);
+    transition: all 0.2s ease;
+}
+
+.confirm-modal-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.confirm-modal-btn-secondary {
+    background: transparent;
+    border-color: var(--glass-border);
+    color: var(--text-primary);
+}
+
+.confirm-modal-btn-secondary:hover {
+    background: var(--surface-hover);
+}
+
+.confirm-modal-btn-danger {
+    background: var(--status-danger);
+    color: var(--text-on-danger);
+}
+
+.confirm-modal-btn-danger:hover {
+    background: var(--status-danger-hover);
+}
+
+/* Inline Toast */
+.toast-inline {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 10001;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(8px);
+    animation: toastSlideUp 0.3s ease-out;
+}
+
+.toast-inline.success {
+    background: var(--status-success-bg);
+    color: var(--status-success);
+    border: 1px solid var(--status-success-border);
+}
+
+.toast-inline.error {
+    background: var(--status-danger-bg);
+    color: var(--status-danger);
+    border: 1px solid var(--status-danger-border);
+}
+
+@keyframes toastSlideUp {
+    from {
+        transform: translate(-50%, 20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translate(-50%, 0);
+        opacity: 1;
+    }
 }
