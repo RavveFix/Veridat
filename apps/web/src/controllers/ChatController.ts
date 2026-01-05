@@ -18,6 +18,8 @@ export class ChatController {
     private currentFile: File | null = null;
     private excelWorkspace: ExcelWorkspace | null = null;
     private vatReportSaveInProgress: boolean = false;
+    private rateLimitActive: boolean = false;
+    private rateLimitResetAt: string | null = null;
 
     init(excelWorkspace: ExcelWorkspace): void {
         this.excelWorkspace = excelWorkspace;
@@ -26,6 +28,74 @@ export class ChatController {
         this.setupVATReportHandler();
         this.setupExcelEventListeners();
         this.setupSuggestionHandlers();
+        this.setupRateLimitHandlers();
+        this.setupCompanyChangeHandler();
+    }
+
+    /**
+     * Reset state when switching companies - prevents state leaking between companies
+     */
+    private setupCompanyChangeHandler(): void {
+        window.addEventListener('company-changed', () => {
+            this.resetStateOnCompanyChange();
+        });
+    }
+
+    private resetStateOnCompanyChange(): void {
+        logger.debug('Company changed, resetting chat state');
+
+        // Clear attached file
+        this.currentFile = null;
+
+        // Clear rate limit (it's per-user, not per-company, but reset UI for fresh start)
+        this.rateLimitActive = false;
+        this.rateLimitResetAt = null;
+
+        // Clear file preview UI
+        const filePreview = document.getElementById('file-preview');
+        if (filePreview) {
+            filePreview.classList.add('hidden');
+        }
+
+        // Reset input placeholder
+        this.updateInputForRateLimit();
+
+        // Clear input field
+        uiController.clearInput();
+    }
+
+    private setupRateLimitHandlers(): void {
+        // Listen for rate limit activation
+        window.addEventListener('rate-limit-active', ((e: CustomEvent) => {
+            this.rateLimitActive = true;
+            this.rateLimitResetAt = e.detail?.resetAt || null;
+            this.updateInputForRateLimit();
+        }) as EventListener);
+
+        // Listen for rate limit clearing
+        window.addEventListener('rate-limit-cleared', () => {
+            this.rateLimitActive = false;
+            this.rateLimitResetAt = null;
+            this.updateInputForRateLimit();
+        });
+    }
+
+    private updateInputForRateLimit(): void {
+        const { userInput } = uiController.elements;
+        if (!userInput) return;
+
+        if (this.rateLimitActive) {
+            userInput.disabled = true;
+            const resetTime = this.rateLimitResetAt
+                ? new Date(this.rateLimitResetAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
+                : 'snart';
+            userInput.placeholder = `Gräns nådd – återställs kl ${resetTime}`;
+            userInput.classList.add('rate-limited');
+        } else {
+            userInput.disabled = false;
+            userInput.placeholder = 'Fråga mig vad som helst...';
+            userInput.classList.remove('rate-limited');
+        }
     }
 
     private setupSuggestionHandlers(): void {
@@ -234,9 +304,11 @@ export class ChatController {
 
             // Upload file to storage after analysis
             try {
-                fileUrl = await fileService.uploadToStorage(fileToSend);
+                const currentCompanyId = companyManager.getCurrentId();
+                fileUrl = await fileService.uploadToStorage(fileToSend, 'chat-files', currentCompanyId);
                 if (vatReportResponse) {
-                    localStorage.setItem('latest_vat_report', JSON.stringify({
+                    // Store VAT report per company to isolate data
+                    localStorage.setItem(`latest_vat_report_${currentCompanyId}`, JSON.stringify({
                         ...vatReportResponse,
                         fileUrl,
                         filename: fileToSend.name,
@@ -251,7 +323,8 @@ export class ChatController {
         // Non-Excel files (PDF/images) should also be uploaded so they can be reopened later
         if (fileToSend && !fileService.isExcel(fileToSend)) {
             try {
-                fileUrl = await fileService.uploadToStorage(fileToSend);
+                const currentCompanyId = companyManager.getCurrentId();
+                fileUrl = await fileService.uploadToStorage(fileToSend, 'chat-files', currentCompanyId);
             } catch (uploadError) {
                 logger.warn('File upload failed (non-critical)', uploadError);
             }
@@ -297,7 +370,35 @@ export class ChatController {
             const fileForGemini = fileToSend && !fileService.isExcel(fileToSend) ? fileToSend : null;
 
             try {
-                await chatService.sendToGemini(message, fileForGemini, fileUrl, vatContext);
+                let didStream = false;
+                let isFirstChunk = true;
+                const response = await chatService.sendToGemini(
+                    message,
+                    fileForGemini,
+                    fileUrl,
+                    vatContext,
+                    (chunk) => {
+                        didStream = true;
+                        console.log('🎯 [ChatController] Dispatching chunk:', chunk.substring(0, 50));
+                        // Mark first chunk so UI knows to reset streaming message
+                        window.dispatchEvent(new CustomEvent('chat-streaming-chunk', {
+                            detail: { chunk, isNewResponse: isFirstChunk }
+                        }));
+                        isFirstChunk = false;
+                    }
+                );
+
+                if (!didStream) {
+                    console.log('⚠️ [ChatController] No streaming occurred, using fallback');
+                    if (response?.type === 'text' && typeof response.data === 'string' && response.data.trim()) {
+                        console.log('📦 [ChatController] Fallback dispatch:', response.data.substring(0, 50));
+                        window.dispatchEvent(new CustomEvent('chat-streaming-chunk', {
+                            detail: { chunk: response.data, isNewResponse: true }
+                        }));
+                    } else if (response?.type === 'json') {
+                        uiController.showError('Jag behöver lite mer information för att gå vidare. Försök igen.');
+                    }
+                }
                 chatService.dispatchRefresh();
             } catch (error) {
                 const maybeResponse = (error && typeof error === 'object' && 'context' in error)

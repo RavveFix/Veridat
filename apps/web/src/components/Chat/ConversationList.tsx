@@ -8,20 +8,41 @@ interface Conversation {
     title: string;
     created_at: string;
     updated_at: string;
+    last_message_preview?: string;
 }
 
 interface ConversationListProps {
     currentConversationId: string | null;
     onSelectConversation: (id: string) => void;
+    companyId: string | null;
 }
 
-export const ConversationList: FunctionComponent<ConversationListProps> = ({ currentConversationId, onSelectConversation }) => {
+// Module-level cache to persist across remounts
+const conversationCache = new Map<string, Conversation[]>();
+
+export const ConversationList: FunctionComponent<ConversationListProps> = ({ currentConversationId, onSelectConversation, companyId }) => {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [showConfirmModal, setShowConfirmModal] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
+    // Track active company - updates live when company changes
+    const [activeCompanyId, setActiveCompanyId] = useState<string | null>(companyId);
+
+    // Listen for company-changed event for live updates
+    useEffect(() => {
+        const handleCompanyChange = (e: Event) => {
+            const customEvent = e as CustomEvent<{ companyId: string }>;
+            setActiveCompanyId(customEvent.detail.companyId);
+        };
+
+        window.addEventListener('company-changed', handleCompanyChange);
+        return () => {
+            window.removeEventListener('company-changed', handleCompanyChange);
+        };
+    }, []);
 
     useEffect(() => {
         fetchConversations();
@@ -39,15 +60,21 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
             if (!session) return;
 
             channel = supabase
-                .channel(`conversations:${session.user.id}`)
+                .channel(`conversations:${session.user.id}:${activeCompanyId || 'all'}`)
                 .on('postgres_changes', {
                     event: '*', // INSERT, UPDATE, DELETE
                     schema: 'public',
                     table: 'conversations',
                     filter: `user_id=eq.${session.user.id}`
-                }, () => {
-                    // Re-fetch on any change for simplicity
-                    fetchConversations();
+                }, (payload) => {
+                    // Filter by company_id in callback since Supabase only supports single filter
+                    const newCompanyId = (payload.new as { company_id?: string })?.company_id;
+                    const oldCompanyId = (payload.old as { company_id?: string })?.company_id;
+
+                    // Re-fetch if the change is for current company or if no company filter
+                    if (!activeCompanyId || newCompanyId === activeCompanyId || oldCompanyId === activeCompanyId) {
+                        fetchConversations();
+                    }
                 })
                 .subscribe();
         };
@@ -59,38 +86,85 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
             window.removeEventListener('chat-refresh', handleRefresh);
             if (channel) supabase.removeChannel(channel);
         };
-    }, []);
+    }, [activeCompanyId]);
 
-    const fetchConversations = async () => {
+    const fetchConversations = async (forceRefresh = false) => {
+        const cacheKey = activeCompanyId || 'all';
+
+        // Check cache first - show cached data immediately
+        if (!forceRefresh && conversationCache.has(cacheKey)) {
+            const cached = conversationCache.get(cacheKey)!;
+            setConversations(cached);
+            setLoading(false);
+            // Do background refresh without showing loading
+            refreshInBackground(cacheKey);
+            return;
+        }
+
         setLoading(true);
         setFetchError(null);
+        await doFetch(cacheKey);
+    };
+
+    const refreshInBackground = async (cacheKey: string) => {
+        // Silent refresh - no loading state change
+        await doFetch(cacheKey);
+    };
+
+    const doFetch = async (cacheKey: string) => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            console.log('Fetching conversations. Session:', session?.user?.id);
 
             if (!session) {
                 setFetchError('Inte inloggad');
+                setLoading(false);
                 return;
             }
 
-            const { data, error } = await supabase
+            // Build query with company filter - include last message for preview
+            let query = supabase
                 .from('conversations')
-                .select('*')
-                .eq('user_id', session.user.id)
-                .order('updated_at', { ascending: false });
+                .select(`
+                    *,
+                    messages (
+                        content,
+                        role,
+                        created_at
+                    )
+                `)
+                .eq('user_id', session.user.id);
 
-            console.log('Supabase response:', { data, error });
+            // Filter by company if provided
+            if (activeCompanyId) {
+                query = query.eq('company_id', activeCompanyId);
+            }
+
+            const { data, error } = await query.order('updated_at', { ascending: false });
 
             if (error) throw error;
 
             // Map data to ensure types match (handling null titles and dates)
-            const typedData: Conversation[] = (data || []).map(item => ({
-                ...item,
-                title: item.title || 'Ny konversation',
-                created_at: item.created_at || new Date().toISOString(),
-                updated_at: item.updated_at || new Date().toISOString()
-            }));
+            // Extract last message preview from messages array
+            const typedData: Conversation[] = (data || []).map(item => {
+                // Get the last user message for preview (most recent by created_at)
+                const messages = (item.messages as Array<{ content: string; role: string; created_at: string }>) || [];
+                const sortedMessages = messages.sort((a, b) =>
+                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                );
+                const lastUserMessage = sortedMessages.find(m => m.role === 'user');
+                const preview = lastUserMessage?.content?.slice(0, 60) || '';
 
+                return {
+                    id: item.id,
+                    title: item.title || 'Ny konversation',
+                    created_at: item.created_at || new Date().toISOString(),
+                    updated_at: item.updated_at || new Date().toISOString(),
+                    last_message_preview: preview
+                };
+            });
+
+            // Store in cache
+            conversationCache.set(cacheKey, typedData);
             setConversations(typedData);
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Kunde inte ladda konversationer';
@@ -101,17 +175,39 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
         }
     };
 
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diff = now.getTime() - date.getTime();
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const groupLabels = ['Idag', 'Igår', 'Tidigare'] as const;
+    type GroupLabel = typeof groupLabels[number];
 
-        if (days === 0) return 'Idag';
-        if (days === 1) return 'Igår';
-        if (days < 7) return `${days} dagar sedan`;
-        return date.toLocaleDateString('sv-SE');
+    const getGroupLabel = (dateString: string): GroupLabel => {
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return 'Tidigare';
+
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        const diffDays = Math.floor((startOfToday.getTime() - startOfDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 0) return 'Idag';
+        if (diffDays === 1) return 'Igår';
+        return 'Tidigare';
     };
+
+    const formatMeta = (dateString: string, group: GroupLabel): string => {
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return '';
+
+        if (group === 'Idag' || group === 'Igår') {
+            return date.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+    };
+
+    const groupedConversations = conversations.reduce<Record<GroupLabel, Conversation[]>>((acc, conv) => {
+        const group = getGroupLabel(conv.updated_at);
+        acc[group].push(conv);
+        return acc;
+    }, { Idag: [], Igår: [], Tidigare: [] });
 
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
@@ -140,8 +236,14 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
             showToast('Konversationen raderades', 'success');
 
-            // Update local state
-            setConversations(prev => prev.filter(c => c.id !== id));
+            // Update local state and cache
+            setConversations(prev => {
+                const updated = prev.filter(c => c.id !== id);
+                // Also update cache
+                const cacheKey = activeCompanyId || 'all';
+                conversationCache.set(cacheKey, updated);
+                return updated;
+            });
 
             // If deleted conversation was active, dispatch event and create new one
             if (id === currentConversationId) {
@@ -198,113 +300,87 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
     return (
         <>
-            <div class="conversation-list" style="display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem;">
-                {conversations.map((conv) => (
-                    <div
-                        key={conv.id}
-                        onClick={() => onSelectConversation(conv.id)}
-                        style={`
-                            padding: 0.75rem 1rem;
-                            border-radius: 12px;
-                            cursor: pointer;
-                            transition: all 0.2s;
-                            border: 1px solid ${conv.id === currentConversationId ? 'var(--accent-primary)' : 'transparent'};
-                            background: ${conv.id === currentConversationId ? 'rgba(0, 240, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)'};
-                            display: flex;
-                            justify-content: space-between;
-                            align-items: center;
-                            group: hover; /* For showing delete button on hover */
-                            position: relative;
-                        `}
-                        onMouseEnter={(e) => {
-                            if (conv.id !== currentConversationId) {
-                                e.currentTarget.style.background = 'var(--surface-hover)';
-                            }
-                            // Show delete button
-                            const btn = e.currentTarget.querySelector('.delete-btn') as HTMLElement;
-                            if (btn && deletingId !== conv.id) btn.style.opacity = '1';
-                        }}
-                        onMouseLeave={(e) => {
-                            if (conv.id !== currentConversationId) {
-                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                            }
-                            // Hide delete button
-                            const btn = e.currentTarget.querySelector('.delete-btn') as HTMLElement;
-                            if (btn && deletingId !== conv.id) btn.style.opacity = '0';
-                        }}
-                    >
-                        <div style="flex: 1; min-width: 0; margin-right: 0.5rem;">
-                            <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                {conv.title || 'Ny konversation'}
-                            </div>
-                            <div style="font-size: 0.75rem; color: var(--text-secondary);">
-                                {formatDate(conv.updated_at)}
-                            </div>
-                        </div>
+            <div class="conversation-list">
+                {groupLabels.map((label) => {
+                    const items = groupedConversations[label];
+                    if (items.length === 0) return null;
 
-                        <button
-                            class="delete-btn"
-                            onClick={(e) => handleDeleteClick(e, conv.id)}
-                            disabled={deletingId === conv.id}
-                            title="Ta bort konversation"
-                            style={`
-                                opacity: ${deletingId === conv.id ? '1' : '0'};
-                                background: transparent;
-                                border: none;
-                                color: var(--text-secondary);
-                                cursor: ${deletingId === conv.id ? 'wait' : 'pointer'};
-                                padding: 4px;
-                                border-radius: 4px;
-                                transition: all 0.2s;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                z-index: 10;
-                            `}
-                            onMouseEnter={(e) => {
-                                if (deletingId !== conv.id) {
-                                    e.currentTarget.style.color = '#ff4d4d';
-                                    e.currentTarget.style.background = 'rgba(255, 77, 77, 0.1)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                if (deletingId !== conv.id) {
-                                    e.currentTarget.style.color = 'var(--text-secondary)';
-                                    e.currentTarget.style.background = 'transparent';
-                                }
-                            }}
-                        >
-                            {deletingId === conv.id ? (
-                                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; border-top-color: #ff4d4d; animation: spin 1s ease-in-out infinite;"></div>
-                            ) : (
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
-                                </svg>
-                            )}
-                        </button>
-                    </div>
-                ))}
+                    return (
+                        <div class="conversation-group" key={label}>
+                            <div class="conversation-group-title">{label}</div>
+                            {items.map((conv) => {
+                                const isActive = conv.id === currentConversationId;
+                                const isDeleting = deletingId === conv.id;
+                                return (
+                                    <div
+                                        key={conv.id}
+                                        onClick={() => onSelectConversation(conv.id)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                onSelectConversation(conv.id);
+                                            }
+                                        }}
+                                        class={`conversation-item${isActive ? ' is-active' : ''}${isDeleting ? ' is-deleting' : ''}`}
+                                        title={conv.title || 'Ny konversation'}
+                                        role="button"
+                                        tabIndex={0}
+                                    >
+                                        <div class="conversation-item-content">
+                                            <div class="conversation-item-title">
+                                                {conv.title || 'Ny konversation'}
+                                            </div>
+                                            {conv.last_message_preview && (
+                                                <div class="conversation-item-preview">
+                                                    {conv.last_message_preview}
+                                                </div>
+                                            )}
+                                            <div class="conversation-item-meta">
+                                                {formatMeta(conv.updated_at, label)}
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            class={`conversation-delete${isDeleting ? ' is-loading' : ''}`}
+                                            onClick={(e) => handleDeleteClick(e, conv.id)}
+                                            disabled={isDeleting}
+                                            title="Ta bort konversation"
+                                        >
+                                            {isDeleting ? (
+                                                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; border-top-color: #ff4d4d; animation: spin 1s ease-in-out infinite;"></div>
+                                            ) : (
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
+                                                </svg>
+                                            )}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })}
             </div>
 
             {/* Custom Confirmation Modal */}
             {showConfirmModal && (
-                <div style="position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);">
-                    <div style="background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1); padding: 24px; border-radius: 16px; width: 320px; box-shadow: 0 20px 40px rgba(0,0,0,0.4);">
-                        <h3 style="margin: 0 0 12px 0; font-size: 18px; color: white;">Ta bort konversation?</h3>
-                        <p style="margin: 0 0 24px 0; color: #a0a0a0; font-size: 14px; line-height: 1.5;">
+                <div class="confirm-modal-overlay">
+                    <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-delete-title" aria-describedby="confirm-delete-body">
+                        <h3 id="confirm-delete-title" class="confirm-modal-title">Ta bort konversation?</h3>
+                        <p id="confirm-delete-body" class="confirm-modal-body">
                             Är du säker på att du vill ta bort denna konversation? Detta går inte att ångra.
                         </p>
-                        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                        <div class="confirm-modal-actions">
                             <button
                                 onClick={() => setShowConfirmModal(null)}
-                                style="padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: white; cursor: pointer; font-size: 14px;"
+                                class="confirm-modal-btn confirm-modal-btn-secondary"
                             >
                                 Avbryt
                             </button>
                             <button
                                 onClick={confirmDelete}
-                                style="padding: 8px 16px; border-radius: 8px; border: none; background: #ff4d4d; color: white; cursor: pointer; font-size: 14px; font-weight: 500;"
+                                class="confirm-modal-btn confirm-modal-btn-danger"
                             >
                                 Ta bort
                             </button>
@@ -315,31 +391,10 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
             {/* Toast Notification */}
             {toast && (
-                <div style={`
-                    position: fixed; 
-                    bottom: 24px; 
-                    left: 50%; 
-                    transform: translateX(-50%); 
-                    background: ${toast.type === 'success' ? 'rgba(16, 185, 129, 0.9)' : 'rgba(239, 68, 68, 0.9)'}; 
-                    color: white; 
-                    padding: 12px 24px; 
-                    border-radius: 50px; 
-                    font-size: 14px; 
-                    font-weight: 500; 
-                    box-shadow: 0 10px 20px rgba(0,0,0,0.2); 
-                    z-index: 10001;
-                    animation: slideUp 0.3s ease-out;
-                    backdrop-filter: blur(8px);
-                `}>
+                <div class={`toast-inline ${toast.type}`}>
                     {toast.message}
                 </div>
             )}
-            <style>{`
-                @keyframes slideUp {
-                    from { transform: translate(-50%, 20px); opacity: 0; }
-                    to { transform: translate(-50%, 0); opacity: 1; }
-                }
-            `}</style>
         </>
     );
 };

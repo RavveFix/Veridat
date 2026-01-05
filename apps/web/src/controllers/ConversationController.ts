@@ -38,18 +38,27 @@ export class ConversationController {
         }
 
         const currentId = companyManager.getConversationId();
+        const currentCompany = companyManager.getCurrent();
 
         this.listUnmount = mountPreactComponent(
             ConversationList,
             {
                 currentConversationId: currentId || null,
-                onSelectConversation: (id) => this.loadConversation(id)
+                onSelectConversation: (id) => this.loadConversation(id),
+                companyId: currentCompany?.id || null
             },
             listContainer
         );
     }
 
     async loadConversation(conversationId: string): Promise<void> {
+        // SKIP if same conversation is already loaded (prevents multiple calls)
+        const currentConversationId = companyManager.getConversationId();
+        if (conversationId === currentConversationId) {
+            logger.debug('Conversation already loaded, skipping', { conversationId });
+            return;
+        }
+
         logger.info('Loading conversation', { conversationId });
 
         // Update local state
@@ -121,9 +130,11 @@ export class ConversationController {
         // Listen for messages loaded event from ChatHistory
         window.addEventListener('chat-messages-loaded', (e: Event) => {
             if (this.isWelcomeTransitioning) return;
-            const customEvent = e as CustomEvent<{ count: number }>;
+            const customEvent = e as CustomEvent<{ count: number; conversationId?: string | null }>;
             const hasMessages = customEvent.detail.count > 0;
-            this.setWelcomeState(!hasMessages);
+            const activeConversationId = customEvent.detail.conversationId ?? companyManager.getConversationId();
+            const shouldShowWelcome = !activeConversationId && !hasMessages;
+            this.setWelcomeState(shouldShowWelcome);
         });
 
         // Listen for conversation deletion
@@ -152,14 +163,24 @@ export class ConversationController {
 
     async loadFromDB(companyId: string): Promise<void> {
         try {
+            logger.info('Loading conversations for company', { companyId });
+
+            // Clean up existing chat first - ensures fresh state on company switch
+            if (this.chatUnmount) {
+                this.chatUnmount();
+                this.chatUnmount = null;
+            }
+            if (this.chatContainer) {
+                this.chatContainer.innerHTML = '';
+            }
+
             const session = await authService.getSession();
             if (!session) {
                 logger.info('No session, clearing chat');
-                if (this.chatContainer) this.chatContainer.innerHTML = '';
                 return;
             }
 
-            // Try to find the most recent conversation
+            // Try to find the most recent conversation for THIS company
             const { data: conversations } = await supabase
                 .from('conversations')
                 .select('id')
@@ -178,7 +199,13 @@ export class ConversationController {
             // Store conversationId in company data
             companyManager.setConversationId(conversationId);
 
-            // Mount ChatHistory component
+            // Update list highlight
+            this.mountConversationList();
+
+            // Hide welcome state and show chat
+            this.setWelcomeState(false);
+
+            // Mount ChatHistory component with new conversation
             if (this.chatContainer) {
                 this.chatUnmount = mountPreactComponent(
                     ChatHistory,
@@ -246,7 +273,7 @@ export class ConversationController {
     transitionFromWelcome(): void {
         const chatSection = document.querySelector('.chat-section');
         const welcomeHero = document.querySelector('.welcome-hero');
-        const heroOrb = welcomeHero?.querySelector('.britta-orb') as HTMLElement;
+        const heroOrb = welcomeHero?.querySelector('.chat-orb') as HTMLElement;
         const chatView = document.getElementById('chat-view');
 
         if (!chatSection || this.isWelcomeTransitioning) {
