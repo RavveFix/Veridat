@@ -10,6 +10,20 @@ import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanServi
 import { CompanyMemoryService, buildMemoryPatchFromVatReport } from "../../services/CompanyMemoryService.ts";
 import { ExpensePatternService, PatternSuggestion } from "../../services/ExpensePatternService.ts";
 
+// Swedish accounting services
+import { roundToOre, safeSum, validateVATCalculation } from "../../services/SwedishRounding.ts";
+import { validateOrgNumber, validateVATNumber } from "../../services/SwedishValidation.ts";
+import { validateZeroVAT, type ZeroVATWarning } from "../../services/ZeroVATValidator.ts";
+import { BAS_ACCOUNTS, getCostAccount, getSalesAccount, getVATAccount } from "../../services/BASAccounts.ts";
+import {
+  generateVerificationId,
+  generateBatchVerification,
+  createSalesJournalEntries,
+  createCostJournalEntries,
+  validateJournalBalance,
+  type JournalEntry,
+} from "../../services/JournalService.ts";
+
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as XLSX from "npm:xlsx@0.18.5";
 
@@ -863,17 +877,95 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        // Generate zero VAT warnings for transactions with 0% VAT
+        const zeroVatWarnings: ZeroVATWarning[] = [];
+        for (const tx of montaTransactions) {
+          if (tx.vatRate === 0 && tx.type !== 'skip') {
+            const warnings = validateZeroVAT({
+              transactionId: tx.id,
+              amount: tx.amount,
+              vatRate: tx.vatRate,
+              isRoaming: !!tx.roamingOperator,
+              counterpartName: tx.transactionName || tx.note,
+              description: tx.note,
+            });
+            zeroVatWarnings.push(...warnings);
+          }
+        }
+
+        // Generate journal entries
+        const journalEntries: JournalEntry[] = [];
+
+        // Sales journal entries
+        if (montaReport.summary.private_sales > 0) {
+          journalEntries.push(...createSalesJournalEntries(
+            montaReport.summary.private_sales,
+            montaReport.summary.private_sales_vat,
+            25,
+            false
+          ));
+        }
+        if (montaReport.summary.roaming_sales_export > 0) {
+          journalEntries.push(...createSalesJournalEntries(
+            montaReport.summary.roaming_sales_export,
+            0,
+            0,
+            true
+          ));
+        }
+
+        // Cost journal entries
+        if (montaReport.summary.subscription_costs > 0) {
+          journalEntries.push(...createCostJournalEntries(
+            montaReport.summary.subscription_costs,
+            montaReport.vat.incoming * (montaReport.summary.subscription_costs / montaReport.summary.total_costs) || 0,
+            25,
+            'abonnemang'
+          ));
+        }
+        if (montaReport.summary.operator_fee_costs > 0) {
+          journalEntries.push(...createCostJournalEntries(
+            montaReport.summary.operator_fee_costs,
+            montaReport.vat.incoming * (montaReport.summary.operator_fee_costs / montaReport.summary.total_costs) || 0,
+            25,
+            'operator fee'
+          ));
+        }
+        if (montaReport.summary.platform_fee_costs > 0) {
+          journalEntries.push(...createCostJournalEntries(
+            montaReport.summary.platform_fee_costs,
+            0,
+            0,
+            'platform fee'
+          ));
+        }
+
+        // Generate verification
+        const verification = generateBatchVerification(
+          period,
+          montaTransactions.filter(t => t.type !== 'skip').length,
+          body.filename,
+          body.org_number
+        );
+
+        // Validate journal balance
+        const journalBalance = validateJournalBalance(journalEntries);
+
         report = {
           success: true,
           period: period,
           company_name: companyName,
           ...montaReport,
+          journal_entries: journalEntries,
           validation: {
-            passed: true,
-            warnings: [],
+            passed: zeroVatWarnings.filter(w => w.level === 'warning' || w.level === 'error').length === 0,
+            warnings: zeroVatWarnings.filter(w => w.level === 'warning').map(w => w.message),
+            zero_vat_details: zeroVatWarnings,
+            journal_balanced: journalBalance.balanced,
             notes: `Deterministisk analys av ${montaTransactions.length} transaktioner. 100% noggrannhet.`
           },
           verification: {
+            ...verification,
             method: 'deterministic',
             parser: 'monta-v2',
             transaction_count: montaTransactions.length
@@ -1188,6 +1280,61 @@ Deno.serve(async (req: Request) => {
         const period = body.period || new Date().toISOString().substring(0, 7);
         const companyName = body.company_name || 'Företag';
 
+        // Generate zero VAT warnings for general files
+        const generalZeroVatWarnings: ZeroVATWarning[] = [];
+        for (let i = 0; i < parsedTxs.length; i++) {
+          const tx = parsedTxs[i];
+          if (tx.vatRate === 0) {
+            const txWarnings = validateZeroVAT({
+              transactionId: `tx_${i}`,
+              amount: centsToNumber(tx.amountCents),
+              vatRate: tx.vatRate,
+              counterpartName: tx.description,
+              description: tx.description,
+            });
+            generalZeroVatWarnings.push(...txWarnings);
+          }
+        }
+
+        // Generate journal entries for general files
+        const generalJournalEntries: JournalEntry[] = [];
+
+        // Group by type and rate for journal entries
+        for (const [key, b] of breakdown) {
+          if (b.type === 'sale') {
+            generalJournalEntries.push(...createSalesJournalEntries(
+              centsToNumber(b.net),
+              centsToNumber(b.vat),
+              b.rate,
+              false
+            ));
+          } else {
+            generalJournalEntries.push(...createCostJournalEntries(
+              centsToNumber(b.net),
+              centsToNumber(b.vat),
+              b.rate,
+              b.description
+            ));
+          }
+        }
+
+        // Generate verification
+        const generalVerification = generateBatchVerification(
+          period,
+          parsedTxs.length,
+          body.filename,
+          body.org_number
+        );
+
+        // Validate journal balance
+        const generalJournalBalance = validateJournalBalance(generalJournalEntries);
+
+        // Combine validation warnings
+        const allWarnings = [
+          ...warnings,
+          ...generalZeroVatWarnings.filter(w => w.level === 'warning').map(w => w.message)
+        ];
+
         report = {
           success: true,
           period,
@@ -1209,7 +1356,7 @@ Deno.serve(async (req: Request) => {
             bas_account: b.bas_account,
             description: b.description
           })),
-          transactions: parsedTxs.map((t) => ({
+          transactions: parsedTxs.map((t, i) => ({
             amount: centsToNumber(t.amountCents),
             net_amount: centsToNumber(t.netCents),
             vat_amount: centsToNumber(t.vatCents),
@@ -1219,6 +1366,7 @@ Deno.serve(async (req: Request) => {
             type: t.type,
             bas_account: t.basAccount
           })),
+          journal_entries: generalJournalEntries,
           vat: {
             outgoing_25: centsToNumber(outgoing25),
             outgoing_12: centsToNumber(outgoing12),
@@ -1229,11 +1377,14 @@ Deno.serve(async (req: Request) => {
             to_refund: netVat < 0 ? centsToNumber(Math.abs(netVat)) : 0
           },
           validation: {
-            passed: warnings.length === 0,
-            warnings,
+            passed: allWarnings.length === 0,
+            warnings: allWarnings,
+            zero_vat_details: generalZeroVatWarnings,
+            journal_balanced: generalJournalBalance.balanced,
             notes: `Deterministisk beräkning av ${parsedTxs.length} rader (öre).`
           },
           verification: {
+            ...generalVerification,
             method: patternSuggestions.length > 0 ? 'patterns+deterministic' : 'deterministic-general',
             patterns_found: patternSuggestions.length,
             mapping
