@@ -8,80 +8,30 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-color: #050505;
-            --text-primary: #ffffff;
-            --text-secondary: #a1a1aa;
-            --accent: #00F0FF;
-            --border: rgba(255, 255, 255, 0.1);
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            line-height: 1.6;
-            margin: 0;
-            padding: 0;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 4rem 2rem;
-        }
-
-        h1 {
-            font-size: 2.5rem;
-            margin-bottom: 2rem;
-            background: linear-gradient(135deg, #00F0FF, #7000FF);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        h2 {
-            font-size: 1.5rem;
-            margin-top: 3rem;
-            margin-bottom: 1rem;
-            color: var(--accent);
-        }
-
-        p,
-        ul {
-            color: var(--text-secondary);
-            margin-bottom: 1.5rem;
-        }
-
-        ul {
-            padding-left: 1.5rem;
-        }
-
-        li {
-            margin-bottom: 0.5rem;
-        }
-
-        .back-link {
-            display: inline-block;
-            margin-bottom: 2rem;
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 0.9rem;
-        }
-
-        .back-link:hover {
-            color: var(--text-primary);
-        }
-    </style>
+    <link rel="stylesheet" href="/src/styles/legal.css">
 </head>
 
-<body>
+<body data-legal-theme="privacy">
+    <header class="header-glass">
+        <div class="header-container">
+            <a href="/" class="logo" style="text-decoration: none; font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                Britta
+            </a>
+            <a href="/login" class="btn btn-glass btn-glow" style="padding: 0.5rem 1.5rem; font-size: 0.9rem; border-radius: 12px;">
+                Logga in
+            </a>
+        </div>
+    </header>
+
     <div class="container">
-        <a href="/login.html" class="back-link">← Tillbaka</a>
+        <div class="sub-nav">
+            <a href="/" class="back-link">← Tillbaka</a>
+            <a href="/terms" class="sub-nav-link">Användarvillkor</a>
+            <a href="/privacy" class="sub-nav-link active">Integritetspolicy</a>
+        </div>
 
         <h1>Integritetspolicy</h1>
-        <p>Senast uppdaterad: 2025-12-01</p>
+        <p>Senast uppdaterad: <span data-legal-updated>2025-12-01</span></p>
 
         <p>Denna integritetspolicy beskriver hur Britta AI ("vi", "oss") samlar in, använder och skyddar dina
             personuppgifter när du använder vår tjänst.</p>
@@ -126,8 +76,10 @@
         </ul>
 
         <h2>6. Kontakt</h2>
-        <p>För frågor om denna policy eller dina rättigheter, kontakta oss på: privacy@britta.ai</p>
+        <p>För frågor om denna policy eller dina rättigheter, kontakta oss på: <a href="mailto:privacy@britta.ai">privacy@britta.ai</a></p>
     </div>
+
+    <script type="module" src="/src/legal.ts"></script>
 </body>
 
 </html>
