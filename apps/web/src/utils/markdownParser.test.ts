@@ -9,8 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
     parseAIResponse,
     containsMarkdownTable,
-    containsCodeBlock,
-    type ParsedContent
+    containsCodeBlock
 } from './markdownParser';
 
 describe('markdownParser', () => {
