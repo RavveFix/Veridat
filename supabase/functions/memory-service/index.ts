@@ -178,7 +178,7 @@ Deno.serve(async (req: Request) => {
                         .update({ last_used_at: new Date().toISOString() })
                         .in("id", memoryIds);
                     if (updateError) {
-                        logger.warn("Failed to update memory last_used_at", updateError);
+                        logger.warn("Failed to update memory last_used_at", { error: updateError.message });
                     }
                 }
 
@@ -219,12 +219,16 @@ Deno.serve(async (req: Request) => {
                 if (error) throw error;
 
                 result = {
-                    results: (searchResults || []).map((row) => ({
-                        conversation_id: row.conversation.id,
-                        conversation_title: row.conversation.title,
-                        snippet: extractSnippet(row.content, query),
-                        created_at: row.created_at
-                    }))
+                    results: (searchResults || []).map((row) => {
+                        // Supabase returns !inner joins as single objects, but types say array
+                        const conv = row.conversation as unknown as { id: string; title: string };
+                        return {
+                            conversation_id: conv.id,
+                            conversation_title: conv.title,
+                            snippet: extractSnippet(row.content, query),
+                            created_at: row.created_at
+                        };
+                    })
                 };
                 break;
             }

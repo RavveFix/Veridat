@@ -116,7 +116,7 @@ export class AppController {
     }
 
     private async handleLegalConsent(): Promise<boolean> {
-        let hasAccepted = await authService.hasAcceptedTerms();
+        const hasAccepted = await authService.hasAcceptedTerms();
 
         if (!hasAccepted) {
             // Check for local consent (from login page)
