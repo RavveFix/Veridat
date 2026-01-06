@@ -3,5 +3,10 @@
     "deno.lint": true,
     "deno.unstable": true,
     "deno.config": "./deno.json",
-    "deno.importMap": "./deno.json"
+    "deno.enablePaths": [
+        "supabase"
+    ],
+    "deno.disablePaths": [
+        "apps/web"
+    ]
 }

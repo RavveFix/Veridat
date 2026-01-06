@@ -46,7 +46,6 @@ export interface FortnoxResponse<T> {
         "@TotalPages": number;
         "@CurrentPage": number;
     };
-    [key: string]: any; // Allow dynamic keys like "Customers", "Articles"
 }
 
 export interface FortnoxCustomerListResponse extends FortnoxResponse<FortnoxCustomer> {

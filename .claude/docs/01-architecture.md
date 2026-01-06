@@ -143,6 +143,85 @@ Companies stored in localStorage:
 
 ---
 
+## CSS Layout Architecture
+
+### Chat Layout Flex Hierarchy
+
+The chat interface uses a precise flex hierarchy. **Breaking any level breaks scrolling/visibility.**
+
+```
+.app-container
+└── .workspace-container
+    └── .chat-section
+        └── .content-area (flex: 1, flex-direction: column)
+            ├── .welcome-hero (display: none when NOT welcome-state)
+            ├── #chat-view.view (flex: 1, display: flex, flex-direction: column)
+            │   └── .chat-container (flex: 1, height: 0, overflow-y: auto)
+            │       └── .chat-list (Preact ChatHistory component)
+            ├── .glass-footer (position: fixed when NOT welcome-state)
+            └── .welcome-suggestions (display: none when NOT welcome-state)
+```
+
+### Critical CSS Rules
+
+**`.view` class (line ~671):**
+```css
+.view {
+    flex: 1;
+    min-height: 0;      /* Critical for flex overflow */
+    display: flex;
+    flex-direction: column;
+}
+```
+
+**`#chat-view` in chat mode (line ~2312):**
+```css
+.chat-section:not(.welcome-state) #chat-view {
+    display: flex;           /* MUST be flex, NOT block! */
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+```
+
+**`.chat-container` (line ~312):**
+```css
+.chat-container {
+    flex: 1;
+    height: 0;              /* Forces flex item to respect overflow */
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 100px;  /* Space for fixed footer */
+    scrollbar-width: none;  /* Hidden scrollbar */
+}
+```
+
+### Welcome State Toggle
+
+The `.welcome-state` class on `.chat-section` controls the entire layout:
+
+| Element | `.welcome-state` | Normal (chat mode) |
+|---------|------------------|-------------------|
+| `.welcome-hero` | `display: flex` | `display: none` |
+| `#chat-view` | `display: none` | `display: flex` |
+| `.glass-footer` | `position: static` (centered) | `position: fixed` (bottom) |
+| `.welcome-suggestions` | `display: flex` | `display: none` |
+
+### Common Pitfalls
+
+1. **`display: block` on #chat-view** - Breaks flex layout, chat disappears
+2. **Missing `min-height: 0`** - Flex children won't scroll properly
+3. **Missing `height: 0` on chat-container** - Content overflows instead of scrolling
+4. **Duplicate CSS rules** - Later rules override earlier ones completely
+
+### Transition Animations
+
+- `welcome-exiting` - Fades out welcome elements (0.2s)
+- `welcome-entering` - Fades in welcome elements (0.3s)
+- Both use `pointer-events: none` during animation
+
+---
+
 ## Database Tables
 
 ### fortnox_tokens

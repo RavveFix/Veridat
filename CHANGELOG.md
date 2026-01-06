@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Design**: Refined the Britta orb to a blue/gray enterprise palette with a subtle thinking sweep and no idle glow - `apps/web/src/styles/main.css`, `apps/web/src/components/Chat/ChatHistory.tsx`, `apps/web/app/index.html`
+
 ## [1.2.0] - 2025-12-03
 
 ### Added

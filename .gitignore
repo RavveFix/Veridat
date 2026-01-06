@@ -50,3 +50,10 @@ env/
 *.cert
 *session*continuation*.md
 docs/*security*.md
+
+# Claude Code - Session-specific files (not committed)
+.claude/CLAUDE.local.md
+.claude/settings.local.json
+.claude/deployment.log
+.claude/errors.log
+.claude/command-history.json

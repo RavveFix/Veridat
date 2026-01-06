@@ -17,7 +17,10 @@ The Britta chat system implements full **database persistence** for conversation
 **Migration File:** [`20251127000001_create_conversations.sql`](file:///Users/ravonstrawder/Desktop/Britta/supabase/migrations/20251127000001_create_conversations.sql)
 
 -   **`conversations`**: Stores conversation metadata (user_id, company_id, title).
--   **`messages`**: Stores individual messages (role, content, file attachments).
+-   **`messages`**: Stores individual messages (role, content, file attachments).  
+    Attachments are uploaded to Supabase Storage (`chat-files`) and linked via `file_url` + `file_name`.  
+    Analysresultat som momsrapporter sparas dessutom i `messages.metadata` (typ `vat_report`) så de kan öppnas igen i sidopanelen.
+-   **`vat_reports`**: Stores the latest Excel analysis per conversation (`conversation_id`). This is used to rehydrate VAT context after refresh and to inject context into Gemini when the sidebar report isn’t currently open.
 -   **Security**: Row Level Security (RLS) ensures users only access their own data.
 
 ### 2. Backend (Edge Function)
@@ -47,6 +50,7 @@ The Edge Function acts as the orchestrator:
 The frontend handles the user experience and state management:
 -   **Initialization**: Listens for `onAuthStateChange` to load the conversation immediately upon login.
 -   **Robust Fetching**: In `sendToGemini`, it checks if `conversationId` is missing. If so, it calls `get_or_create_conversation` RPC to fetch/create it on-demand. This prevents race conditions where the app loads before the conversation ID is ready.
+-   **Excel Analysis Persistence**: Ensures a `conversationId` exists before starting Excel analysis and sends `conversation_id` to `analyze-excel-ai` / `python-proxy` so results are stored in `vat_reports`.
 -   **Display**: Renders chat history directly from the database query, ensuring what the user sees matches what the AI knows.
 
 ---

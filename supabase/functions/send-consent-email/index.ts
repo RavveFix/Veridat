@@ -1,5 +1,19 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+/// <reference path="../../types/deno.d.ts" />
+
+import { createClient } from '@supabase/supabase-js';
+import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
+import { createLogger } from "../../services/LoggerService.ts";
+
+const logger = createLogger('send-consent-email');
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 // Email template function
 function generateConsentEmailHTML(params: {
@@ -8,7 +22,10 @@ function generateConsentEmailHTML(params: {
   termsVersion: string;
   email: string;
 }): string {
-  const { fullName, acceptedAt, termsVersion, email } = params;
+  const fullName = escapeHtml(params.fullName);
+  const acceptedAt = params.acceptedAt;
+  const termsVersion = escapeHtml(params.termsVersion);
+  const email = escapeHtml(params.email);
   const date = new Date(acceptedAt).toLocaleDateString('sv-SE', {
     year: 'numeric',
     month: 'long',
@@ -64,50 +81,83 @@ function generateConsentEmailHTML(params: {
 </html>`;
 }
 
-serve(async (req) => {
-  // CORS headers
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  };
+Deno.serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders();
 
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return createOptionsResponse();
   }
 
   try {
-    // Parse request body
-    const { userId, email, fullName, termsVersion, acceptedAt } = await req.json();
-
-    // Validate required fields
-    if (!userId || !email || !fullName || !termsVersion || !acceptedAt) {
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+    if (!authHeader) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-
-    console.log(`Sending consent email to ${email} for user ${userId}`);
 
     // Initialize Supabase client with service role key for admin access
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Resolve actual user id from the access token (don’t trust client-provided IDs)
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+    const bodyFullName = typeof body['fullName'] === 'string' ? body['fullName'] : '';
+    const bodyTermsVersion = typeof body['termsVersion'] === 'string' ? body['termsVersion'] : '';
+    const bodyAcceptedAt = typeof body['acceptedAt'] === 'string' ? body['acceptedAt'] : '';
+
+    const userId = user.id;
+    const email = user.email;
+    if (!email) {
+      return new Response(
+        JSON.stringify({ error: 'Email saknas för användaren' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    logger.info('Sending consent email', { userId });
 
     // Rate limiting: Check if user recently received an email
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('consent_email_sent_at')
+      .select('full_name, has_accepted_terms, terms_accepted_at, terms_version, consent_email_sent_at')
       .eq('id', userId)
       .single();
+
+    if (profileError || !profile) {
+      logger.warn('Profile not found when sending consent email', { userId, error: profileError?.message });
+      return new Response(
+        JSON.stringify({ error: 'Profile not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!profile.has_accepted_terms) {
+      return new Response(
+        JSON.stringify({ error: 'Terms not accepted' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (profile?.consent_email_sent_at) {
       const lastSent = new Date(profile.consent_email_sent_at);
       const minutesSinceLastEmail = (Date.now() - lastSent.getTime()) / 1000 / 60;
 
       if (minutesSinceLastEmail < 5) {
-        console.log(`Rate limit hit for user ${userId}: Last email sent ${minutesSinceLastEmail.toFixed(1)} minutes ago`);
+        logger.warn('Consent email rate limit hit', { userId, minutesSinceLastEmail: Number(minutesSinceLastEmail.toFixed(1)) });
         return new Response(
           JSON.stringify({
             error: 'Too many requests. Please wait before requesting another email.',
@@ -126,15 +176,18 @@ serve(async (req) => {
     }
 
     // Generate email HTML
+    const fullName = profile.full_name || bodyFullName || 'Kund';
+    const termsVersion = profile.terms_version || bodyTermsVersion || 'okänd';
+    const acceptedAt = profile.terms_accepted_at || bodyAcceptedAt || new Date().toISOString();
+
     const emailHtml = generateConsentEmailHTML({
       fullName,
       acceptedAt,
       termsVersion,
-      email
+      email: email
     });
 
     // Send email via Resend API
-    console.log('Sending email via Resend...');
     const resendResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -149,17 +202,19 @@ serve(async (req) => {
       })
     });
 
-    const resendData = await resendResponse.json();
+    const resendData = (await resendResponse.json().catch(() => ({}))) as Record<string, unknown>;
+    const resendId = typeof resendData['id'] === 'string' ? resendData['id'] : undefined;
 
     if (!resendResponse.ok) {
-      console.error('Resend API error:', resendData);
-      throw new Error(`Failed to send email: ${resendData.message || 'Unknown error'}`);
+      const resendMessage = typeof resendData['message'] === 'string' ? resendData['message'] : 'Unknown error';
+      logger.error('Resend API error', resendMessage, { userId, status: resendResponse.status });
+      throw new Error(`Failed to send email: ${resendMessage}`);
     }
 
-    console.log('Email sent successfully via Resend:', resendData.id);
+    logger.info('Consent email sent', { userId, emailId: resendId });
 
     // Update profile to mark email as sent
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from('profiles')
       .update({
         consent_email_sent: true,
@@ -168,7 +223,7 @@ serve(async (req) => {
       .eq('id', userId);
 
     if (updateError) {
-      console.error('Error updating profile:', updateError);
+      logger.warn('Error updating profile after sending consent email', { userId, error: updateError.message });
       // Don't fail the request - email was sent successfully
     }
 
@@ -176,7 +231,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         message: 'Consent email sent successfully',
-        emailId: resendData.id
+        emailId: resendId
       }),
       {
         status: 200,
@@ -185,9 +240,10 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Error in send-consent-email function:', error);
+    logger.error('Error in send-consent-email function', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

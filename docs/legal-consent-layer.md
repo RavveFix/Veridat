@@ -9,12 +9,13 @@ Britta AI implements a comprehensive legal consent system to ensure GDPR complia
 ### Two-Stage Consent Flow
 
 1. **Login Page (Pre-Authentication)**
-   - Modal appears immediately on `/login.html`
-   - Blocks access to login form until acceptance
-   - Stores consent locally (device-level)
+   - User must check consent box and enter full name on `/login.html`
+   - Consent + name are stored locally (device-level) before magic-link sign-in
+   - Prevents access to app until consent is completed
 
 2. **App Page (Post-Authentication)**
    - Syncs local consent to database
+   - Sync sker helt tyst i bakgrunden (ingen toast/notis)
    - Fallback: Shows modal if no local or DB record exists
 
 ### Components
@@ -49,11 +50,9 @@ sequenceDiagram
     participant AppPage
 
     User->>LoginPage: Visit /login.html
-    LoginPage->>LoginPage: Check localStorage
-    LoginPage->>User: Show LegalConsentModal (local mode)
-    User->>LoginPage: Enter name + Accept
+    LoginPage->>User: Show consent checkbox + name field
+    User->>LoginPage: Check consent + enter name
     LoginPage->>LocalStorage: Save consent + name
-    LoginPage->>User: Show login form
     User->>Supabase: Sign in (magic link)
     Supabase->>AppPage: Redirect to /app/
     AppPage->>LocalStorage: Read local consent
@@ -109,25 +108,14 @@ create table profiles (
 ### Login Page (`src/login.ts`)
 
 ```typescript
-// Check local consent first
-const localConsent = localStorage.getItem('has_accepted_terms_local');
+// User must accept terms + provide full name before sending magic link
+if (!consentCheckbox.checked) return;
+if (!fullName) return;
 
-if (!localConsent) {
-    // Hide form, show modal
-    mountPreactComponent(
-        LegalConsentModal,
-        {
-            mode: 'local' as const,
-            onAccepted: (fullName: string) => {
-                localStorage.setItem('has_accepted_terms_local', 'true');
-                localStorage.setItem('user_full_name_local', fullName);
-                localStorage.setItem('terms_accepted_at_local', new Date().toISOString());
-                // Show login form
-            }
-        },
-        modalContainer
-    );
-}
+localStorage.setItem('has_accepted_terms_local', 'true');
+localStorage.setItem('user_full_name_local', fullName);
+localStorage.setItem('terms_accepted_at_local', new Date().toISOString());
+localStorage.setItem('terms_version_local', CURRENT_TERMS_VERSION);
 ```
 
 ### App Page (`src/main.ts`)
@@ -186,11 +174,11 @@ if (!hasAccepted) {
 
 1. Clear `localStorage`: `localStorage.clear()`
 2. Navigate to `/login.html`
-3. Verify modal appears, login form hidden
-4. Try clicking "Accept" without name (should be disabled)
-5. Enter name and accept
-6. Verify form appears with fade-in animation
-7. Log in and verify consent syncs to DB
+3. Verify full name + email fields are disabled until consent checkbox is checked
+4. Check consent box and enter full name + email
+5. Submit and verify magic link is sent, form hides
+6. Open the magic link and log in
+7. Verify consent syncs to DB and local consent keys are cleared
 
 ### Verify Database
 
