@@ -1,6 +1,8 @@
 
 import { Hero } from './components/Hero';
+import { TrustSignals } from './components/TrustSignals';
 import { Features } from './components/Features';
+import { HowItWorks } from './components/HowItWorks';
 import { Memory } from './components/Memory';
 import { Pricing } from './components/Pricing';
 import { Testimonials } from './components/Testimonials';
@@ -34,7 +36,9 @@ export function App() {
 
             <main>
                 <Hero />
+                <TrustSignals />
                 <Features />
+                <HowItWorks />
                 <Memory />
                 <Pricing />
                 <Testimonials />

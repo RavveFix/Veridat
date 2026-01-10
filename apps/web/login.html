@@ -6,10 +6,12 @@
     <title>Logga in - Britta</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     >
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
   </head>
 
   <body>
@@ -40,11 +42,11 @@
 
     <div
       class="container"
-      style="display: flex; align-items: center; justify-content: center; min-height: 100vh"
+      style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem"
     >
       <div
-        class="glass-card tilt-card"
-        style="width: 100%; max-width: 420px; padding: 3rem 2.5rem; text-align: center"
+        class="glass-card fade-in-up"
+        style="width: 100%; max-width: 440px; padding: 3rem 2.5rem; text-align: center; border: 1px solid rgba(0, 240, 255, 0.1); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05)"
       >
         <!-- Britta Orb (Replacing text logo) -->
         <div
@@ -53,15 +55,15 @@
           <div class="britta-orb large thinking"></div>
         </div>
 
-        <div
+        <h1
           class="logo text-gradient-primary"
-          style="font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem"
+          style="font-family: 'Satoshi', sans-serif; font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem"
         >
           Britta
-        </div>
+        </h1>
 
         <p
-          style="color: var(--text-secondary); margin-bottom: 2.5rem; font-size: 1.1rem"
+          style="color: var(--text-secondary); margin-bottom: 2.5rem; font-size: 1.1rem; font-family: 'Inter', sans-serif"
         >
           Din intelligenta bokföringsassistent
         </p>
@@ -97,7 +99,7 @@
           </div>
 
           <div class="input-group">
-            <label for="full-name" style="margin-left: 0.25rem"
+            <label for="full-name" style="margin-left: 0.25rem; font-family: 'Satoshi', sans-serif; font-weight: 500"
             >Fullständigt namn</label>
             <input
               type="text"
@@ -107,12 +109,12 @@
               required
               autocomplete="name"
               disabled
-              style="opacity: 0.5; cursor: not-allowed"
+              style="opacity: 0.5; cursor: not-allowed; font-family: 'Inter', sans-serif"
             >
           </div>
 
           <div class="input-group">
-            <label for="email" style="margin-left: 0.25rem">E-postadress</label>
+            <label for="email" style="margin-left: 0.25rem; font-family: 'Satoshi', sans-serif; font-weight: 500">E-postadress</label>
             <input
               type="email"
               id="email"
@@ -121,15 +123,15 @@
               required
               autocomplete="email"
               disabled
-              style="opacity: 0.5; cursor: not-allowed"
+              style="opacity: 0.5; cursor: not-allowed; font-family: 'Inter', sans-serif"
             >
           </div>
 
           <button
             type="submit"
-            class="btn btn-glow"
+            class="btn btn-primary btn-glow"
             id="submit-btn"
-            style="width: 100%; background: var(--accent-primary); color: black; border-radius: 12px; margin-top: 1rem"
+            style="width: 100%; border-radius: 12px; margin-top: 1rem; font-family: 'Satoshi', sans-serif; font-weight: 600; padding: 0.875rem 1.5rem; font-size: 1rem"
             disabled
           >
             Skicka inloggningslänk
@@ -139,14 +141,19 @@
         <div id="message" class="message-box"></div>
 
         <div
-          style="margin-top: 2.5rem; padding-top: 1.5rem; border-top: 1px solid var(--glass-border)"
+          style="margin-top: 2.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.05)"
         >
           <a
             href="/"
-            class="text-gradient"
-            style="text-decoration: none; font-size: 0.9rem; font-weight: 500; opacity: 0.8; transition: opacity 0.2s"
+            style="text-decoration: none; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); transition: color 0.2s; font-family: 'Satoshi', sans-serif; display: inline-flex; align-items: center; gap: 0.5rem"
+            onmouseover="this.style.color='var(--accent-primary)'"
+            onmouseout="this.style.color='var(--text-secondary)'"
           >
-            ← Tillbaka till startsidan
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            Tillbaka till startsidan
           </a>
         </div>
       </div>
