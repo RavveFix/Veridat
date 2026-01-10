@@ -695,6 +695,31 @@ interface AnalyzeRequest {
   period?: string;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// THINKING STEPS - Claude.ai-inspired analysis transparency
+// ═══════════════════════════════════════════════════════════════════════════
+interface ThinkingStep {
+  id: string;
+  title: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'error';
+  duration?: number;
+}
+
+interface AnalysisContext {
+  thinking_steps: ThinkingStep[];
+  confidence: number;  // 0-100
+  questions?: AIQuestion[];
+}
+
+interface AIQuestion {
+  id: string;
+  question: string;
+  context?: string;
+  options?: Array<{ id: string; label: string; description?: string }>;
+  allowFreeText?: boolean;
+}
+
 Deno.serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders();
 
@@ -742,6 +767,29 @@ Deno.serve(async (req: Request) => {
   };
 
   (async () => {
+    // Initialize analysis context for thinking steps
+    const analysisContext: AnalysisContext = {
+      thinking_steps: [],
+      confidence: 100,
+      questions: []
+    };
+
+    const addThinkingStep = (step: Omit<ThinkingStep, 'duration'> & { duration?: number }) => {
+      const existingIndex = analysisContext.thinking_steps.findIndex(s => s.id === step.id);
+      if (existingIndex >= 0) {
+        analysisContext.thinking_steps[existingIndex] = step as ThinkingStep;
+      } else {
+        analysisContext.thinking_steps.push(step as ThinkingStep);
+      }
+    };
+
+    const updateThinkingStep = (id: string, updates: Partial<ThinkingStep>) => {
+      const step = analysisContext.thinking_steps.find(s => s.id === id);
+      if (step) {
+        Object.assign(step, updates);
+      }
+    };
+
     try {
       const body: AnalyzeRequest = await req.json();
 
@@ -770,10 +818,21 @@ Deno.serve(async (req: Request) => {
       // ═══════════════════════════════════════════════════════════════════
       // STEG 1: Läs Excel-fil
       // ═══════════════════════════════════════════════════════════════════
+      const parseStartTime = Date.now();
+      addThinkingStep({
+        id: 'parse',
+        title: 'Läser Excel-fil',
+        content: `Öppnar ${body.filename} och extraherar data från det första arket.`,
+        status: 'in_progress'
+      });
+
       await sendProgress({
         step: 'parsing',
         message: 'Läser Excel-fil...',
-        progress: 0.1
+        progress: 0.1,
+        insight: `Jag öppnar ${body.filename} och undersöker strukturen...`,
+        thinking_steps: analysisContext.thinking_steps,
+        confidence: analysisContext.confidence
       });
 
       let rawData: unknown[][];
@@ -816,18 +875,37 @@ Deno.serve(async (req: Request) => {
         dataRows = rawData.slice(1);
 
         logger.info('Excel parsed', { rows: dataRows.length, columns: columns.length, totalMs: t4 - t0 });
+
+        // Update thinking step
+        updateThinkingStep('parse', {
+          status: 'completed',
+          duration: Date.now() - parseStartTime,
+          content: `Hittade ${dataRows.length} rader och ${columns.length} kolumner: ${columns.slice(0, 5).join(', ')}${columns.length > 5 ? '...' : ''}`
+        });
       } catch (parseError) {
         logger.error('Excel parsing failed', parseError);
+        updateThinkingStep('parse', { status: 'error', content: 'Kunde inte läsa filen' });
         throw new Error('Kunde inte läsa Excel-filen. Kontrollera formatet.');
       }
 
       // ═══════════════════════════════════════════════════════════════════
       // STEG 2: Detektera filtyp och konvertera till objekt
       // ═══════════════════════════════════════════════════════════════════
+      const detectStartTime = Date.now();
+      addThinkingStep({
+        id: 'detect',
+        title: 'Identifierar filtyp',
+        content: 'Analyserar kolumnnamn för att avgöra om detta är en känd mall...',
+        status: 'in_progress'
+      });
+
       await sendProgress({
         step: 'analyzing',
         message: 'Analyserar filstruktur...',
-        progress: 0.3
+        progress: 0.3,
+        insight: `Jag ser ${dataRows.length} rader och ${columns.length} kolumner. Nu analyserar jag vilken typ av data det är...`,
+        thinking_steps: analysisContext.thinking_steps,
+        confidence: analysisContext.confidence
       });
 
       // Konvertera rader till objekt med kolumnnamn
@@ -851,16 +929,91 @@ Deno.serve(async (req: Request) => {
         // ═══════════════════════════════════════════════════════════════
         // MONTA-FIL: Använd deterministisk parser (100% noggrannhet)
         // ═══════════════════════════════════════════════════════════════
+        updateThinkingStep('detect', {
+          status: 'completed',
+          duration: Date.now() - detectStartTime,
+          content: 'Identifierad som Monta-fil (elbilsladdning). Kolumner: amount, subAmount, vat, kwh.'
+        });
+
+        // Monta = 100% confidence
+        analysisContext.confidence = 100;
+
+        addThinkingStep({
+          id: 'categorize',
+          title: 'Kategoriserar transaktioner',
+          content: 'Sorterar transaktioner: privatladdning (25% moms), roaming (0%), abonnemang, avgifter...',
+          status: 'in_progress'
+        });
+
         await sendProgress({
-          step: 'calculating',
-          message: 'Beräknar moms (deterministisk)...',
-          progress: 0.5
+          step: 'detecting',
+          message: 'Identifierar filtyp...',
+          progress: 0.4,
+          insight: '🔌 Det här ser ut som en Monta-fil! Jag känner igen kolumnerna för elbilsladdning.',
+          thinking_steps: analysisContext.thinking_steps,
+          confidence: analysisContext.confidence
         });
 
         logger.info('Detected Monta file, using deterministic parser', { rows: rowObjects.length });
 
         const montaTransactions = parseMontaTransactions(rowObjects);
+
+        // Count transaction categories for insights
+        const privateCount = montaTransactions.filter(t => t.category === 'private_charging').length;
+        const roamingCount = montaTransactions.filter(t => t.category === 'roaming_export').length;
+        const subscriptionCount = montaTransactions.filter(t => t.category === 'subscription').length;
+        const feeCount = montaTransactions.filter(t => t.category === 'operator_fee' || t.category === 'platform_fee').length;
+        const skippedCount = montaTransactions.filter(t => t.type === 'skip').length;
+
+        // Build dynamic insight message
+        const parts: string[] = [];
+        if (privateCount > 0) parts.push(`${privateCount} privatladdningar (25% moms)`);
+        if (roamingCount > 0) parts.push(`${roamingCount} roaming-exporter (0% moms, EU-handel)`);
+        if (subscriptionCount > 0) parts.push(`${subscriptionCount} abonnemang`);
+        if (feeCount > 0) parts.push(`${feeCount} avgifter`);
+
+        const categoriesInsight = parts.length > 0
+          ? `Jag hittar ${parts.join(', ')}.`
+          : `Jag hittar ${montaTransactions.length} transaktioner.`;
+
+        updateThinkingStep('categorize', {
+          status: 'completed',
+          content: categoriesInsight
+        });
+
+        await sendProgress({
+          step: 'categorizing',
+          message: 'Kategoriserar transaktioner...',
+          progress: 0.5,
+          insight: categoriesInsight,
+          thinking_steps: analysisContext.thinking_steps,
+          confidence: analysisContext.confidence
+        });
+
+        const calcStartTime = Date.now();
+        addThinkingStep({
+          id: 'calculate',
+          title: 'Beräknar moms',
+          content: 'Beräknar exakta momsbelopp med öres-precision...',
+          status: 'in_progress'
+        });
+
+        await sendProgress({
+          step: 'calculating',
+          message: 'Beräknar moms (deterministisk)...',
+          progress: 0.6,
+          insight: 'Beräknar: 25% utgående moms på privatladdningar, 0% på roaming (OCPI-standarden). Avdragsgill ingående moms på avgifter.',
+          thinking_steps: analysisContext.thinking_steps,
+          confidence: analysisContext.confidence
+        });
+
         const montaReport = calculateMontaReport(montaTransactions);
+
+        updateThinkingStep('calculate', {
+          status: 'completed',
+          duration: Date.now() - calcStartTime,
+          content: `Beräknat: ${montaReport.summary.total_sales.toLocaleString('sv-SE')} kr försäljning, ${montaReport.summary.total_costs.toLocaleString('sv-SE')} kr kostnader.`
+        });
 
         // Extrahera period från första transaktionen
         const firstDate = montaTransactions.find(t => t.created)?.created || '';
@@ -986,6 +1139,22 @@ Deno.serve(async (req: Request) => {
         // - Summeringar: beräknas alltid deterministiskt (öre)
         // ═══════════════════════════════════════════════════════════════
 
+        updateThinkingStep('detect', {
+          status: 'completed',
+          duration: Date.now() - detectStartTime,
+          content: `Generell Excel-fil. Kolumner: ${columns.slice(0, 8).join(', ')}${columns.length > 8 ? '...' : ''}`
+        });
+
+        // Start with 85% confidence for general files (not as certain as Monta)
+        analysisContext.confidence = 85;
+
+        addThinkingStep({
+          id: 'patterns',
+          title: 'Letar efter kända mönster',
+          content: 'Söker efter leverantörer och kostnader från tidigare bokföringar...',
+          status: 'in_progress'
+        });
+
         // Layer 2: Try to find learned patterns for suppliers in this file
         let patternSuggestions: Array<{ supplier: string; suggestions: PatternSuggestion[] }> = [];
         const companyId = body.org_number || body.company_name || 'default';
@@ -994,7 +1163,10 @@ Deno.serve(async (req: Request) => {
           await sendProgress({
             step: 'mapping',
             message: 'Söker inlärda mönster...',
-            progress: 0.4
+            progress: 0.4,
+            insight: 'Jag letar efter leverantörer och kostnader som jag känner igen från tidigare bokföringar...',
+            thinking_steps: analysisContext.thinking_steps,
+            confidence: analysisContext.confidence
           });
 
           const patternService = new ExpensePatternService(supabaseAdmin);
@@ -1029,10 +1201,38 @@ Deno.serve(async (req: Request) => {
           });
         }
 
+        // Update patterns thinking step
+        updateThinkingStep('patterns', {
+          status: 'completed',
+          content: patternSuggestions.length > 0
+            ? `Hittade ${patternSuggestions.length} kända leverantörer med sparade kontoplaner.`
+            : 'Inga sparade mönster hittades. Fortsätter med kolumnanalys.'
+        });
+
+        // Increase confidence if we found patterns
+        if (patternSuggestions.length > 0) {
+          analysisContext.confidence = Math.min(95, analysisContext.confidence + patternSuggestions.length * 2);
+        }
+
+        // Build insight about found patterns
+        const patternInsight = patternSuggestions.length > 0
+          ? `Jag hittade ${patternSuggestions.length} kända leverantörer! Deras kontoplaner återanvänds automatiskt.`
+          : 'Jag letar efter belopp-, moms- och datumkolumner...';
+
+        addThinkingStep({
+          id: 'columns',
+          title: 'Identifierar kolumner',
+          content: 'Mappar belopp, moms, datum och leverantörskolumner...',
+          status: 'in_progress'
+        });
+
         await sendProgress({
           step: 'mapping',
           message: 'Identifierar kolumner...',
           progress: 0.48,
+          insight: patternInsight,
+          thinking_steps: analysisContext.thinking_steps,
+          confidence: analysisContext.confidence,
           details: {
             patterns_found: patternSuggestions.length
           }
@@ -1069,18 +1269,66 @@ Deno.serve(async (req: Request) => {
 
         const needsAiMapping = !mapping.amount_column && !(mapping.debit_column && mapping.credit_column);
         if (needsAiMapping) {
+          // Reduce confidence when AI mapping is needed
+          analysisContext.confidence = Math.max(60, analysisContext.confidence - 20);
+
+          updateThinkingStep('columns', {
+            content: 'Kunde inte identifiera beloppskolumn automatiskt. Använder AI för att tolka strukturen...'
+          });
+
           await sendProgress({
             step: 'mapping',
             message: 'Behöver AI-hjälp för att tolka kolumner...',
-            progress: 0.52
+            progress: 0.52,
+            insight: '🤖 Det här är en ovanlig Excel-mall. Jag frågar AI om hjälp att tolka kolumnerna...',
+            thinking_steps: analysisContext.thinking_steps,
+            confidence: analysisContext.confidence
           });
           mapping = await mapColumnsWithOpenAI(columns, rowObjects.slice(0, 50), body.filename);
         }
+
+        // Update columns thinking step with result
+        const mappedCols: string[] = [];
+        if (mapping.amount_column) mappedCols.push(`belopp=${mapping.amount_column}`);
+        if (mapping.vat_amount_column) mappedCols.push(`moms=${mapping.vat_amount_column}`);
+        if (mapping.date_column) mappedCols.push(`datum=${mapping.date_column}`);
+
+        updateThinkingStep('columns', {
+          status: 'completed',
+          content: mappedCols.length > 0
+            ? `Kolumnmappning: ${mappedCols.join(', ')}`
+            : 'Kunde inte identifiera alla kolumner. Använder standardvärden.'
+        });
+
+        // Lower confidence if we couldn't find important columns
+        if (!mapping.vat_amount_column && !mapping.vat_rate_column) {
+          analysisContext.confidence = Math.max(50, analysisContext.confidence - 15);
+        }
+
+        // Build insight about column mapping
+        const mappingParts: string[] = [];
+        if (mapping.amount_column) mappingParts.push(`belopp (${mapping.amount_column})`);
+        if (mapping.vat_amount_column) mappingParts.push(`moms (${mapping.vat_amount_column})`);
+        if (mapping.date_column) mappingParts.push(`datum (${mapping.date_column})`);
+
+        const mappingInsight = mappingParts.length > 0
+          ? `Kolumner identifierade: ${mappingParts.join(', ')}. Nu beräknar jag exakta momsbelopp...`
+          : 'Beräknar momsbelopp för varje rad med öres-precision...';
+
+        addThinkingStep({
+          id: 'calculate',
+          title: 'Beräknar moms',
+          content: 'Summerar alla rader med öres-precision...',
+          status: 'in_progress'
+        });
 
         await sendProgress({
           step: 'calculating',
           message: 'Beräknar moms (deterministiskt)...',
           progress: 0.6,
+          insight: mappingInsight,
+          thinking_steps: analysisContext.thinking_steps,
+          confidence: analysisContext.confidence,
           details: {
             mapping,
             patterns_found: patternSuggestions.length
@@ -1277,8 +1525,30 @@ Deno.serve(async (req: Request) => {
         const totalOutgoing = outgoing25 + outgoing12 + outgoing6;
         const netVat = totalOutgoing - incomingVat;
 
+        // Update calculate thinking step
+        updateThinkingStep('calculate', {
+          status: 'completed',
+          content: `Beräknat: ${centsToNumber(totalSalesNet).toLocaleString('sv-SE')} kr försäljning, ${centsToNumber(totalCostsNet).toLocaleString('sv-SE')} kr kostnader från ${parsedTxs.length} rader.`
+        });
+
         const period = body.period || new Date().toISOString().substring(0, 7);
         const companyName = body.company_name || 'Företag';
+
+        // Add questions if confidence is low
+        if (analysisContext.confidence < 70) {
+          analysisContext.questions = [
+            {
+              id: 'confirm_mapping',
+              question: 'Jag är osäker på tolkningen av din Excel-fil. Kan du bekräfta att detta stämmer?',
+              context: `Identifierade kolumner: ${mappedCols.join(', ') || 'Kunde inte identifiera'}`,
+              options: [
+                { id: 'correct', label: 'Ja, det stämmer' },
+                { id: 'incorrect', label: 'Nej, hjälp mig korrigera' }
+              ],
+              allowFreeText: true
+            }
+          ];
+        }
 
         // Generate zero VAT warnings for general files
         const generalZeroVatWarnings: ZeroVATWarning[] = [];
@@ -1396,10 +1666,20 @@ Deno.serve(async (req: Request) => {
       // STEG 3: Spara till databas (om användare är inloggad)
       // ═══════════════════════════════════════════════════════════════════
       if (userId && body.conversation_id) {
+        addThinkingStep({
+          id: 'save',
+          title: 'Sparar rapport',
+          content: 'Sparar till din historik...',
+          status: 'in_progress'
+        });
+
         await sendProgress({
           step: 'normalizing',
           message: 'Sparar rapport...',
-          progress: 0.9
+          progress: 0.9,
+          insight: 'Sparar rapporten till din historik så du kan hitta den igen...',
+          thinking_steps: analysisContext.thinking_steps,
+          confidence: analysisContext.confidence
         });
 
         const { data: conversation, error: conversationError } = await supabaseAdmin
@@ -1456,13 +1736,41 @@ Deno.serve(async (req: Request) => {
       // ═══════════════════════════════════════════════════════════════════
       // KLART!
       // ═══════════════════════════════════════════════════════════════════
+
+      // Build final insight based on VAT result
+      const vatData = report.vat as { to_pay?: number; to_refund?: number; net?: number } | undefined;
+      let finalInsight = '✅ Momsrapporten är klar!';
+
+      if (vatData) {
+        if (vatData.to_pay && vatData.to_pay > 0) {
+          finalInsight = `✅ Klart! Du ska betala ${vatData.to_pay.toLocaleString('sv-SE')} kr i moms denna period.`;
+        } else if (vatData.to_refund && vatData.to_refund > 0) {
+          finalInsight = `✅ Klart! Du har ${vatData.to_refund.toLocaleString('sv-SE')} kr att få tillbaka i moms!`;
+        } else {
+          finalInsight = '✅ Klart! Utgående och ingående moms går jämnt ut.';
+        }
+      }
+
+      // Update save step if it was added
+      updateThinkingStep('save', { status: 'completed', content: 'Rapport sparad.' });
+
+      // Add confidence warning to insight if needed
+      if (analysisContext.confidence < 70) {
+        finalInsight += ` ⚠️ Säkerhet: ${analysisContext.confidence}% - verifiera gärna resultatet.`;
+      }
+
       await sendProgress({
         step: 'complete',
         message: 'Analys klar!',
         progress: 1.0,
+        insight: finalInsight,
+        thinking_steps: analysisContext.thinking_steps,
+        confidence: analysisContext.confidence,
+        questions: analysisContext.questions,
         report: {
           success: true,
           data: report,
+          confidence: analysisContext.confidence,
           metadata: {
             filename: body.filename,
             rows_analyzed: dataRows.length,

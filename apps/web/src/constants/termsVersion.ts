@@ -8,7 +8,7 @@
  * When version changes, ALL users will be prompted to re-consent on next login.
  */
 
-export const CURRENT_TERMS_VERSION = '1.0.0';
+export const CURRENT_TERMS_VERSION = '1.1.0';
 
 /**
  * Version history and change summaries
@@ -19,6 +19,16 @@ export const VERSION_HISTORY: Record<string, {
     summary: string;
     majorChanges: string[];
 }> = {
+    '1.1.0': {
+        date: '2026-01-07',
+        summary: 'Uppdatering för AI Act och förtydligat ansvar',
+        majorChanges: [
+            'Lagt till specifik lista över underbiträden (Google/OpenAI)',
+            'Förtydligat transparens kring AI-beslut enligt EU AI Act',
+            'Förstärkt ansvarsbegränsning för AI-genererad data',
+            'Information om överföring till tredjeland (SCC)'
+        ]
+    },
     '1.0.0': {
         date: '2025-12-01',
         summary: 'Initial terms and privacy policy',
@@ -29,17 +39,6 @@ export const VERSION_HISTORY: Record<string, {
             'Data processing and retention policies'
         ]
     },
-    // Future versions will be added here
-    // Example for future update:
-    // '1.1.0': {
-    //   date: '2025-12-15',
-    //   summary: 'Updated data retention policy',
-    //   majorChanges: [
-    //     'Extended chat history retention to 90 days',
-    //     'Added right to data portability details',
-    //     'Clarified third-party AI provider data sharing'
-    //   ]
-    // }
 };
 
 /**

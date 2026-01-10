@@ -3,7 +3,7 @@
     --legal-text-primary: #ffffff;
     --legal-text-secondary: #a1a1aa;
     --legal-border: rgba(255, 255, 255, 0.1);
-    --accent-primary: #7000FF;
+    --accent-primary: #3B82F6;
     --accent-secondary: #00F0FF;
     --glass-bg: rgba(20, 20, 20, 0.85);
     --glass-border: rgba(255, 255, 255, 0.08);
@@ -20,7 +20,7 @@ body {
 }
 
 body[data-legal-theme="terms"] {
-    --accent-primary: #7000FF;
+    --accent-primary: #3B82F6;
     --accent-secondary: #00F0FF;
     --glass-bg: rgba(20, 20, 20, 0.85);
     --glass-border: rgba(255, 255, 255, 0.08);
@@ -28,7 +28,7 @@ body[data-legal-theme="terms"] {
 
 body[data-legal-theme="privacy"] {
     --accent-primary: #00F0FF;
-    --accent-secondary: #7000FF;
+    --accent-secondary: #3B82F6;
 }
 
 .container {

@@ -25,6 +25,8 @@ export default defineConfig({
                         req.url = '/privacy.html';
                     } else if (pathOnly === '/terms') {
                         req.url = '/terms.html';
+                    } else if (pathOnly === '/manifest') {
+                        req.url = '/manifest.html';
                     } else if (
                         // App "routes" (no file extension) should resolve to the app shell.
                         (pathOnly === '/app' || pathOnly === '/app/' || pathOnly.startsWith('/app/')) &&
@@ -51,6 +53,7 @@ export default defineConfig({
                 app: resolve(__dirname, 'app/index.html'),
                 privacy: resolve(__dirname, 'privacy.html'),
                 terms: resolve(__dirname, 'terms.html'),
+                manifest: resolve(__dirname, 'manifest.html'),
             },
         },
     },

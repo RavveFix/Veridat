@@ -74,12 +74,14 @@ export interface AnalysisResult {
 }
 
 export interface AIAnalysisProgress {
-    step: 'parsing' | 'analyzing' | 'mapping' | 'normalizing' | 'calculating' | 'complete' | 'error';
+    step: 'parsing' | 'analyzing' | 'detecting' | 'categorizing' | 'mapping' | 'normalizing' | 'calculating' | 'complete' | 'error';
     message: string;
     progress: number;
     details?: Record<string, unknown>;
     report?: VATReportResponse;
     error?: string;
+    /** AI insight message to display to user (Claude-style explanation) */
+    insight?: string;
 }
 
 export type ProgressCallback = (progress: AIAnalysisProgress) => void;

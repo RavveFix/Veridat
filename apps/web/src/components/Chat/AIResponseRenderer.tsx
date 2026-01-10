@@ -63,19 +63,9 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
                     period={vatData.period || ''}
                     companyName={vatData.company?.name}
                     totalIncome={vatData.summary?.total_income}
+                    totalCosts={vatData.summary?.total_costs}
                     totalVat={vatData.vat?.net}
-                    onOpen={() => {
-                        window.dispatchEvent(new CustomEvent('open-vat-report', {
-                            detail: { data: vatData, fileUrl: metadata.file_url }
-                        }));
-                    }}
-                    onCopy={() => {
-                        const summary = `Momsredovisning ${vatData.period}\n` +
-                            `Företag: ${vatData.company?.name || 'N/A'}\n` +
-                            `Försäljning: ${vatData.summary?.total_income?.toLocaleString('sv-SE')} SEK\n` +
-                            `Moms att betala: ${vatData.vat?.net?.toLocaleString('sv-SE')} SEK`;
-                        navigator.clipboard.writeText(summary);
-                    }}
+                    fullData={vatData}
                 />
             </div>
         );

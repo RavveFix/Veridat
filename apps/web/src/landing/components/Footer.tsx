@@ -8,6 +8,8 @@ export function Footer() {
                     <div style="display: flex; gap: 2rem; justify-content: center;">
                         <a href="/terms" class="footer-link">Användarvillkor</a>
                         <a href="/privacy" class="footer-link">Integritetspolicy</a>
+                        <a href="/manifest" class="footer-link">AI Manifest</a>
+                        <a href="mailto:support@britta.ai" class="footer-link">Support</a>
                     </div>
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">
                         &copy; {new Date().getFullYear()} Britta AI. Byggd för svenska företagare.

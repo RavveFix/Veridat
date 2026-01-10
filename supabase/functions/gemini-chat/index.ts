@@ -648,7 +648,7 @@ Period: ${vatReportContext.period}
 Företag: ${vatReportContext.company?.name ?? 'Okänt'} (${vatReportContext.company?.org_number ?? 'Saknas'})
 
 SAMMANFATTNING:
-- Försäljning: ${vatReportContext.summary?.total_income ?? 0} SEK
+- Försäljning: ${vatReportContext.summary?.total_sales ?? vatReportContext.summary?.total_income ?? 0} SEK
 - Kostnader: ${vatReportContext.summary?.total_costs ?? 0} SEK
 - Resultat: ${vatReportContext.summary?.result ?? 0} SEK
 

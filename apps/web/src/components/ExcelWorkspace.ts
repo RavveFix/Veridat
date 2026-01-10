@@ -4,6 +4,7 @@ import type { ExcelPanelElements, ExcelWorkspaceOptions } from '../types/excel';
 import type { VATReportData } from '../types/vat';
 import type { AIAnalysisProgress } from '../services/ChatService';
 import { VATReportCard } from './VATReportCard';
+import { ExcelArtifact, type ExcelSheet, type ExcelArtifactProps } from './ExcelArtifact';
 import { mountPreactComponent } from './preact-adapter';
 import { logger } from '../services/LoggerService';
 
@@ -27,6 +28,7 @@ export class ExcelWorkspace {
     private elements: ExcelPanelElements;
     private options: ExcelWorkspaceOptions;
     private vatReportUnmount?: () => void;
+    private excelArtifactUnmount?: () => void;
 
     constructor(options: ExcelWorkspaceOptions = {}) {
         this.options = options;
@@ -105,6 +107,199 @@ export class ExcelWorkspace {
             if (this.options.onError && error instanceof Error) {
                 this.options.onError(error);
             }
+        }
+    }
+
+    /**
+     * Open and display an Excel file using the Claude-inspired Artifact UI
+     *
+     * @param fileUrl - Public URL to the Excel file
+     * @param filename - Display name for the file
+     * @param onAnalyze - Callback when user clicks "Analysera moms"
+     */
+    async openExcelArtifact(
+        fileUrl: string,
+        filename: string,
+        onAnalyze?: () => void
+    ): Promise<void> {
+        try {
+            // Unmount any previous Preact component
+            this.excelArtifactUnmount?.();
+            this.vatReportUnmount?.();
+
+            // Update filename display
+            this.elements.filenameDisplay.textContent = filename;
+
+            // Show loading state
+            this.elements.container.innerHTML = '<div class="excel-loading">Laddar Excel-fil...</div>';
+            this.elements.panel.classList.add('open');
+
+            // Hide sheet tabs (handled by artifact component)
+            this.elements.tabsContainer.style.display = 'none';
+
+            // Fetch the file
+            const response = await fetch(fileUrl);
+            if (!response.ok) {
+                throw new Error(`Kunde inte hämta filen: ${response.statusText}`);
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+
+            // Parse the Excel file with SheetJS
+            this.currentWorkbook = XLSX.read(arrayBuffer, { type: 'array' });
+            this.currentFile = filename;
+
+            // Extract sheet info
+            const sheets: ExcelSheet[] = this.currentWorkbook.SheetNames.map(name => {
+                const worksheet = this.currentWorkbook!.Sheets[name];
+                const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+                const rowCount = range.e.r - range.s.r;
+                return { name, rowCount };
+            });
+
+            // Get first sheet data for preview
+            const firstSheetName = this.currentWorkbook.SheetNames[0];
+            const firstSheet = this.currentWorkbook.Sheets[firstSheetName];
+
+            // Convert to JSON to get columns and rows
+            const jsonData = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, {
+                header: 1,
+                defval: ''
+            });
+
+            // First row is headers, rest is data
+            const columns = (jsonData[0] as string[] || []).map(col => String(col || ''));
+            const previewRows = jsonData.slice(1, 51) as unknown[][]; // Preview max 50 rows
+
+            // Detect period from filename or data
+            const period = this.detectPeriod(filename, jsonData);
+
+            // Clear container and mount Preact ExcelArtifact component
+            this.elements.container.innerHTML = '';
+
+            const props: ExcelArtifactProps = {
+                filename,
+                sheets,
+                columns,
+                previewRows,
+                period,
+                status: 'ready',
+                onAnalyze: onAnalyze,
+                onDownload: () => this.downloadCurrentFile(fileUrl, filename),
+                onClose: () => this.closePanel()
+            };
+
+            this.excelArtifactUnmount = mountPreactComponent(
+                ExcelArtifact,
+                props,
+                this.elements.container
+            );
+
+            logger.debug('Excel artifact opened', { filename, sheets: sheets.length, rows: previewRows.length });
+
+        } catch (error) {
+            console.error('Error opening Excel artifact:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Okänt fel';
+            this.elements.container.innerHTML = `<div class="excel-error">Kunde inte ladda Excel-filen: ${this.escapeHtml(errorMessage)}</div>`;
+
+            if (this.options.onError && error instanceof Error) {
+                this.options.onError(error);
+            }
+        }
+    }
+
+    /**
+     * Detect period from filename or data
+     */
+    private detectPeriod(filename: string, _data: unknown[][]): string | undefined {
+        // Try to detect from filename (e.g., "monta-december-2024.xlsx")
+        const monthNames = ['januari', 'februari', 'mars', 'april', 'maj', 'juni',
+            'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
+
+        const lowerFilename = filename.toLowerCase();
+
+        for (let i = 0; i < monthNames.length; i++) {
+            if (lowerFilename.includes(monthNames[i])) {
+                // Try to find year
+                const yearMatch = filename.match(/20\d{2}/);
+                if (yearMatch) {
+                    return `${monthNames[i].charAt(0).toUpperCase() + monthNames[i].slice(1)} ${yearMatch[0]}`;
+                }
+                return monthNames[i].charAt(0).toUpperCase() + monthNames[i].slice(1);
+            }
+        }
+
+        // Try Q format (e.g., "Q4 2024")
+        const quarterMatch = filename.match(/Q([1-4])\s*(20\d{2})/i);
+        if (quarterMatch) {
+            return `Q${quarterMatch[1]} ${quarterMatch[2]}`;
+        }
+
+        // Try year-month format (e.g., "2024-12")
+        const ymMatch = filename.match(/(20\d{2})-?(0[1-9]|1[0-2])/);
+        if (ymMatch) {
+            const monthIndex = parseInt(ymMatch[2]) - 1;
+            return `${monthNames[monthIndex].charAt(0).toUpperCase() + monthNames[monthIndex].slice(1)} ${ymMatch[1]}`;
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Download the current Excel file
+     */
+    private downloadCurrentFile(fileUrl: string, filename: string): void {
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    /**
+     * Update the ExcelArtifact status (e.g., when analysis starts)
+     */
+    updateArtifactStatus(status: ExcelArtifactProps['status']): void {
+        // Re-mount with updated status
+        if (this.currentWorkbook && this.currentFile) {
+            const sheets: ExcelSheet[] = this.currentWorkbook.SheetNames.map(name => {
+                const worksheet = this.currentWorkbook!.Sheets[name];
+                const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+                const rowCount = range.e.r - range.s.r;
+                return { name, rowCount };
+            });
+
+            const firstSheetName = this.currentWorkbook.SheetNames[0];
+            const firstSheet = this.currentWorkbook.Sheets[firstSheetName];
+            const jsonData = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, {
+                header: 1,
+                defval: ''
+            });
+
+            const columns = (jsonData[0] as string[] || []).map(col => String(col || ''));
+            const previewRows = jsonData.slice(1, 51) as unknown[][];
+            const period = this.detectPeriod(this.currentFile, jsonData);
+
+            // Unmount and remount with new status
+            this.excelArtifactUnmount?.();
+            this.elements.container.innerHTML = '';
+
+            const props: ExcelArtifactProps = {
+                filename: this.currentFile,
+                sheets,
+                columns,
+                previewRows,
+                period,
+                status,
+                onClose: () => this.closePanel()
+            };
+
+            this.excelArtifactUnmount = mountPreactComponent(
+                ExcelArtifact,
+                props,
+                this.elements.container
+            );
         }
     }
 
@@ -225,9 +420,11 @@ export class ExcelWorkspace {
      * Close the Excel panel and clear state
      */
     closePanel(): void {
-        // Unmount Preact component if present
+        // Unmount Preact components if present
         this.vatReportUnmount?.();
         this.vatReportUnmount = undefined;
+        this.excelArtifactUnmount?.();
+        this.excelArtifactUnmount = undefined;
 
         this.elements.panel.classList.remove('open');
         this.currentWorkbook = null;
@@ -337,6 +534,12 @@ export class ExcelWorkspace {
                         <div class="progress-bar" id="ai-progress-bar"></div>
                     </div>
                     <div class="progress-text" id="ai-progress-text">Förbereder analys...</div>
+                    <div class="confidence-display" id="ai-confidence" style="display: none;">
+                        <div class="confidence-bar-container">
+                            <div class="confidence-bar" id="ai-confidence-bar"></div>
+                        </div>
+                        <span class="confidence-label" id="ai-confidence-label"></span>
+                    </div>
                 </div>
 
                 <div class="analysis-steps" id="ai-analysis-steps">
@@ -385,6 +588,10 @@ export class ExcelWorkspace {
                     </div>
                 </div>
 
+                <div class="ai-insights" id="ai-insights-container">
+                    <!-- Insight bubbles will be added here dynamically -->
+                </div>
+
                 <div class="ai-notes" id="ai-analysis-notes" style="display: none;">
                     <div class="notes-header">AI insikter</div>
                     <div class="notes-content" id="ai-notes-content"></div>
@@ -394,6 +601,33 @@ export class ExcelWorkspace {
 
         // Open the panel
         this.elements.panel.classList.add('open');
+    }
+
+    /**
+     * Show an insight bubble with animation (Claude-style AI explanation)
+     */
+    private showInsightBubble(insight: string): void {
+        const container = document.getElementById('ai-insights-container');
+        if (!container) return;
+
+        // Create bubble element
+        const bubble = document.createElement('div');
+        bubble.className = 'insight-bubble';
+        bubble.innerHTML = `
+            <div class="insight-icon">💡</div>
+            <div class="insight-text">${this.escapeHtml(insight)}</div>
+        `;
+
+        // Add to container with animation
+        container.appendChild(bubble);
+
+        // Trigger animation
+        requestAnimationFrame(() => {
+            bubble.classList.add('visible');
+        });
+
+        // Scroll to show latest insight
+        container.scrollTop = container.scrollHeight;
     }
 
     /**
@@ -414,11 +648,43 @@ export class ExcelWorkspace {
             progressText.textContent = progress.message;
         }
 
+        // Update confidence display if present
+        const confidenceContainer = document.getElementById('ai-confidence');
+        const confidenceBar = document.getElementById('ai-confidence-bar');
+        const confidenceLabel = document.getElementById('ai-confidence-label');
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const progressAny = progress as any;
+        if (progressAny.confidence !== undefined && confidenceContainer && confidenceBar && confidenceLabel) {
+            const confidence = progressAny.confidence as number;
+            confidenceContainer.style.display = 'flex';
+            confidenceBar.style.width = `${confidence}%`;
+
+            // Set color based on confidence level
+            let confidenceClass = 'high';
+            let label = 'Hög säkerhet';
+            if (confidence < 70) {
+                confidenceClass = 'low';
+                label = 'Låg säkerhet';
+            } else if (confidence < 90) {
+                confidenceClass = 'medium';
+                label = 'Medelhög säkerhet';
+            }
+
+            confidenceBar.className = `confidence-bar ${confidenceClass}`;
+            confidenceLabel.textContent = `${label} (${confidence}%)`;
+        }
+
+        // Show insight bubble if present (Claude-style AI explanation)
+        if (progress.insight) {
+            this.showInsightBubble(progress.insight);
+        }
+
         // Update step indicators
         const stepsContainer = document.getElementById('ai-analysis-steps');
         if (stepsContainer) {
-            // All steps in order across all 3 AI backends
-            const steps = ['parsing', 'analyzing', 'mapping', 'normalizing', 'python-calculating', 'claude-validating'];
+            // All steps in order - includes Monta-specific steps (detecting, categorizing)
+            const steps = ['parsing', 'analyzing', 'detecting', 'categorizing', 'mapping', 'normalizing', 'calculating', 'python-calculating', 'claude-validating'];
             const currentStepIndex = steps.indexOf(progress.step);
 
             steps.forEach((step, index) => {
@@ -568,7 +834,8 @@ export class ExcelWorkspace {
                     const netVat = totalOutgoing - incoming;
 
                     // Transform Claude's response to VATReportData format
-                    const vatData: VATReportData = {
+                    // Note: This data was used for the side panel, now kept for future use
+                    const _vatData: VATReportData = {
                         type: 'vat_report',
                         period: String(data.period || ''),
                         company: {
@@ -619,8 +886,10 @@ export class ExcelWorkspace {
                         }] : undefined
                     };
 
-                    // Show the VAT report
-                    this.openVATReport(vatData);
+                    // VAT report is now shown inline in the chat via AIResponseRenderer
+                    // Side panel no longer needed - data flows through ChatService
+                    // this.openVATReport(_vatData);
+                    void _vatData; // Suppress unused variable warning
                 }
             }, 800); // Brief delay to show completion
         }

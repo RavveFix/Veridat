@@ -204,18 +204,23 @@ export class ChatController {
         window.addEventListener('open-excel', (e: any) => {
             const { url, name } = e.detail;
             if (url && name && this.excelWorkspace) {
-                this.excelWorkspace.openExcelFile(url, name);
+                // Use the new Claude-inspired artifact UI
+                this.excelWorkspace.openExcelArtifact(url, name, () => {
+                    // TODO: Re-analyze the file if user clicks "Analysera moms"
+                    console.log('Re-analysis requested for:', name);
+                });
             }
         });
 
-        // Listen for open-vat-report events from ChatHistory
-        window.addEventListener('open-vat-report', (e: Event) => {
-            const customEvent = e as CustomEvent<{ data: VATReportData; fileUrl?: string }>;
-            const { data, fileUrl } = customEvent.detail;
-            if (data && this.excelWorkspace) {
-                this.excelWorkspace.openVATReport(data, fileUrl, true);
-            }
-        });
+        // VAT reports are now shown inline in chat via AIResponseRenderer
+        // Side panel is no longer needed for VAT reports
+        // window.addEventListener('open-vat-report', (e: Event) => {
+        //     const customEvent = e as CustomEvent<{ data: VATReportData; fileUrl?: string }>;
+        //     const { data, fileUrl } = customEvent.detail;
+        //     if (data && this.excelWorkspace) {
+        //         this.excelWorkspace.openVATReport(data, fileUrl, true);
+        //     }
+        // });
     }
 
     private async handleFormSubmit(e: SubmitEvent): Promise<void> {
@@ -345,8 +350,9 @@ export class ChatController {
 
         // Show AI response based on file type
         if (vatReportResponse && vatReportResponse.type === 'vat_report' && this.excelWorkspace) {
-            // We save the VAT report message below, so skipSave avoids duplicate inserts
-            this.excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined, true);
+            // VAT report is now shown inline in chat via AIResponseRenderer
+            // Side panel no longer needed - comment out openVATReport call
+            // this.excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined, true);
 
             if (conversationId) {
                 await supabase.from('messages').insert({

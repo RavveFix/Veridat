@@ -1,5 +1,7 @@
 import { FunctionComponent } from 'preact';
 import { useState } from 'preact/hooks';
+import type { VATReportData } from '../../types/vat';
+import { generateExcelFile, copyReportToClipboard } from '../../utils/excelExport';
 
 export type ArtifactType = 'excel' | 'vat' | 'pdf' | 'code' | 'table' | 'generic';
 
@@ -131,70 +133,326 @@ export const ArtifactCard: FunctionComponent<ArtifactCardProps> = ({
 };
 
 /**
- * Pre-configured artifact card for VAT reports
+ * Pre-configured artifact card for VAT reports - Inline expandable version
+ * Shows full VAT report directly in the chat without needing a side panel
  */
 interface VATArtifactProps {
     period: string;
     companyName?: string;
     totalIncome?: number;
+    totalCosts?: number;
     totalVat?: number;
-    onOpen: () => void;
+    /** Full VAT report data for inline display */
+    fullData?: VATReportData;
+    /** Legacy: opens side panel (optional - kept for backwards compat) */
+    onOpen?: () => void;
     onCopy?: () => void;
 }
+
+type VATTab = 'overview' | 'sales' | 'costs' | 'journal';
 
 export const VATArtifact: FunctionComponent<VATArtifactProps> = ({
     period,
     companyName,
     totalIncome,
+    totalCosts,
     totalVat,
+    fullData,
     onOpen,
     onCopy,
 }) => {
-    const actions = [
-        {
+    const [activeTab, setActiveTab] = useState<VATTab>('overview');
+    const [downloadLoading, setDownloadLoading] = useState(false);
+    const [downloadSuccess, setDownloadSuccess] = useState(false);
+    const [copySuccess, setCopySuccess] = useState(false);
+
+    // Determine VAT label based on positive/negative value
+    const vatLabel = totalVat !== undefined && totalVat < 0 ? 'Moms att återfå' : 'Moms att betala';
+    const vatDisplayValue = totalVat !== undefined ? Math.abs(totalVat) : undefined;
+
+    const handleDownload = async () => {
+        if (!fullData || downloadLoading) return;
+        setDownloadLoading(true);
+        try {
+            await generateExcelFile(fullData);
+            setDownloadSuccess(true);
+            setTimeout(() => {
+                setDownloadLoading(false);
+                setDownloadSuccess(false);
+            }, 2000);
+        } catch (error) {
+            console.error('Excel generation failed:', error);
+            setDownloadLoading(false);
+        }
+    };
+
+    const handleCopy = () => {
+        if (fullData) {
+            copyReportToClipboard(fullData);
+        } else if (onCopy) {
+            onCopy();
+        }
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+    };
+
+    // Build actions based on available features
+    const actions: Array<{ label: string; icon?: string; primary?: boolean; onClick: () => void }> = [];
+
+    if (fullData) {
+        actions.push({
+            label: downloadLoading ? 'Laddar...' : downloadSuccess ? '✓ Nedladdad!' : 'Ladda ner Excel',
+            icon: '📥',
+            primary: true,
+            onClick: handleDownload,
+        });
+    } else if (onOpen) {
+        // Legacy: open side panel if no full data
+        actions.push({
             label: 'Öppna momsredovisning',
             icon: '→',
             primary: true,
             onClick: onOpen,
-        },
-    ];
-
-    if (onCopy) {
-        actions.push({
-            label: 'Kopiera',
-            icon: '📋',
-            primary: false,
-            onClick: onCopy,
         });
     }
 
+    actions.push({
+        label: copySuccess ? '✓ Kopierat!' : 'Kopiera',
+        icon: '📋',
+        primary: false,
+        onClick: handleCopy,
+    });
+
     return (
-        <ArtifactCard
-            type="vat"
-            title={`Momsredovisning ${period}`}
-            subtitle={companyName}
-            status="success"
-            statusText="Skapad"
-            defaultExpanded={true}
-            actions={actions}
-        >
-            {(totalIncome !== undefined || totalVat !== undefined) && (
-                <div class="artifact-summary">
-                    {totalIncome !== undefined && (
-                        <div class="summary-stat">
-                            <div class="summary-stat-value">{totalIncome.toLocaleString('sv-SE')} SEK</div>
-                            <div class="summary-stat-label">Försäljning</div>
+        <div class="vat-artifact-inline">
+            <ArtifactCard
+                type="vat"
+                title={`Momsredovisning ${period}`}
+                subtitle={companyName}
+                status="success"
+                statusText="Validerad"
+                defaultExpanded={true}
+                actions={actions}
+            >
+                {/* Summary Cards - Always visible */}
+                {(totalIncome !== undefined || totalCosts !== undefined || totalVat !== undefined) && (
+                    <div class="artifact-summary three-col">
+                        {totalIncome !== undefined && (
+                            <div class="summary-stat income">
+                                <div class="summary-stat-value">{totalIncome.toLocaleString('sv-SE')} SEK</div>
+                                <div class="summary-stat-label">Försäljning</div>
+                            </div>
+                        )}
+                        {totalCosts !== undefined && (
+                            <div class="summary-stat costs">
+                                <div class="summary-stat-value">{totalCosts.toLocaleString('sv-SE')} SEK</div>
+                                <div class="summary-stat-label">Kostnader</div>
+                            </div>
+                        )}
+                        {vatDisplayValue !== undefined && (
+                            <div class={`summary-stat vat ${totalVat && totalVat < 0 ? 'refund' : 'pay'}`}>
+                                <div class="summary-stat-value">{vatDisplayValue.toLocaleString('sv-SE')} SEK</div>
+                                <div class="summary-stat-label">{vatLabel}</div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Inline Details - Only if fullData is provided */}
+                {fullData && (
+                    <div class="vat-inline-details">
+                        {/* Tabs Navigation */}
+                        <div class="vat-tabs">
+                            <button
+                                class={`vat-tab ${activeTab === 'overview' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('overview')}
+                            >
+                                Moms
+                            </button>
+                            <button
+                                class={`vat-tab ${activeTab === 'sales' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('sales')}
+                            >
+                                Försäljning ({fullData.sales?.length || 0})
+                            </button>
+                            <button
+                                class={`vat-tab ${activeTab === 'costs' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('costs')}
+                            >
+                                Kostnader ({fullData.costs?.length || 0})
+                            </button>
+                            <button
+                                class={`vat-tab ${activeTab === 'journal' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('journal')}
+                            >
+                                Bokföring ({fullData.journal_entries?.length || 0})
+                            </button>
                         </div>
-                    )}
-                    {totalVat !== undefined && (
-                        <div class="summary-stat">
-                            <div class="summary-stat-value">{totalVat.toLocaleString('sv-SE')} SEK</div>
-                            <div class="summary-stat-label">Moms att betala</div>
+
+                        {/* Tab Content */}
+                        <div class="vat-tab-content">
+                            {activeTab === 'overview' && (
+                                <VATOverviewTab vat={fullData.vat} validation={fullData.validation} />
+                            )}
+                            {activeTab === 'sales' && (
+                                <TransactionsTab
+                                    transactions={fullData.sales}
+                                    type="sales"
+                                />
+                            )}
+                            {activeTab === 'costs' && (
+                                <TransactionsTab
+                                    transactions={fullData.costs}
+                                    type="costs"
+                                />
+                            )}
+                            {activeTab === 'journal' && (
+                                <JournalTab entries={fullData.journal_entries} />
+                            )}
                         </div>
-                    )}
+                    </div>
+                )}
+            </ArtifactCard>
+        </div>
+    );
+};
+
+/**
+ * VAT Overview Tab - Shows VAT breakdown
+ */
+const VATOverviewTab: FunctionComponent<{
+    vat: VATReportData['vat'];
+    validation?: VATReportData['validation'];
+}> = ({ vat, validation }) => {
+    if (!vat) return null;
+
+    const netVat = vat.net ?? 0;
+    const isRefund = netVat < 0;
+
+    return (
+        <div class="vat-overview-tab">
+            <div class="vat-breakdown">
+                <div class="vat-row">
+                    <span>Utgående moms 25%:</span>
+                    <span class="vat-amount">{(vat.outgoing_25 ?? 0).toFixed(2)} SEK</span>
+                </div>
+                {(vat.outgoing_12 ?? 0) > 0 && (
+                    <div class="vat-row">
+                        <span>Utgående moms 12%:</span>
+                        <span class="vat-amount">{vat.outgoing_12!.toFixed(2)} SEK</span>
+                    </div>
+                )}
+                {(vat.outgoing_6 ?? 0) > 0 && (
+                    <div class="vat-row">
+                        <span>Utgående moms 6%:</span>
+                        <span class="vat-amount">{vat.outgoing_6!.toFixed(2)} SEK</span>
+                    </div>
+                )}
+                <div class="vat-row">
+                    <span>Ingående moms:</span>
+                    <span class="vat-amount negative">{(vat.incoming ?? 0).toFixed(2)} SEK</span>
+                </div>
+                <div class={`vat-row total ${isRefund ? 'refund' : 'pay'}`}>
+                    <span>{isRefund ? 'Att återfå:' : 'Att betala:'}</span>
+                    <span class="vat-amount">{Math.abs(netVat).toFixed(2)} SEK</span>
+                </div>
+            </div>
+
+            {/* Validation warnings */}
+            {validation && (validation.warnings?.length > 0 || validation.errors?.length > 0) && (
+                <div class="vat-validation">
+                    {validation.errors?.map((error, i) => (
+                        <div key={i} class="validation-item error">
+                            <span class="validation-icon">⚠️</span>
+                            <span>{error}</span>
+                        </div>
+                    ))}
+                    {validation.warnings?.map((warning, i) => (
+                        <div key={i} class="validation-item warning">
+                            <span class="validation-icon">⚡</span>
+                            <span>{warning}</span>
+                        </div>
+                    ))}
                 </div>
             )}
-        </ArtifactCard>
+        </div>
+    );
+};
+
+/**
+ * Transactions Tab - Shows sales or costs
+ */
+const TransactionsTab: FunctionComponent<{
+    transactions?: Array<{ description: string; net: number; vat: number; rate: number }>;
+    type: 'sales' | 'costs';
+}> = ({ transactions, type }) => {
+    if (!transactions || transactions.length === 0) {
+        return (
+            <div class="empty-tab">
+                Inga {type === 'sales' ? 'försäljningstransaktioner' : 'kostnader'} hittades.
+            </div>
+        );
+    }
+
+    return (
+        <div class="transactions-tab">
+            <table class="transactions-table">
+                <thead>
+                    <tr>
+                        <th>Beskrivning</th>
+                        <th class="num">Netto</th>
+                        <th class="num">Moms</th>
+                        <th class="num">%</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {transactions.map((tx, i) => (
+                        <tr key={i}>
+                            <td>{tx.description}</td>
+                            <td class="num">{tx.net.toLocaleString('sv-SE', { minimumFractionDigits: 2 })}</td>
+                            <td class="num">{tx.vat.toLocaleString('sv-SE', { minimumFractionDigits: 2 })}</td>
+                            <td class="num">{tx.rate}%</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+/**
+ * Journal Tab - Shows accounting entries
+ */
+const JournalTab: FunctionComponent<{
+    entries?: Array<{ account: string; name: string; debit: number; credit: number }>;
+}> = ({ entries }) => {
+    if (!entries || entries.length === 0) {
+        return <div class="empty-tab">Inga bokföringsposter genererade.</div>;
+    }
+
+    return (
+        <div class="journal-tab">
+            <table class="journal-table">
+                <thead>
+                    <tr>
+                        <th>Konto</th>
+                        <th>Benämning</th>
+                        <th class="num">Debet</th>
+                        <th class="num">Kredit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {entries.map((entry, i) => (
+                        <tr key={i}>
+                            <td class="account">{entry.account}</td>
+                            <td>{entry.name}</td>
+                            <td class="num debit">{entry.debit > 0 ? entry.debit.toLocaleString('sv-SE', { minimumFractionDigits: 2 }) : ''}</td>
+                            <td class="num credit">{entry.credit > 0 ? entry.credit.toLocaleString('sv-SE', { minimumFractionDigits: 2 }) : ''}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
     );
 };
 

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Manifest - Britta AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/styles/legal.css">
+    <style>
+        :root {
+            --manifest-gradient: linear-gradient(135deg, #3b82f6 0%, #00f0ff 50%, #0ea5e9 100%);
+        }
+        .manifest-hero {
+            padding: 8rem 0 4rem;
+            text-align: center;
+            background: radial-gradient(circle at center, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
+        }
+        .manifest-title {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 1.5rem;
+            background: var(--manifest-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .manifest-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 4rem 0;
+        }
+        .manifest-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 2.5rem;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+        .manifest-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent-primary);
+        }
+        .manifest-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--accent-primary);
+        }
+        .philosophy-section {
+            max-width: 800px;
+            margin: 4rem auto;
+            line-height: 1.8;
+            font-size: 1.1rem;
+        }
+        .quote-box {
+            border-left: 4px solid var(--accent-primary);
+            padding-left: 2rem;
+            margin: 3rem 0;
+            font-style: italic;
+            font-size: 1.4rem;
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+
+<body data-legal-theme="manifest">
+    <header class="header-glass">
+        <div class="header-container">
+            <a href="/" class="logo" style="text-decoration: none; font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                Britta
+            </a>
+            <a href="/login" class="btn btn-glass btn-glow" style="padding: 0.5rem 1.5rem; font-size: 0.9rem; border-radius: 12px;">
+                Logga in
+            </a>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="sub-nav">
+            <a href="/" class="back-link">← Tillbaka</a>
+            <a href="/manifest" class="sub-nav-link active">AI Manifest</a>
+            <a href="/terms" class="sub-nav-link">Användarvillkor</a>
+        </div>
+
+        <section class="manifest-hero">
+            <h1 class="manifest-title">The Britta AI Manifest</h1>
+            <p style="font-size: 1.25rem; color: var(--text-secondary); max-width: 600px; margin: 0 auto;">
+                Vår vision för hur artificiell intelligens och mänsklig kreativitet skapar framtidens företagande.
+            </p>
+        </section>
+
+        <div class="philosophy-section">
+            <p>Vi lever i en tid av fundamental förändring. På Britta AI tror vi inte att tekniken ska ersätta människan – vi tror att tekniken ska <strong>befria</strong> henne. Genom att automatisera det repetitiva och tråkiga skapar vi utrymme för det som verkligen räknas: intuition, kreativitet och personliga relationer.</p>
+            
+            <div class="quote-box">
+                "Vårt mål är inte att bygga en maskin som bokför. Det är att bygga en kompanjon som förstår ditt företagande."
+            </div>
+        </div>
+
+        <div class="manifest-grid">
+            <div class="manifest-card">
+                <h3>Symbios, inte substitution</h3>
+                <p>AI är bäst på mönster och stora datamängder. Människan är bäst på sammanhang och moral. Britta är byggd för att vara verktyget i din hand, inte den som sitter vid rätterna.</p>
+            </div>
+            <div class="manifest-card">
+                <h3>Radikal transparens</h3>
+                <p>Vi är öppna med hur Britta tänker. Varje förslag backas upp av logik som du kan spåra. Vi kombinerar kraften hos LLM med säkerheten i deterministisk bokföringsmatematik.</p>
+            </div>
+            <div class="manifest-card">
+                <h3>Säkerhet mot hallucinationer</h3>
+                <p>Vi bekämpar felaktigheter genom ett "Double-Check"-system där AI-genererade förslag valideras mot strikta redovisningsregler och BAS-kontoplanen innan de presenteras för dig.</p>
+            </div>
+        </div>
+
+        <div class="philosophy-section">
+            <h2>Våra löften till dig</h2>
+            <p>1. <strong>Din data är din:</strong> Vi använder aldrig din specifika affärsdata för att träna modeller åt andra.</p>
+            <p>2. <strong>Alltid en väg ut:</strong> Du har alltid sista ordet. Inget bokförs permanent utan ditt godkännande.</p>
+            <p>3. <strong>Ständig utveckling:</strong> Vi arbetar dygnet runt för att Britta ska bli smartare, säkrare och mer mänsklig i sin dialog.</p>
+        </div>
+
+        <footer style="margin-top: 6rem; padding-bottom: 4rem; text-align: center; opacity: 0.7;">
+            <p>&copy; 2026 Britta AI - En del av den intelligenta revolutionen.</p>
+        </footer>
+    </div>
+
+    <script type="module" src="/src/legal.ts"></script>
+</body>
+
+</html>

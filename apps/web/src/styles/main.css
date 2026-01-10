@@ -14,9 +14,9 @@
 
     /* Accents */
     --accent-primary: #00F0FF;
-    /* Keep Britta's accent */
-    --accent-secondary: #7000FF;
-    --accent-tertiary: #FF0055;
+    /* Britta Blue Palette */
+    --accent-secondary: #3B82F6;
+    --accent-tertiary: #0EA5E9;
     --accent-black: #000000;
     --text-on-accent: #ffffff;
     --text-on-danger: #ffffff;
@@ -52,7 +52,7 @@
 
     /* Chat & Bubbles */
     --ai-bubble-bg: #f3f4f6;
-    --user-bubble-bg: #000000;
+    --user-bubble-bg: #111827;
     --user-text: #ffffff;
 
     /* Shadows */
@@ -66,6 +66,18 @@
 
     /* Transition */
     --theme-transition: 0.3s ease;
+
+    /* Excel Artifact - Claude.ai inspired */
+    --artifact-padding: 1.25rem;
+    --artifact-gap: 0.75rem;
+    --artifact-border-radius: 16px;
+    --panel-bg: rgba(255, 255, 255, 0.95);
+    --panel-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+    --table-header-bg: rgba(0, 0, 0, 0.02);
+    --table-row-hover: rgba(0, 0, 0, 0.03);
+    --table-border: rgba(0, 0, 0, 0.06);
+    --easing-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+    --header-height: 72px; /* Standardized height for perfect alignment */
 }
 
 /* Dark Mode Override (Optional/Future) */
@@ -80,7 +92,7 @@
 
     --accent-black: #ffffff;
     --text-on-accent: #000000;
-    --accent-tertiary: #FF0055;
+    --accent-tertiary: #0EA5E9;
     --overlay-bg: rgba(0, 0, 0, 0.6);
 
     --orb-highlight: #b5cbe3;
@@ -99,6 +111,7 @@
     --ai-bubble-bg: rgba(20, 25, 35, 0.85);
     --user-bubble-bg: var(--accent-primary);
     --user-text: #000000;
+    --user-text-secondary: rgba(0, 0, 0, 0.6);
 
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-bg: rgba(20, 20, 20, 0.85);
@@ -112,6 +125,13 @@
     --blob-color-1: var(--accent-primary);
     --blob-color-2: var(--accent-secondary);
     --blob-color-3: var(--accent-tertiary);
+
+    /* Excel Artifact Dark Mode */
+    --panel-bg: rgba(24, 24, 27, 0.95);
+    --panel-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    --table-header-bg: rgba(255, 255, 255, 0.04);
+    --table-row-hover: rgba(255, 255, 255, 0.06);
+    --table-border: rgba(255, 255, 255, 0.08);
 }
 
 /* Light Theme */
@@ -120,10 +140,10 @@
     --text-primary: #0f172a;
     --text-secondary: #64748b;
 
-    /* Accents (Adjusted for contrast) */
+    /* Accents (Adjusted for blue theme) */
     --accent-primary: #0284c7;
-    --accent-secondary: #7c3aed;
-    --accent-tertiary: #db2777;
+    --accent-secondary: #2563eb;
+    --accent-tertiary: #0ea5e9;
 
     --orb-highlight: #9fb9d6;
     --orb-mid: #5b7daa;
@@ -141,7 +161,9 @@
     --header-bg: rgba(255, 255, 255, 0.8);
     --footer-bg: rgba(255, 255, 255, 0.8);
     --ai-bubble-bg: rgba(255, 255, 255, 0.9);
-    --user-bubble-bg: linear-gradient(135deg, rgba(2, 132, 199, 0.12), rgba(2, 132, 199, 0.04));
+    --user-bubble-bg: #f1f5f9;
+    --user-text: #0f172a;
+    --user-text-secondary: #64748b;
     --dropdown-bg: #ffffff;
     --input-bg: rgba(0, 0, 0, 0.03);
     --surface-bg: rgba(0, 0, 0, 0.04);
@@ -158,10 +180,10 @@
     --shadow-glow: rgba(2, 132, 199, 0.15);
     --shadow-soft: rgba(0, 0, 0, 0.05);
 
-    /* Blob Colors (Soft Pastels) */
+    /* Blob Colors (Blue/Cyan Pastels) */
     --blob-color-1: rgba(14, 165, 233, 0.2);
-    --blob-color-2: rgba(245, 158, 11, 0.2);
-    --blob-color-3: rgba(168, 85, 247, 0.2);
+    --blob-color-2: rgba(0, 240, 255, 0.15);
+    --blob-color-3: rgba(59, 130, 246, 0.15);
 }
 
 * {
@@ -259,12 +281,25 @@ body {
     background: var(--bg-color);
     transition: grid-template-columns 0.3s ease;
     overflow: hidden;
+    position: relative;
+}
+
+.app-layout::after {
+    content: '';
+    position: absolute;
+    top: var(--header-height);
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--glass-border);
+    z-index: 30;
+    pointer-events: none;
 }
 
 /* Sidebar */
 .sidebar {
     background: var(--sidebar-bg);
-    border-right: 1px solid var(--border-color);
+    border-right: none; /* Moved to .main-content to fix sub-pixel junction */
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -275,19 +310,23 @@ body {
 }
 
 .sidebar-header {
-    padding: 1.5rem;
+    height: var(--header-height);
+    padding: 0 1rem; /* Restored standard padding */
     display: flex;
-    align-items: center;
+    align-items: center; /* Back to center now that heights match */
+    justify-content: space-between;
+    gap: 0;
+    border-bottom: none;
     flex-shrink: 0;
-    /* NEVER shrink */
+    box-sizing: border-box;
 }
 
 .sidebar-action {
-    padding: 0 1rem 1rem;
+    padding: 1.25rem 1rem 1rem; /* Added top padding for breathing room */
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1rem; /* Unified 16px vertical gap */
 }
 
 .new-chat-btn {
@@ -295,29 +334,29 @@ body {
     background: #1a1a1a;
     color: #ffffff;
     border: none;
-    padding: 0.85rem;
+    padding: 0.65rem 1rem; /* Refined padding for better balance */
     border-radius: 99px;
-    font-weight: 500;
+    font-weight: 600;
     font-size: 0.9rem;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
-    transition: all 0.2s ease;
+    gap: 0.6rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     position: relative;
-    overflow: hidden;
 }
 
 .new-chat-btn:hover {
-    background: #2a2a2a;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    background: #000;
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.15);
+    transform: translateY(-1px);
 }
 
 .new-chat-btn:focus-visible {
-    outline: 2px solid #1a1a1a;
-    outline-offset: 3px;
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 .new-chat-btn:active {
@@ -325,13 +364,55 @@ body {
     transform: scale(0.98);
 }
 
+/* Conversation Search */
+.conversation-search {
+    width: 100%;
+    position: relative;
+}
+
+.search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-icon {
+    position: absolute;
+    left: 0.85rem;
+    color: var(--text-secondary);
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 99px;
+    padding: 0.6rem 1rem 0.6rem 2.5rem;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.search-input:focus {
+    outline: none;
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(0, 240, 255, 0.3);
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.05);
+}
+
+.search-input::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.4;
+}
+
 .sidebar-nav {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 1rem;
+    padding: 0 1rem;
     min-height: 0;
-    /* Critical for flex child scrolling */
 }
 
 .nav-section {
@@ -404,8 +485,9 @@ body {
 }
 
 .conversation-item.is-active {
-    background: rgba(0, 240, 255, 0.12);
+    background: rgba(0, 240, 255, 0.08); /* More subtle Britta Blue tint */
     border-color: var(--accent-primary);
+    box-shadow: 0 2px 10px rgba(0, 240, 255, 0.05);
 }
 
 .conversation-item.is-active:hover {
@@ -522,8 +604,9 @@ body {
 }
 
 .nav-item:hover {
-    background: rgba(0, 0, 0, 0.04);
-    color: var(--text-primary);
+    background: var(--surface-hover);
+    color: var(--accent-primary);
+    transform: translateX(4px);
 }
 
 .nav-item:focus-visible {
@@ -541,16 +624,19 @@ body {
     position: relative;
     background: var(--main-bg);
     overflow: hidden;
+    border-left: 1px solid var(--glass-border); /* Unified sidebar separator */
 }
 
 .top-bar {
-    height: 72px;
+    height: var(--header-height);
+    padding: 0 1.5rem;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 2.5rem;
-    border-bottom: 1px solid transparent;
-    /* Optional divider */
+    justify-content: space-between; /* Restored: Pushes company controls to the far right */
+    background: transparent;
+    position: relative;
+    z-index: 10;
+    box-sizing: border-box;
 }
 
 .current-context {
@@ -562,13 +648,16 @@ body {
     font-weight: 600;
     font-size: 0.95rem;
     color: var(--text-primary);
-    padding: 0.35rem 0.75rem;
+    height: 40px; /* Locked 40px */
+    padding: 0 0.85rem;
     background: linear-gradient(135deg, rgba(0, 140, 255, 0.12), rgba(0, 180, 255, 0.06));
-    border-radius: 8px;
+    border-radius: 10px;
     border: 1px solid rgba(0, 140, 255, 0.2);
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    line-height: 1;
+    margin: 0;
 }
 
 .current-company-name::before {
@@ -799,13 +888,20 @@ body {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    height: 40px; /* Locked to 40px for center-line sync */
 }
 
 .logo-text {
     font-weight: 700;
     font-family: var(--font-sans);
-    font-size: 1.1rem;
+    font-size: 1.25rem;
     letter-spacing: -0.02em;
+    color: var(--accent-primary);
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    height: 40px;
+    padding-bottom: 1px; /* Optical adjustment: lift text slightly to match icon center */
 }
 
 h1 {
@@ -845,6 +941,9 @@ h1 {
     color: var(--text-secondary);
     line-height: 1;
     white-space: nowrap;
+    display: flex; /* Force flex centering */
+    align-items: center;
+    height: 40px; /* Share same interaction height for baseline locking */
 }
 
 .company-select {
@@ -874,8 +973,10 @@ h1 {
     justify-content: center;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    padding: 8px;
+    border-radius: 10px;
+    height: 40px; /* Standardized interaction height */
+    width: 40px;
+    padding: 0;
     cursor: pointer;
     color: var(--text-secondary);
     transition: all 0.2s ease;
@@ -894,8 +995,9 @@ h1 {
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.12);
     color: var(--text-primary);
-    padding: 0.5rem 2.5rem 0.5rem 1rem;
-    border-radius: 12px;
+    height: 40px; /* Standardized interaction height */
+    padding: 0 2.5rem 0 1rem;
+    border-radius: 10px;
     font-family: var(--font-sans);
     font-size: 0.85rem;
     font-weight: 500;
@@ -1056,9 +1158,15 @@ h1 {
 }
 
 .user-message .avatar {
-    background: var(--surface-hover);
+    background: var(--user-bubble-bg);
     border: 1px solid var(--glass-border);
-    color: var(--text-primary);
+    color: var(--user-text);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] .user-message .avatar {
+    background: #ffffff;
+    color: #000000;
 }
 
 .bubble {
@@ -1081,9 +1189,17 @@ h1 {
 
 .user-message .bubble {
     background: var(--user-bubble-bg);
-    border: 1px solid rgba(0, 240, 255, 0.25);
+    color: var(--user-text);
+    border: 1px solid var(--glass-border);
     border-top-right-radius: 4px;
     backdrop-filter: blur(12px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    font-weight: 500;
+}
+
+[data-theme="dark"] .user-message .bubble {
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 20px rgba(0, 240, 255, 0.15);
 }
 
 /* Markdown formatting in chat bubbles */
@@ -1266,11 +1382,16 @@ h1 {
 .file-name {
     color: var(--accent-primary);
     font-size: 0.85rem;
-    font-weight: 500;
+    font-weight: 600;
     max-width: 200px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.user-message .file-name {
+    color: var(--user-text);
+    opacity: 0.9;
 }
 
 .remove-file {
@@ -1825,14 +1946,7 @@ h1 {
     /* Keep flex but move off-screen */
 }
 
-.sidebar-header {
-    padding: 1.5rem;
-    border-bottom: 1px solid var(--glass-border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
+/* Consolidated sidebar-header at the top of the file */
 .sidebar-header h3 {
     font-size: 1.1rem;
     font-weight: 600;
@@ -2708,6 +2822,93 @@ h1 {
     color: #f87171;
 }
 
+/* AI Insights Container - Claude-style thought bubbles */
+.ai-insights {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    margin-bottom: 1rem;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.insight-bubble {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.04));
+    border: 1px solid rgba(99, 102, 241, 0.15);
+    border-radius: 12px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.insight-bubble.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.insight-icon {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+    line-height: 1.4;
+}
+
+.insight-text {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+/* Dark mode insight bubbles */
+[data-theme="dark"] .insight-bubble {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.06));
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
+/* Monta-specific insight (green for EV) */
+.insight-bubble.monta {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.04));
+    border-color: rgba(34, 197, 94, 0.15);
+}
+
+[data-theme="dark"] .insight-bubble.monta {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.06));
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+/* Success insight (final summary) */
+.insight-bubble.success {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05));
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+.insight-bubble.success .insight-text {
+    font-weight: 500;
+}
+
+/* Scrollbar styling for insights */
+.ai-insights::-webkit-scrollbar {
+    width: 4px;
+}
+
+.ai-insights::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ai-insights::-webkit-scrollbar-thumb {
+    background: rgba(99, 102, 241, 0.3);
+    border-radius: 2px;
+}
+
+.ai-insights::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.5);
+}
+
 /* Error State */
 .excel-analyzing.error {
     text-align: center;
@@ -3428,64 +3629,51 @@ h1 {
 /* Integrated Pro Sidebar Toggle */
 .sidebar-toggle {
     display: flex;
-    width: 42px;
-    height: 42px;
-    background: var(--floating-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
+    width: 40px;
+    height: 40px;
+    background: transparent; /* Invisible by default */
+    border: none;
+    border-radius: 50%; /* Perfect circle */
     cursor: pointer;
     color: var(--text-secondary);
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     align-items: center;
     justify-content: center;
-    box-shadow: 
-        0 4px 12px rgba(0, 0, 0, 0.05),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.1);
     flex-shrink: 0;
-    margin-right: 0.75rem;
+    margin: 0;
 }
 
 /* Sidebar Header Layout adjustment for integrated toggle */
-.sidebar-header {
-    padding: 1.5rem 1rem;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    border-bottom: 1px solid var(--glass-border);
-    flex-shrink: 0;
-    min-height: 80px; /* Consistent height */
-}
+/* Consolidated sidebar-header at the top of the file */
 
 .sidebar.collapsed .sidebar-header {
-    padding: 1.5rem 0.5rem;
+    padding: 0 0.5rem;
     justify-content: center;
+    align-items: center; /* Back to center */
 }
 
 .sidebar.collapsed .sidebar-toggle {
     margin-right: 0; /* Center in collapsed strip */
 }
 
-/* Specific Blue Border style from reference */
-[data-theme="light"] .sidebar-toggle {
-    background: #ffffff;
-    border: 1px solid rgba(0, 240, 255, 0.4);
+.sidebar-toggle:hover {
+    background: rgba(0, 240, 255, 0.1); /* Subtle blue glow background */
+    color: var(--accent-primary); /* Britta blue icon */
+    transform: translateY(-1px);
 }
 
-.sidebar-toggle:hover {
-    background: var(--floating-bg);
-    border-color: #00F0FF;
-    color: #00F0FF;
-    transform: translateY(-1px);
-    box-shadow: 0 8px 16px rgba(0, 240, 255, 0.12);
+[data-theme="light"] .sidebar-toggle:hover {
+    background: rgba(0, 240, 255, 0.08);
 }
 
 .sidebar-toggle:active {
-    transform: scale(0.96);
+    transform: scale(0.94);
+    background: rgba(255, 255, 255, 0.12);
 }
 
 .sidebar-toggle:focus-visible {
-    outline: 2px solid #00F0FF;
-    outline-offset: 3px;
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 /* Sidebar backdrop for overlay mode */
@@ -3521,14 +3709,7 @@ h1 {
     display: none;
 }
 
-.sidebar.collapsed .sidebar-header {
-    justify-content: center;
-    padding: 1.5rem 0.5rem;
-}
-
-.sidebar.collapsed .sidebar-header .logo-area {
-    justify-content: center;
-}
+/* Cleaned up redundant collapsed header styles - handled in consolidated blocks */
 
 .sidebar.collapsed .nav-item {
     justify-content: center;
@@ -3636,7 +3817,8 @@ h1 {
     }
 
     .sidebar-header {
-        padding: 1.75rem;
+        padding: 0 1.75rem;
+        height: 72px;
     }
 }
 
