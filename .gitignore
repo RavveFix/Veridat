@@ -57,3 +57,7 @@ docs/*security*.md
 .claude/deployment.log
 .claude/errors.log
 .claude/command-history.json
+
+# Claude Code local context files
+**/CLAUDE.md
+.claude/plans/
