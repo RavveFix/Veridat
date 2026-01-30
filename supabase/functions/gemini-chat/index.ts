@@ -1,7 +1,7 @@
 // Supabase Edge Function for Gemini Chat
 /// <reference path="../../types/deno.d.ts" />
 
-import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, type FileData, type ConversationSearchArgs, type RecentChatsArgs } from "../../services/GeminiService.ts";
+import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, GeminiRateLimitError, type FileData, type ConversationSearchArgs, type RecentChatsArgs } from "../../services/GeminiService.ts";
 import { sendMessageToOpenAI } from "../../services/OpenAIService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { CompanyMemoryService, type CompanyMemory } from "../../services/CompanyMemoryService.ts";
@@ -9,6 +9,7 @@ import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanServi
 import { ConversationService } from "../../services/ConversationService.ts";
 import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
+import { AuditService } from "../../services/AuditService.ts";
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { FortnoxService } from "../../services/FortnoxService.ts";
@@ -62,6 +63,13 @@ type UserMemoryRow = {
     id: string;
     category: string;
     content: string;
+};
+
+// For transparency: track which memories were used in the response
+type UsedMemory = {
+    id: string;
+    category: string;
+    preview: string;  // First 50 chars of content
 };
 
 type HistorySearchResult = {
@@ -374,6 +382,7 @@ interface RequestBody {
     fileUrl?: string | null;
     fileName?: string | null;
     vatReportContext?: VATReportContext | null;
+    model?: string | null;
 }
 
 // Proper type for VAT report context instead of 'any'
@@ -402,7 +411,12 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        let { message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext }: RequestBody = await req.json();
+        let { message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext, model }: RequestBody = await req.json();
+        
+        // Log which model is requested
+        if (model) {
+            logger.info('Client requested model:', { model });
+        }
 
         if (!message) {
             return new Response(
@@ -431,7 +445,10 @@ Deno.serve(async (req: Request) => {
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
         const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-        // Resolve actual user id from the access token (don’t trust client-provided IDs)
+        // Initialize AuditService for BFL compliance logging
+        const auditService = new AuditService(supabaseAdmin);
+
+        // Resolve actual user id from the access token (don't trust client-provided IDs)
         const token = authHeader.replace(/^Bearer\s+/i, '');
         const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
         if (userError || !user) {
@@ -449,6 +466,14 @@ Deno.serve(async (req: Request) => {
         // Check rate limit
         const plan = await getUserPlan(supabaseAdmin, userId);
         logger.debug('Resolved plan', { userId, plan });
+
+        // Validate model access based on plan
+        // Pro model requires Pro plan
+        let effectiveModel = model || undefined;
+        if (model?.includes('pro') && plan !== 'pro') {
+            logger.info('User requested Pro model but has free plan, falling back to Flash', { userId, requestedModel: model });
+            effectiveModel = 'gemini-3-flash-preview';
+        }
 
         const rateLimiter = new RateLimiterService(supabaseAdmin, getRateLimitConfigForPlan(plan));
         const rateLimit = await rateLimiter.checkAndIncrement(userId, RATE_LIMIT_ENDPOINT);
@@ -679,6 +704,8 @@ ANVÄNDARFRÅGA:
         }
 
         const contextBlocks: string[] = [];
+        // Track used memories for transparency
+        const usedMemories: UsedMemory[] = [];
 
         if (resolvedCompanyId) {
             try {
@@ -696,6 +723,15 @@ ANVÄNDARFRÅGA:
                     const memoryContext = formatUserMemoriesForContext(userMemories as UserMemoryRow[]);
                     if (memoryContext) {
                         contextBlocks.push(memoryContext);
+
+                        // Track used memories for transparency
+                        for (const memory of userMemories as UserMemoryRow[]) {
+                            usedMemories.push({
+                                id: memory.id,
+                                category: memory.category,
+                                preview: memory.content.substring(0, 50) + (memory.content.length > 50 ? '...' : '')
+                            });
+                        }
                     }
 
                     const memoryIds = (userMemories as UserMemoryRow[]).map((memory) => memory.id);
@@ -734,9 +770,9 @@ ANVÄNDARFRÅGA:
 
         // Handle Gemini Streaming
         if (provider === 'gemini') {
-            console.log('[STREAMING] Starting Gemini streaming...');
+            console.log('[STREAMING] Starting Gemini streaming... (model:', effectiveModel || 'default', ')');
             try {
-                const stream = await sendMessageStreamToGemini(finalMessage, geminiFileData, history);
+                const stream = await sendMessageStreamToGemini(finalMessage, geminiFileData, history, undefined, effectiveModel);
                 console.log('[STREAMING] Stream created successfully');
                 const encoder = new TextEncoder();
                 let fullText = "";
@@ -775,12 +811,12 @@ ANVÄNDARFRÅGA:
 
                                         if (searchResults.length === 0) {
                                             const noResultsPrompt = `Jag sökte igenom tidigare konversationer efter "${searchQuery}" men hittade inget relevant. Svara på användarens fråga så gott du kan utan tidigare kontext: "${message}"`;
-                                            const noResultsResponse = await sendMessageToGemini(noResultsPrompt, undefined, history);
+                                            const noResultsResponse = await sendMessageToGemini(noResultsPrompt, undefined, history, undefined, effectiveModel);
                                             toolResponseText = noResultsResponse.text || `Jag hittade tyvärr inget i tidigare konversationer som matchar "${searchQuery}".`;
                                         } else {
                                             const contextLines = searchResults.map(r => `[${r.conversation_title || 'Konversation'}]: ${r.snippet}`);
                                             const contextPrompt = `SÖKRESULTAT FRÅN TIDIGARE KONVERSATIONER:\n${contextLines.join('\n')}\n\nAnvänd denna kontext för att svara naturligt på användarens fråga: "${message}"`;
-                                            const followUp = await sendMessageToGemini(contextPrompt, undefined, history);
+                                            const followUp = await sendMessageToGemini(contextPrompt, undefined, history, undefined, effectiveModel);
                                             toolResponseText = followUp.text || formatHistoryResponse(searchQuery, searchResults, []);
                                         }
                                     } else if (toolName === 'recent_chats') {
@@ -792,7 +828,7 @@ ANVÄNDARFRÅGA:
                                         } else {
                                             const contextLines = recentConversations.map(c => `- ${c.title || 'Konversation'}${c.summary ? ` - ${c.summary}` : ''}`);
                                             const contextPrompt = `SENASTE KONVERSATIONER:\n${contextLines.join('\n')}\n\nGe en kort överblick baserat på dessa konversationer för att svara på: "${message}"`;
-                                            const followUp = await sendMessageToGemini(contextPrompt, undefined, history);
+                                            const followUp = await sendMessageToGemini(contextPrompt, undefined, history, undefined, effectiveModel);
                                             toolResponseText = followUp.text || formatHistoryResponse(message, [], recentConversations);
                                         }
                                     } else {
@@ -825,13 +861,42 @@ ANVÄNDARFRÅGA:
                                         });
                                         conversationService = new ConversationService(supabaseClient);
                                     }
-                                    await conversationService.addMessage(conversationId, 'assistant', fullText);
+                                    // Include usedMemories in metadata for transparency
+                                    const messageMetadata = usedMemories.length > 0
+                                        ? { usedMemories }
+                                        : null;
+                                    await conversationService.addMessage(conversationId, 'assistant', fullText, null, null, messageMetadata);
                                     // Generate smart title - must await to prevent Edge Function terminating early
                                     await generateSmartTitleIfNeeded(conversationService, supabaseAdmin, conversationId, message, fullText);
                                     void triggerMemoryGenerator(supabaseUrl, supabaseServiceKey, conversationId);
+
+                                    // Log AI decision for BFL compliance (audit trail)
+                                    void auditService.logAIDecision({
+                                        userId,
+                                        companyId: resolvedCompanyId || undefined,
+                                        aiProvider: 'gemini',
+                                        aiModel: effectiveModel || 'gemini-3-flash-preview',
+                                        aiFunction: 'chat_response',
+                                        inputData: {
+                                            message_preview: message.substring(0, 200),
+                                            has_file: !!geminiFileData,
+                                            has_history: (history?.length || 0) > 0,
+                                            conversation_id: conversationId,
+                                        },
+                                        outputData: {
+                                            response_length: fullText.length,
+                                            has_tool_call: !!toolCallDetected,
+                                        },
+                                        confidence: 0.9, // Chat responses have high confidence
+                                    });
                                 } catch (dbError) {
                                     logger.error('Failed to save message to DB', dbError);
                                 }
+                            }
+                            // Send used memories for transparency before DONE
+                            if (usedMemories.length > 0) {
+                                const memoriesData = `data: ${JSON.stringify({ usedMemories })}\n\n`;
+                                controller.enqueue(encoder.encode(memoriesData));
                             }
                             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
                         } catch (err) {
@@ -852,6 +917,10 @@ ANVÄNDARFRÅGA:
                     }
                 });
             } catch (err) {
+                // Re-throw rate limit errors to be handled by the outer catch block
+                if (err instanceof GeminiRateLimitError) {
+                    throw err;
+                }
                 console.error('[STREAMING] Streaming failed, falling back to non-streaming:', err);
                 logger.error('Gemini streaming initiation failed', err);
                 // Fallback to non-streaming or error response
@@ -960,7 +1029,11 @@ ANVÄNDARFRÅGA:
                     : "Ett fel uppstod när jag försökte nå Fortnox.";
             }
 
-            return new Response(JSON.stringify({ type: 'text', data: responseText }), {
+            return new Response(JSON.stringify({
+                type: 'text',
+                data: responseText,
+                usedMemories: usedMemories.length > 0 ? usedMemories : undefined
+            }), {
                 headers: { ...responseHeaders, "Content-Type": "application/json" }
             });
         }
@@ -974,20 +1047,66 @@ ANVÄNDARFRÅGA:
                     });
                     conversationService = new ConversationService(supabaseClient);
                 }
-                await conversationService.addMessage(conversationId, 'assistant', geminiResponse.text);
+                // Include usedMemories in metadata for transparency
+                const messageMetadata = usedMemories.length > 0
+                    ? { usedMemories }
+                    : null;
+                await conversationService.addMessage(conversationId, 'assistant', geminiResponse.text, null, null, messageMetadata);
                 await generateSmartTitleIfNeeded(conversationService, supabaseAdmin, conversationId, message, geminiResponse.text);
                 void triggerMemoryGenerator(supabaseUrl, supabaseServiceKey, conversationId);
+
+                // Log AI decision for BFL compliance (audit trail)
+                void auditService.logAIDecision({
+                    userId,
+                    companyId: resolvedCompanyId || undefined,
+                    aiProvider: provider === 'openai' ? 'openai' : 'gemini',
+                    aiModel: provider === 'openai' ? 'gpt-4o' : 'gemini-3-flash-preview',
+                    aiFunction: 'chat_response',
+                    inputData: {
+                        message_preview: message.substring(0, 200),
+                        has_file: !!fileData,
+                        has_history: (history?.length || 0) > 0,
+                        conversation_id: conversationId,
+                    },
+                    outputData: {
+                        response_length: geminiResponse.text.length,
+                        has_tool_call: !!geminiResponse.toolCall,
+                    },
+                    confidence: 0.9, // Chat responses have high confidence
+                });
             } catch (saveError) {
                 logger.error('Failed to save non-streamed AI response', saveError);
             }
         }
 
-        return new Response(JSON.stringify({ type: 'text', data: geminiResponse.text }), {
+        return new Response(JSON.stringify({
+            type: 'text',
+            data: geminiResponse.text,
+            usedMemories: usedMemories.length > 0 ? usedMemories : undefined
+        }), {
             headers: { ...responseHeaders, "Content-Type": "application/json" }
         });
 
     } catch (error) {
         logger.error('Edge Function Error', error);
+
+        // Handle Google API rate limit errors with 429 response
+        if (error instanceof GeminiRateLimitError) {
+            const retryAfter = error.retryAfter || 30;
+            return new Response(JSON.stringify({
+                error: 'google_rate_limit',
+                message: 'Google API är tillfälligt överbelastad. Försök igen om en stund.',
+                retryAfter
+            }), {
+                status: 429,
+                headers: {
+                    ...responseHeaders,
+                    "Content-Type": "application/json",
+                    "Retry-After": String(retryAfter)
+                }
+            });
+        }
+
         return new Response(JSON.stringify({ error: 'internal_server_error' }), {
             status: 500, headers: { ...responseHeaders, "Content-Type": "application/json" }
         });

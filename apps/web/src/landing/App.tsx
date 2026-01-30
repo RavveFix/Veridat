@@ -6,6 +6,7 @@ import { HowItWorks } from './components/HowItWorks';
 import { Memory } from './components/Memory';
 import { Pricing } from './components/Pricing';
 import { Testimonials } from './components/Testimonials';
+import { FAQ } from './components/FAQ';
 import { Principles } from './components/Principles';
 import { Footer } from './components/Footer';
 import './styles/landing.css';
@@ -21,8 +22,8 @@ export function App() {
 
             <header class="header-glass">
                 <div class="header-container">
-                    <div class="logo" style="font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
-                        Britta
+                    <div class="logo brand-logo" style="font-size: 1.5rem;">
+                        Veridat
                     </div>
                     <div style="display: flex; align-items: center; gap: 1.5rem;">
                         <a href="#features" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
@@ -37,7 +38,7 @@ export function App() {
                         <a href="#about" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
                             Om oss
                         </a>
-                        <a href="mailto:support@britta.ai" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
+                        <a href="mailto:support@veridat.se" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
                             Support
                         </a>
                         <a href="/login" class="btn btn-glass btn-glow" style="padding: 0.5rem 1.5rem; font-size: 0.9rem; border-radius: 12px;">
@@ -55,6 +56,7 @@ export function App() {
                 <Memory />
                 <Pricing />
                 <Testimonials />
+                <FAQ />
                 <Principles />
             </main>
 

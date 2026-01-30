@@ -9,6 +9,7 @@ import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
 import { CompanyMemoryService, buildMemoryPatchFromVatReport } from "../../services/CompanyMemoryService.ts";
 import { ExpensePatternService, PatternSuggestion } from "../../services/ExpensePatternService.ts";
+import { AuditService } from "../../services/AuditService.ts";
 
 // Swedish accounting services
 import { roundToOre, safeSum, validateVATCalculation } from "../../services/SwedishRounding.ts";
@@ -569,7 +570,11 @@ async function mapColumnsWithOpenAI(
   columns: string[],
   sampleRows: Array<Record<string, unknown>>,
   filename: string,
-): Promise<ColumnMapping> {
+  auditService?: AuditService,
+  userId?: string,
+  companyId?: string,
+): Promise<{ mapping: ColumnMapping; aiDecisionId?: string }> {
+  const startTimeRef = performance.now();
   const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY saknas. Jag kan inte tolka den här Excel-mallen utan OpenAI-mappning.');
@@ -670,7 +675,7 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
     throw new Error('OpenAI returnerade ogiltig JSON för kolumnmappning.');
   }
 
-  return {
+  const mapping: ColumnMapping = {
     amount_column: normalizeMappedColumn(columns, parsed.amount_column),
     amount_kind: (parsed.amount_kind === 'gross' || parsed.amount_kind === 'net' || parsed.amount_kind === 'unknown')
       ? parsed.amount_kind
@@ -684,6 +689,29 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
     description_column: normalizeMappedColumn(columns, parsed.description_column),
     date_column: normalizeMappedColumn(columns, parsed.date_column),
   };
+
+  // Log AI decision to audit trail (BFL 7:1 compliance)
+  let aiDecisionId: string | undefined;
+  if (auditService && userId) {
+    const endTime = performance.now();
+    aiDecisionId = await auditService.logAIDecision({
+      userId,
+      companyId,
+      aiProvider: 'openai',
+      aiModel: model,
+      aiFunction: 'map_excel_columns',
+      inputData: {
+        columns,
+        sample_row_count: sampleRows.length,
+        filename,
+      },
+      outputData: mapping as unknown as Record<string, unknown>,
+      confidence: 0.8, // Column mapping has moderate confidence
+      processingTimeMs: Math.round(endTime - startTimeRef),
+    });
+  }
+
+  return { mapping, aiDecisionId };
 }
 
 interface AnalyzeRequest {
@@ -757,6 +785,9 @@ Deno.serve(async (req: Request) => {
   }
 
   const userId = user.id;
+
+  // Initialize AuditService for BFL compliance logging
+  const auditService = new AuditService(supabaseAdmin);
 
   const encoder = new TextEncoder();
   const stream = new TransformStream();
@@ -1284,7 +1315,16 @@ Deno.serve(async (req: Request) => {
             thinking_steps: analysisContext.thinking_steps,
             confidence: analysisContext.confidence
           });
-          mapping = await mapColumnsWithOpenAI(columns, rowObjects.slice(0, 50), body.filename);
+          const aiResult = await mapColumnsWithOpenAI(
+            columns,
+            rowObjects.slice(0, 50),
+            body.filename,
+            auditService,
+            userId,
+            body.org_number || body.company_name
+          );
+          mapping = aiResult.mapping;
+          // aiResult.aiDecisionId is now logged for BFL compliance
         }
 
         // Update columns thinking step with result

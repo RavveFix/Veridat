@@ -3,7 +3,7 @@ export function Memory() {
     const memoryFeatures = [
         {
             title: "Långtidsminne för ditt bolag",
-            description: "Britta lär sig hur ditt företag fungerar. Hon kommer ihåg dina projekt, dina kunder och hur du föredrar att bokföra.",
+            description: "Veridat lär sig hur ditt företag fungerar. Hon kommer ihåg dina projekt, dina kunder och hur du föredrar att bokföra.",
             icon: (
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z" />
@@ -13,7 +13,7 @@ export function Memory() {
         },
         {
             title: "Företagskontext som alltid är med",
-            description: "Varje chat startar med full koll. Britta har koll på dina senaste momsrapporter, resultatmål och viktiga händelser i bolaget.",
+            description: "Varje chat startar med full koll. Veridat har koll på dina senaste momsrapporter, resultatmål och viktiga händelser i bolaget.",
             icon: (
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -40,10 +40,10 @@ export function Memory() {
             <div class="container">
                 <div style="text-align: center; margin-bottom: 4rem;">
                     <h2 class="fade-in-up" style="font-size: 2.5rem; margin-bottom: 1rem; line-height: 1.2; padding-bottom: 0.1em; background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.7) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                        Britta kommer ihåg
+                        Veridat kommer ihåg
                     </h2>
                     <p class="fade-in-up delay-100" style="color: var(--text-secondary); max-width: 600px; margin: 0 auto; font-size: 1.1rem;">
-                        Istället för att börja om från noll i varje chat, bygger Britta upp en djup förståelse för din verksamhet över tid.
+                        Istället för att börja om från noll i varje chat, bygger Veridat upp en djup förståelse för din verksamhet över tid.
                     </p>
                 </div>
 

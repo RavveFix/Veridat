@@ -26,7 +26,8 @@ export const StreamingText: FunctionComponent<StreamingTextProps> = ({ content }
     return (
         <div class="streaming-text">
             <span ref={textRef} class="streaming-content" />
-            <span class="streaming-cursor">▌</span>
+            <span class="streaming-cursor" />
         </div>
     );
+
 };

@@ -2,21 +2,170 @@ import { FunctionComponent } from 'preact';
 import type { VATReportData, ValidationResult, VATSummary, SalesTransaction, CostTransaction, ZeroVATWarning, JournalEntry } from '../types/vat';
 import { BAS_ACCOUNT_INFO } from '../types/vat';
 import { generateExcelFile, copyReportToClipboard } from '../utils/excelExport';
-import { useState } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
+import { supabase } from '../lib/supabase';
+import { BorderBeam } from '@/registry/magicui/border-beam';
+
+// Fortnox sync status types
+interface FortnoxSyncStatus {
+    status: 'not_synced' | 'pending' | 'in_progress' | 'success' | 'failed' | null;
+    fortnoxDocumentNumber: string | null;
+    fortnoxVoucherSeries: string | null;
+    syncedAt: string | null;
+    errorMessage?: string;
+}
+
+type TabId = 'summary' | 'transactions' | 'journal';
 
 interface VATReportCardProps {
     data: VATReportData;
+    reportId?: string;
+    onFortnoxExport?: (reportId: string) => Promise<void>;
+    initialTab?: TabId;
 }
 
 /**
  * Preact version of VATReportCard component
  * Migrated from vanilla TS for better maintainability and reusability
+ * Extended with Fortnox export status for BFL compliance
  */
-export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data }) => {
+export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, reportId, onFortnoxExport, initialTab = 'summary' }) => {
     const [downloadLoading, setDownloadLoading] = useState(false);
     const [downloadSuccess, setDownloadSuccess] = useState(false);
     const [downloadError, setDownloadError] = useState(false);
     const [copySuccess, setCopySuccess] = useState(false);
+    const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+
+    // Fortnox sync state
+    const [fortnoxStatus, setFortnoxStatus] = useState<FortnoxSyncStatus>({
+        status: null,
+        fortnoxDocumentNumber: null,
+        fortnoxVoucherSeries: null,
+        syncedAt: null,
+    });
+    const [fortnoxLoading, setFortnoxLoading] = useState(false);
+    const [fortnoxError, setFortnoxError] = useState<string | null>(null);
+
+    // Listen for tab change events from ExcelWorkspace
+    useEffect(() => {
+        const handleTabChange = (e: Event) => {
+            const event = e as CustomEvent<{ tab: TabId }>;
+            if (event.detail?.tab) {
+                setActiveTab(event.detail.tab);
+            }
+        };
+
+        window.addEventListener('panel-tab-change', handleTabChange);
+        return () => window.removeEventListener('panel-tab-change', handleTabChange);
+    }, []);
+
+    // Fetch Fortnox sync status on mount
+    useEffect(() => {
+        if (reportId) {
+            fetchFortnoxSyncStatus(reportId);
+        }
+    }, [reportId]);
+
+    const fetchFortnoxSyncStatus = async (vatReportId: string) => {
+        try {
+            const { data: session } = await supabase.auth.getSession();
+            if (!session?.session?.access_token) return;
+
+            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.session.access_token}`,
+                },
+                body: JSON.stringify({
+                    action: 'getVATReportSyncStatus',
+                    payload: { vatReportId },
+                }),
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                setFortnoxStatus({
+                    status: result.status || 'not_synced',
+                    fortnoxDocumentNumber: result.fortnoxDocumentNumber,
+                    fortnoxVoucherSeries: result.fortnoxVoucherSeries,
+                    syncedAt: result.syncedAt,
+                });
+            }
+        } catch (error) {
+            console.error('Failed to fetch Fortnox sync status:', error);
+        }
+    };
+
+    const handleFortnoxExport = async () => {
+        if (!reportId || fortnoxLoading) return;
+
+        setFortnoxLoading(true);
+        setFortnoxError(null);
+
+        try {
+            if (onFortnoxExport) {
+                await onFortnoxExport(reportId);
+            } else {
+                // Default export implementation
+                const { data: session } = await supabase.auth.getSession();
+                if (!session?.session?.access_token) {
+                    throw new Error('Inte inloggad');
+                }
+
+                // Build voucher data from journal entries
+                const voucherRows = data.journal_entries.map(entry => ({
+                    Account: parseInt(entry.account),
+                    Debit: entry.debit > 0 ? entry.debit : undefined,
+                    Credit: entry.credit > 0 ? entry.credit : undefined,
+                    Description: entry.name,
+                }));
+
+                const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.session.access_token}`,
+                    },
+                    body: JSON.stringify({
+                        action: 'exportVoucher',
+                        companyId: data.company?.org_number || 'unknown',
+                        payload: {
+                            vatReportId: reportId,
+                            voucher: {
+                                Description: `Momsredovisning ${data.period}`,
+                                TransactionDate: new Date().toISOString().split('T')[0],
+                                VoucherSeries: 'A',
+                                VoucherRows: voucherRows,
+                            },
+                        },
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || 'Export till Fortnox misslyckades');
+                }
+
+                const result = await response.json();
+                setFortnoxStatus({
+                    status: 'success',
+                    fortnoxDocumentNumber: String(result.Voucher?.VoucherNumber || ''),
+                    fortnoxVoucherSeries: result.Voucher?.VoucherSeries || 'A',
+                    syncedAt: new Date().toISOString(),
+                });
+            }
+
+            // Refresh status after export
+            await fetchFortnoxSyncStatus(reportId);
+        } catch (error) {
+            console.error('Fortnox export failed:', error);
+            setFortnoxError(error instanceof Error ? error.message : 'Export misslyckades');
+            setFortnoxStatus(prev => ({ ...prev, status: 'failed' }));
+        } finally {
+            setFortnoxLoading(false);
+        }
+    };
 
     const handleDownload = async () => {
         if (downloadLoading) return;
@@ -52,6 +201,13 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data }) =
 
     return (
         <div class="vat-report-card">
+            <BorderBeam 
+                size={200} 
+                duration={10} 
+                delay={0}
+                colorFrom="var(--accent-primary)"
+                colorTo="var(--accent-secondary)"
+            />
             {/* Header */}
             <div class="card-header">
                 <div class="header-left">
@@ -66,64 +222,83 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data }) =
                 <ValidationBadges validation={data.validation} />
             </div>
 
-            {/* Company Info */}
-            <div class="company-info">
-                <div class="company-name">{data.company?.name || 'N/A'}</div>
-                <div class="org-number">Org.nr: {data.company?.org_number || 'N/A'}</div>
+            {/* Summary Tab Content */}
+            <div class={`tab-content ${activeTab === 'summary' ? 'active' : ''}`}>
+                {/* Company Info */}
+                <div class="company-info">
+                    <div class="company-name">{data.company?.name || 'N/A'}</div>
+                    <div class="org-number">Org.nr: {data.company?.org_number || 'N/A'}</div>
+                </div>
+
+                {/* Summary Grid */}
+                <div class="summary-grid">
+                    <div class="summary-card income">
+                        <div class="summary-label">Försäljning</div>
+                        <div class="summary-amount positive">{data.summary.total_income.toFixed(2)} SEK</div>
+                    </div>
+                    <div class="summary-card costs">
+                        <div class="summary-label">Kostnader</div>
+                        <div class="summary-amount negative">{data.summary.total_costs.toFixed(2)} SEK</div>
+                    </div>
+                    <div class="summary-card result">
+                        <div class="summary-label">Resultat</div>
+                        <div class={`summary-amount ${data.summary.result >= 0 ? 'positive' : 'negative'}`}>
+                            {data.summary.result.toFixed(2)} SEK
+                        </div>
+                    </div>
+                </div>
+
+                {/* VAT Panel */}
+                <div class="vat-panel">
+                    <h4>Momsredovisning</h4>
+                    <VATDetails vat={data.vat} />
+                </div>
+
+                {/* Warnings Panel */}
+                <WarningsPanel validation={data.validation} />
+
+                {/* Fortnox Export Status */}
+                {reportId && (
+                    <FortnoxSyncStatusPanel
+                        status={fortnoxStatus}
+                        loading={fortnoxLoading}
+                        error={fortnoxError}
+                        onExport={handleFortnoxExport}
+                    />
+                )}
             </div>
 
-            {/* Summary Grid */}
-            <div class="summary-grid">
-                <div class="summary-card income">
-                    <div class="summary-label">Försäljning</div>
-                    <div class="summary-amount positive">{data.summary.total_income.toFixed(2)} SEK</div>
-                </div>
-                <div class="summary-card costs">
-                    <div class="summary-label">Kostnader</div>
-                    <div class="summary-amount negative">{data.summary.total_costs.toFixed(2)} SEK</div>
-                </div>
-                <div class="summary-card result">
-                    <div class="summary-label">Resultat</div>
-                    <div class={`summary-amount ${data.summary.result >= 0 ? 'positive' : 'negative'}`}>
-                        {data.summary.result.toFixed(2)} SEK
+            {/* Transactions Tab Content */}
+            <div class={`tab-content ${activeTab === 'transactions' ? 'active' : ''}`}>
+                {/* Sales Transactions */}
+                <details class="transactions-section" open>
+                    <summary>Försäljning ({data.sales.length} transaktioner)</summary>
+                    <div class="transactions-list">
+                        <TransactionsList transactions={data.sales} />
+                    </div>
+                </details>
+
+                {/* Cost Transactions */}
+                <details class="transactions-section" open>
+                    <summary>Kostnader ({data.costs.length} transaktioner)</summary>
+                    <div class="transactions-list">
+                        <TransactionsList transactions={data.costs} />
+                    </div>
+                </details>
+            </div>
+
+            {/* Journal Tab Content */}
+            <div class={`tab-content ${activeTab === 'journal' ? 'active' : ''}`}>
+                {/* Journal Entries with BAS tooltips */}
+                <div class="journal-section">
+                    <h4>Bokföringsförslag ({data.journal_entries.length} poster)</h4>
+                    <div class="journal-entries-list">
+                        <JournalEntriesList entries={data.journal_entries} />
                     </div>
                 </div>
             </div>
 
-            {/* VAT Panel */}
-            <div class="vat-panel">
-                <h4>Momsredovisning</h4>
-                <VATDetails vat={data.vat} />
-            </div>
-
-            {/* Sales Transactions */}
-            <details class="transactions-section">
-                <summary>Försäljning ({data.sales.length} transaktioner)</summary>
-                <div class="transactions-list">
-                    <TransactionsList transactions={data.sales} />
-                </div>
-            </details>
-
-            {/* Cost Transactions */}
-            <details class="transactions-section">
-                <summary>Kostnader ({data.costs.length} transaktioner)</summary>
-                <div class="transactions-list">
-                    <TransactionsList transactions={data.costs} />
-                </div>
-            </details>
-
-            {/* Journal Entries with BAS tooltips */}
-            <details class="transactions-section">
-                <summary>Bokföringsförslag ({data.journal_entries.length} poster)</summary>
-                <div class="journal-entries-list">
-                    <JournalEntriesList entries={data.journal_entries} />
-                </div>
-            </details>
-
-            {/* Warnings Panel */}
-            <WarningsPanel validation={data.validation} />
-
-            {/* Action Buttons */}
+            {/* Action Buttons - Always visible */}
             <div class="action-buttons">
                 <button
                     class={`btn-primary ${downloadSuccess ? 'success' : ''} ${downloadError ? 'error' : ''}`}
@@ -355,3 +530,142 @@ const WarningItem: FunctionComponent<{ warning: ZeroVATWarning }> = ({ warning }
         )}
     </div>
 );
+
+/**
+ * Fortnox sync status panel component
+ * Shows export status and provides export button
+ */
+const FortnoxSyncStatusPanel: FunctionComponent<{
+    status: FortnoxSyncStatus;
+    loading: boolean;
+    error: string | null;
+    onExport: () => void;
+}> = ({ status, loading, error, onExport }) => {
+    const formatDate = (dateStr: string | null) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('sv-SE', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    };
+
+    const getStatusIcon = () => {
+        switch (status.status) {
+            case 'success':
+                return (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                );
+            case 'failed':
+                return (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="15" y1="9" x2="9" y2="15"></line>
+                        <line x1="9" y1="9" x2="15" y2="15"></line>
+                    </svg>
+                );
+            case 'pending':
+            case 'in_progress':
+                return (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" class="spin">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                );
+            default:
+                return (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                );
+        }
+    };
+
+    const getStatusText = () => {
+        switch (status.status) {
+            case 'success':
+                return `Exporterad som ${status.fortnoxVoucherSeries}-${status.fortnoxDocumentNumber}`;
+            case 'failed':
+                return 'Export misslyckades';
+            case 'pending':
+                return 'Väntar på export...';
+            case 'in_progress':
+                return 'Exporterar...';
+            default:
+                return 'Ej exporterad till Fortnox';
+        }
+    };
+
+    return (
+        <div class={`fortnox-sync-panel ${status.status || 'not_synced'}`}>
+            <div class="fortnox-header">
+                <div class="fortnox-logo">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <rect width="24" height="24" rx="4" fill="#1B365D"/>
+                        <text x="12" y="16" text-anchor="middle" fill="white" font-size="10" font-weight="bold">FX</text>
+                    </svg>
+                    <span>Fortnox Integration</span>
+                </div>
+                <div class="fortnox-status">
+                    {getStatusIcon()}
+                    <span class="status-text">{getStatusText()}</span>
+                </div>
+            </div>
+
+            {status.status === 'success' && status.syncedAt && (
+                <div class="fortnox-details">
+                    <span class="sync-date">Exporterad {formatDate(status.syncedAt)}</span>
+                    <a
+                        href={`https://apps.fortnox.se/vouchers/${status.fortnoxVoucherSeries}/${status.fortnoxDocumentNumber}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="fortnox-link"
+                    >
+                        Öppna i Fortnox →
+                    </a>
+                </div>
+            )}
+
+            {error && (
+                <div class="fortnox-error">
+                    <span>{error}</span>
+                </div>
+            )}
+
+            {(status.status === null || status.status === 'not_synced' || status.status === 'failed') && (
+                <button
+                    class="btn-fortnox"
+                    onClick={onExport}
+                    disabled={loading}
+                >
+                    {loading ? (
+                        <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M12 2a10 10 0 0 1 10 10"></path>
+                            </svg>
+                            Exporterar...
+                        </>
+                    ) : (
+                        <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            {status.status === 'failed' ? 'Försök igen' : 'Exportera till Fortnox'}
+                        </>
+                    )}
+                </button>
+            )}
+        </div>
+    );
+};

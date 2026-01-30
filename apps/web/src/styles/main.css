@@ -46,9 +46,11 @@
     --sidebar-bg: #f9fafb;
 
     /* Component Specifics */
-    --header-bg: rgba(255, 255, 255, 0.8);
-    --glass-bg: rgba(255, 255, 255, 0.9);
-    --glass-border: rgba(0, 0, 0, 0.06);
+    --header-bg: rgba(255, 255, 255, 0.7);
+    --glass-bg: rgba(255, 255, 255, 0.65);
+    --glass-border: rgba(255, 255, 255, 0.5);
+    --glass-border-outer: rgba(0, 0, 0, 0.05);
+    --glass-highlight: rgba(255, 255, 255, 0.8);
 
     /* Chat & Bubbles */
     --ai-bubble-bg: #f3f4f6;
@@ -114,18 +116,19 @@
     --user-text: #000000;
     --user-text-secondary: rgba(0, 0, 0, 0.6);
 
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --glass-bg: rgba(20, 20, 20, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.12);
+    --glass-border-outer: rgba(0, 0, 0, 0.4);
+    --glass-bg: rgba(15, 15, 20, 0.7);
     /* Dark glass */
-    --glass-highlight: rgba(255, 255, 255, 0.05);
+    --glass-highlight: rgba(255, 255, 255, 0.08);
     --header-bg: rgba(0, 0, 0, 0.8);
     --footer-bg: rgba(0, 0, 0, 0.8);
     --dropdown-bg: #18181b;
 
-    /* Blob Colors (Dark) */
-    --blob-color-1: var(--accent-primary);
-    --blob-color-2: var(--accent-secondary);
-    --blob-color-3: var(--accent-tertiary);
+    /* Blob Colors (Dark) - Pre-dimmed to prevent FOUC flash */
+    --blob-color-1: rgba(0, 180, 200, 0.15);
+    --blob-color-2: rgba(59, 130, 246, 0.15);
+    --blob-color-3: rgba(14, 165, 233, 0.12);
 
     /* Excel Artifact Dark Mode */
     --panel-bg: rgba(24, 24, 27, 0.95);
@@ -154,9 +157,10 @@
     --orb-sweep: rgba(182, 203, 227, 0.12);
 
     /* Glass Effect */
-    --glass-bg: rgba(255, 255, 255, 0.85);
-    --glass-border: rgba(0, 0, 0, 0.06);
-    --glass-highlight: rgba(255, 255, 255, 0.4);
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.8);
+    --glass-border-outer: rgba(0, 0, 0, 0.04);
+    --glass-highlight: rgba(255, 255, 255, 0.9);
 
     /* Component Specifics (Light) */
     --header-bg: rgba(255, 255, 255, 0.8);
@@ -203,6 +207,30 @@ body {
     position: relative;
     -webkit-font-smoothing: antialiased;
     transition: background-color var(--theme-transition), color var(--theme-transition);
+}
+
+/* Glassmorphism Utility */
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: 
+        0 8px 32px 0 rgba(0, 0, 0, 0.08),
+        inset 0 0 0 1px var(--glass-highlight);
+    position: relative;
+    overflow: hidden;
+}
+
+.glass-panel::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-highlight), transparent);
+    opacity: 0.5;
 }
 
 /* Aurora Background */
@@ -421,6 +449,389 @@ body {
 .search-input::placeholder {
     color: var(--text-secondary);
     opacity: 0.5;
+}
+
+/* ============================================
+   Search Modal (Command Palette Style)
+   ============================================ */
+
+.search-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 15vh;
+    z-index: 9999;
+    animation: searchOverlayFadeIn 0.15s ease-out;
+}
+
+@keyframes searchOverlayFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.search-modal {
+    width: 100%;
+    max-width: 580px;
+    background: var(--bg-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow:
+        0 24px 80px rgba(0, 0, 0, 0.5),
+        0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+    overflow: hidden;
+    animation: searchModalSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes searchModalSlideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.96) translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.search-modal__header {
+    padding: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.search-modal__input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    transition: all 0.2s ease;
+}
+
+.search-modal__input-wrapper:focus-within {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(0, 240, 255, 0.3);
+    box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.08);
+}
+
+.search-modal__icon {
+    color: var(--text-secondary);
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.search-modal__input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-family: var(--font-sans);
+}
+
+.search-modal__input::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.5;
+}
+
+.search-modal__spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.search-modal__shortcut {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+/* Quick Actions section */
+.search-modal__quick-actions {
+    padding: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.search-modal__action {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+}
+
+.search-modal__action:hover,
+.search-modal__action.selected {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.search-modal__action.selected {
+    background: rgba(0, 240, 255, 0.08);
+}
+
+.search-modal__action-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 240, 255, 0.1);
+    border-radius: 8px;
+    color: var(--accent-primary);
+    flex-shrink: 0;
+}
+
+.search-modal__action-text {
+    flex: 1;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.search-modal__action-shortcut {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.15rem 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.search-modal__results {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.search-modal__results-header {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+    padding: 0.5rem 1rem 0.25rem;
+}
+
+.search-modal__result {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+}
+
+.search-modal__result:hover,
+.search-modal__result.selected {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.search-modal__result.selected {
+    background: rgba(0, 240, 255, 0.08);
+}
+
+.search-modal__result-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.search-modal__result-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.search-modal__result-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.search-modal__match-badge {
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 0.1rem 0.35rem;
+    background: rgba(0, 240, 255, 0.15);
+    color: var(--accent-primary);
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+
+.search-modal__result-title {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-modal__result-snippet {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 0.15rem;
+}
+
+.search-modal__result-date {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.search-modal__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 2rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.search-modal__tips {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.search-modal__tip {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+.search-modal__tip kbd {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.15rem 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+}
+
+/* Light theme for search modal */
+[data-theme="light"] .search-modal-overlay {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="light"] .search-modal {
+    background: #fff;
+    border-color: rgba(0, 0, 0, 0.1);
+    box-shadow:
+        0 24px 80px rgba(0, 0, 0, 0.15),
+        0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .search-modal__input-wrapper {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .search-modal__input-wrapper:focus-within {
+    background: #fff;
+    border-color: rgba(0, 180, 200, 0.5);
+    box-shadow: 0 0 0 3px rgba(0, 180, 200, 0.1);
+}
+
+[data-theme="light"] .search-modal__result:hover,
+[data-theme="light"] .search-modal__result.selected {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .search-modal__result.selected {
+    background: rgba(0, 180, 200, 0.08);
+}
+
+[data-theme="light"] .search-modal__shortcut,
+[data-theme="light"] .search-modal__tip kbd,
+[data-theme="light"] .search-modal__action-shortcut {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .search-modal__quick-actions {
+    border-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .search-modal__action:hover,
+[data-theme="light"] .search-modal__action.selected {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .search-modal__action.selected {
+    background: rgba(0, 180, 200, 0.08);
+}
+
+[data-theme="light"] .search-modal__action-icon {
+    background: rgba(0, 180, 200, 0.1);
+    color: var(--accent-primary);
+}
+
+[data-theme="light"] .search-modal__match-badge {
+    background: rgba(0, 180, 200, 0.12);
+    color: #007d8a;
+}
+
+/* Keyboard shortcut badge for nav items */
+.nav-item-shortcut {
+    margin-left: auto;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.1rem 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+}
+
+[data-theme="light"] .nav-item-shortcut {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.1);
 }
 
 .sidebar-nav {
@@ -781,11 +1192,18 @@ body {
     padding: 0 1.5rem;
     display: flex;
     align-items: center;
-    justify-content: space-between; /* Restored: Pushes company controls to the far right */
     background: transparent;
     position: relative;
     z-index: 10;
     box-sizing: border-box;
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+    justify-content: flex-end;
 }
 
 .current-context {
@@ -1082,7 +1500,6 @@ h1 {
     display: flex;
     align-items: center;
     gap: 0.6rem;
-    margin-left: auto;
 }
 
 .company-label {
@@ -1374,26 +1791,129 @@ h1 {
 }
 
 .ai-message .response-text {
-    line-height: 1.55;
+    line-height: 1.65;
+    padding-bottom: 0.5rem;
+}
+
+.ai-response-container:hover .message-actions {
+    opacity: 1;
+}
+
+.message-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid transparent;
+    transition: all 0.2s;
+    opacity: 0; /* Hidden by default */
+}
+
+/* On mobile, always show actions */
+@media (max-width: 768px) {
+    .message-actions {
+        opacity: 1;
+    }
+}
+
+.copy-action-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.copy-action-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+.copy-action-btn.copied {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border-color: rgba(34, 197, 94, 0.3);
 }
 
 .ai-message .response-text .md-p {
-    margin: 0.35rem 0 0.6rem;
+    margin: 0.5rem 0 0.8rem;
 }
 
 .ai-message .response-text .md-p:last-child {
     margin-bottom: 0;
 }
 
+/* Markdown Tables */
+.md-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 1.25rem 0;
+    font-size: 0.9rem;
+}
+
+.md-table th {
+    background: rgba(0, 0, 0, 0.04);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.md-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--glass-border);
+    color: var(--text-primary);
+}
+
+.md-table tr:last-child td {
+    border-bottom: none;
+}
+
+.md-table tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="light"] .md-table th {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .md-table tr:nth-child(even) {
+    background: rgba(0, 0, 0, 0.02);
+}
+
 .ai-message .response-text .md-ul,
 .ai-message .response-text .md-ol {
-    margin: 0.4rem 0 0.65rem;
-    padding-left: 1.2rem;
+    margin: 0.5rem 0 0.8rem;
+    padding-left: 1.1rem; /* Reduced to align bullet with paragraph text */
+    list-style-position: outside;
 }
 
 .ai-message .response-text .md-li,
 .ai-message .response-text .md-li-ordered {
-    margin: 0.2rem 0;
+    margin: 0.25rem 0;
+    padding-left: 0.25rem;
+}
+
+.ai-message .response-text .md-ul .md-ul,
+.ai-message .response-text .md-ol .md-ol,
+.ai-message .response-text .md-ul .md-ol,
+.ai-message .response-text .md-ol .md-ul {
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
 }
 
 .ai-message .response-text .md-h1,
@@ -1597,6 +2117,51 @@ h1 {
     background: linear-gradient(135deg, #a855f7, #6366f1);
     color: white;
     text-transform: uppercase;
+}
+
+/* Locked model option (Pro for free users) */
+.model-option.locked {
+    opacity: 0.5;
+    cursor: not-allowed;
+    position: relative;
+}
+
+.model-option.locked:hover {
+    background: transparent;
+}
+
+.model-option.locked .model-option-content {
+    opacity: 0.6;
+}
+
+/* Lock icon before PRO badge */
+.model-option.locked .pro-badge::before {
+    content: "\1F512 ";
+}
+
+/* Tooltip on hover */
+.model-option.locked::after {
+    content: "Uppgradera till Pro";
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%) translateX(10px);
+    background: rgba(0, 0, 0, 0.9);
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 10;
+}
+
+.model-option.locked:hover::after {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
 }
 
 /* Light theme adjustments */
@@ -2590,38 +3155,89 @@ h1 {
     overflow: hidden;
 }
 
-/* Right Side: Excel Panel */
+/* Right Side: Excel Panel - Claude Artifacts Inspired */
 .excel-panel {
     width: 0;
     opacity: 0;
     overflow: hidden;
-    background: var(--glass-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-left: 1px solid var(--glass-border);
+    /* Modern glassmorphism design */
+    background: linear-gradient(180deg,
+        rgba(24, 24, 27, 0.98) 0%,
+        rgba(18, 18, 21, 0.98) 100%
+    );
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-left: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.15),
+                inset 1px 0 0 rgba(255, 255, 255, 0.03);
     display: flex;
     flex-direction: column;
     min-height: 0;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.25s ease-out;
     pointer-events: none;
+    transform: translateX(20px);
+    position: relative;
+    z-index: 150;  /* Higher than floating-input-container (100) */
+}
+
+.excel-panel::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+        transparent,
+        rgba(99, 102, 241, 0.3) 30%,
+        rgba(139, 92, 246, 0.3) 70%,
+        transparent
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
 }
 
 .excel-panel.open {
     width: 50%;
     min-width: 500px;
+    max-width: 700px;
     opacity: 1;
     pointer-events: all;
+    transform: translateX(0);
 }
 
-/* Excel Header */
+.excel-panel.open::before {
+    opacity: 1;
+}
+
+/* Excel Header - Modern design with gradient accent */
 .excel-header {
-    padding: 1.25rem 1.5rem;
-    background: rgba(255, 255, 255, 0.02);
-    border-bottom: 1px solid var(--glass-border);
+    padding: 1rem 1.25rem;
+    background: linear-gradient(180deg,
+        rgba(99, 102, 241, 0.06) 0%,
+        transparent 100%
+    );
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
+    position: relative;
+}
+
+.excel-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 1rem;
+    right: 1rem;
+    height: 1px;
+    background: linear-gradient(90deg,
+        rgba(99, 102, 241, 0.2),
+        rgba(139, 92, 246, 0.15),
+        transparent
+    );
 }
 
 .excel-title {
@@ -2630,7 +3246,20 @@ h1 {
     gap: 0.75rem;
     color: var(--text-primary);
     font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.excel-title-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.08));
+    color: #8b5cf6;
     font-size: 1rem;
+    flex-shrink: 0;
 }
 
 .excel-title svg {
@@ -2639,15 +3268,15 @@ h1 {
 }
 
 .excel-title span {
-    max-width: 300px;
+    max-width: 280px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .close-excel-btn {
-    background: transparent;
-    border: none;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-secondary);
     cursor: pointer;
     padding: 0.5rem;
@@ -2655,12 +3284,114 @@ h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
 }
 
 .close-excel-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    transform: scale(1.05);
+}
+
+.close-excel-btn:active {
+    transform: scale(0.98);
+}
+
+/* Panel Tabs - Claude-inspired tabbed navigation */
+.panel-tabs {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.5rem 1.25rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    flex-shrink: 0;
+}
+
+.panel-tabs.hidden {
+    display: none;
+}
+
+.panel-tab {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+
+.panel-tab:hover {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-primary);
+}
+
+.panel-tab.active {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-primary, #6366f1);
+    font-weight: 600;
+}
+
+/* Tab content visibility */
+.vat-report-card .tab-content {
+    display: none;
+}
+
+.vat-report-card .tab-content.active {
+    display: block;
+}
+
+/* Panel Footer with sticky actions */
+.excel-panel-footer {
+    padding: 0.875rem 1.25rem;
+    background: linear-gradient(180deg,
+        transparent 0%,
+        rgba(99, 102, 241, 0.04) 100%
+    );
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    gap: 0.75rem;
+    flex-shrink: 0;
+}
+
+.excel-panel-footer .panel-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.excel-panel-footer .panel-btn-primary {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+}
+
+.excel-panel-footer .panel-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+}
+
+.excel-panel-footer .panel-btn-secondary {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.excel-panel-footer .panel-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
 /* Sheet Tabs */
@@ -2718,7 +3449,7 @@ h1 {
     flex: 1;
     min-height: 0;
     overflow: auto;
-    padding: 1.5rem;
+    padding: 0 0 2rem 0; /* Remove side padding to handle it via margins for perfect alignment */
 }
 
 .excel-table {
@@ -2781,17 +3512,42 @@ h1 {
     border-color: var(--accent-primary);
 }
 
-/* VAT Report in Panel */
-.excel-table-container .vat-report-card {
-    margin: 0;
-    max-width: 100%;
-    background: transparent;
-    border: none;
-    box-shadow: none;
+/* VAT Report in Panel - Linear Alignment & Premium Spacing Fix */
+.excel-table-container .vat-report-card,
+.excel-table-container .excel-artifact {
+    margin: 1.25rem 0.5rem 2rem 0.5rem; /* Top margin creates air below the line, side margins for card look */
+    max-width: calc(100% - 1rem);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--panel-shadow);
+    backdrop-filter: blur(28px) saturate(190%);
+    border-radius: 20px;
+    padding: 1.5rem 0.75rem; /* 0.5rem margin + 0.75rem padding = 1.25rem (exactly matching panels above) */
 }
 
-.excel-table-container .vat-report-card .card-header {
+/* Ensure Border Beam follows the correct radius */
+.excel-table-container .vat-report-card .border-beam::after,
+.excel-table-container .excel-artifact .border-beam::after {
+    --border-radius: 20px;
+}
+
+.excel-table-container .excel-artifact {
+    height: auto;
+    min-height: 400px;
+}
+
+.excel-table-container .vat-report-card .card-header,
+.excel-table-container .excel-artifact .excel-artifact-header {
     padding-top: 0;
+    margin-bottom: 1.25rem;
+}
+
+.excel-table-container .vat-report-card .action-buttons {
+    margin-left: -0.75rem;
+    margin-right: -0.75rem;
+    margin-bottom: -1.5rem;
+    padding: 1.25rem;
+    border-radius: 0 0 20px 20px;
 }
 
 /* Excel Analyzing State */
@@ -3124,6 +3880,11 @@ h1 {
     margin-top: 0.25rem;
 }
 
+/* Hide empty step-detail elements */
+.step-detail:empty {
+    display: none;
+}
+
 /* AI Notes Panel */
 .ai-notes {
     width: 100%;
@@ -3327,18 +4088,89 @@ h1 {
     font-weight: 600;
 }
 
-/* Mobile Responsive - Excel Panel Overlay */
+/* Mobile Responsive - Excel Panel Fullscreen Overlay */
 @media (max-width: 1024px) {
+    .excel-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        z-index: 200;
+        border-left: none;
+        transform: translateX(100%);
+        background: rgba(18, 18, 21, 0.98);
+    }
+
     .excel-panel.open {
+        width: 100%;
+        transform: translateX(0);
+        animation: panel-slide-in-mobile 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @keyframes panel-slide-in-mobile {
+        from {
+            transform: translateX(100%);
+            opacity: 0.5;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    /* Backdrop overlay for mobile */
+    .excel-panel-backdrop {
+        display: none;
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 199;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .excel-panel-backdrop.visible {
+        display: block;
+        opacity: 1;
+    }
+
+    /* Mobile header adjustments */
+    .excel-header {
+        padding: 0.875rem 1rem;
+        padding-top: calc(0.875rem + env(safe-area-inset-top, 0));
+    }
+
+    .excel-title span {
+        max-width: 200px;
+    }
+
+    /* Mobile footer adjustments */
+    .excel-panel-footer {
+        padding: 0.75rem 1rem;
+        padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0));
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .excel-panel-footer .panel-btn {
         width: 100%;
+    }
+}
+
+/* Tablet adjustments */
+@media (min-width: 768px) and (max-width: 1024px) {
+    .excel-panel.open {
+        width: 60%;
         min-width: 0;
-        z-index: 100;
-        border-left: none;
+        max-width: none;
     }
 }
 
@@ -4048,7 +4880,8 @@ h1 {
 .sidebar.collapsed .logo-text,
 .sidebar.collapsed .sidebar-action,
 .sidebar.collapsed #conversation-list-container,
-.sidebar.collapsed .nav-item span {
+.sidebar.collapsed .nav-item span,
+.sidebar.collapsed .nav-item-shortcut {
     display: none;
 }
 
@@ -4177,4 +5010,160 @@ h1 {
     /* Ensure thinking animation works with new size */
     width: 40px;
     height: 40px;
+}
+
+/* ============================================
+   AI Thinking Animation (Orb Style)
+   ============================================ */
+
+.thinking-animation-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 0;
+}
+
+/* Orb Loader */
+.veridat-spinner {
+    width: 24px;
+    height: 24px;
+    color: var(--accent-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: veridatSpin 3s linear infinite;
+}
+
+@keyframes veridatSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Thinking Text */
+.thinking-text-wrapper {
+    display: flex;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.thinking-text {
+    opacity: 0.8;
+}
+
+.thinking-dots span {
+    opacity: 0;
+    animation: fadeDots 1.4s infinite both;
+}
+
+.thinking-dots span:nth-child(1) { animation-delay: 0s; }
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes fadeDots {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+}
+
+/* ============================================
+   Enhanced Streaming Text
+   ============================================ */
+
+.streaming-text {
+    white-space: pre-wrap; /* Preserve formatting */
+    line-height: 1.6;
+}
+
+.streaming-content {
+    animation: fadeIn 0.1s ease-out;
+}
+
+.streaming-cursor {
+    display: inline-block;
+    width: 8px;
+    height: 16px;
+    background: var(--accent-primary);
+    margin-left: 2px;
+    vertical-align: middle;
+    animation: cursorBlink 0.8s infinite;
+    border-radius: 1px;
+    box-shadow: 0 0 5px var(--accent-primary);
+}
+
+@keyframes cursorBlink {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+}
+
+/* Adjust Message Bubble padding for better fit */
+.ai-message .thinking-bubble {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+/* ============================================
+   Border Beam Animation (Magic UI Style)
+   ============================================ */
+
+@keyframes border-beam {
+    100% {
+        offset-distance: 100%;
+    }
+}
+
+.border-beam {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    z-index: 10;
+    
+    /* Advanced Masking: Ensures the center is completely empty */
+    -webkit-mask-image: linear-gradient(#fff, #fff), linear-gradient(#fff, #fff);
+    -webkit-mask-clip: content-box, border-box;
+    -webkit-mask-composite: destination-out;
+    mask-image: linear-gradient(#fff, #fff), linear-gradient(#fff, #fff);
+    mask-clip: content-box, border-box;
+    mask-composite: exclude;
+    
+    padding: var(--border-width, 1.2px); /* Slightly thinner for elegance */
+}
+
+.border-beam::after {
+    content: '';
+    position: absolute;
+    aspect-ratio: 1 / 1;
+    width: var(--size, 150px);
+    background: linear-gradient(to left, var(--color-from, var(--accent-primary)), var(--color-to, var(--accent-secondary)), transparent);
+    
+    /* Animation settings */
+    animation: border-beam var(--duration, 10s) infinite linear;
+    animation-delay: var(--delay, 0s);
+    
+    /* Follow border path precisely */
+    offset-anchor: var(--anchor, 90%) 50%;
+    offset-path: rect(0 auto auto 0 round var(--border-radius, inherit));
+    
+    /* Liquid Glow effect */
+    filter: blur(2px);
+}
+
+/* Specific adjustments for artifacts */
+.excel-artifact .border-beam::after {
+    --border-radius: 24px;
+}
+
+.vat-summary-card .border-beam::after {
+    --border-radius: 20px;
+}
+
+
+
+/* Override size for welcome hero spinner */
+.hero-avatar.veridat-spinner {
+    width: 60px;
+    height: 60px;
 }

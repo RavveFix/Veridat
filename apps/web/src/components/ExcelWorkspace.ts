@@ -21,18 +21,75 @@ export type ArtifactContent =
     | { type: 'excel'; workbook: XLSX.WorkBook; filename: string }
     | { type: 'vat_report'; data: VATReportData; fileUrl?: string };
 
+/**
+ * Panel state machine for tracking artifact display
+ */
+export type PanelState =
+    | 'closed'
+    | 'excel-preview'    // Showing ExcelArtifact
+    | 'analyzing'        // Showing streaming progress
+    | 'vat-report'       // Showing VATReportCard
+    | 'error';
+
 export class ExcelWorkspace {
     private currentWorkbook: XLSX.WorkBook | null = null;
     private currentFile: string | null = null;
     private currentContent: ArtifactContent | null = null;
+    private panelState: PanelState = 'closed';
     private elements: ExcelPanelElements;
     private options: ExcelWorkspaceOptions;
     private vatReportUnmount?: () => void;
     private excelArtifactUnmount?: () => void;
+    private boundHandleOpenArtifact: (e: Event) => void;
+    private activeTab: 'summary' | 'transactions' | 'journal' = 'summary';
 
     constructor(options: ExcelWorkspaceOptions = {}) {
         this.options = options;
         this.elements = this.initializePanel();
+
+        // Bind event handlers
+        this.boundHandleOpenArtifact = this.handleOpenArtifact.bind(this);
+
+        // Listen for artifact panel open events (from VATSummaryCard)
+        window.addEventListener('open-artifact-panel', this.boundHandleOpenArtifact);
+    }
+
+    /**
+     * Handle open-artifact-panel event from VATSummaryCard
+     */
+    private handleOpenArtifact(e: Event): void {
+        const event = e as CustomEvent<{
+            type: string;
+            data: VATReportData;
+            fileUrl?: string;
+        }>;
+
+        if (event.detail?.type === 'vat_report' && event.detail.data) {
+            this.openVATReport(event.detail.data, event.detail.fileUrl, true);
+        }
+    }
+
+    /**
+     * Get current panel state
+     */
+    getPanelState(): PanelState {
+        return this.panelState;
+    }
+
+    /**
+     * Get current active tab
+     */
+    getActiveTab(): 'summary' | 'transactions' | 'journal' {
+        return this.activeTab;
+    }
+
+    /**
+     * Clean up event listeners
+     */
+    destroy(): void {
+        window.removeEventListener('open-artifact-panel', this.boundHandleOpenArtifact);
+        this.vatReportUnmount?.();
+        this.excelArtifactUnmount?.();
     }
 
     /**
@@ -44,6 +101,9 @@ export class ExcelWorkspace {
         const tabsContainer = document.getElementById('sheet-tabs');
         const closeBtn = document.getElementById('close-excel-panel');
         const filenameDisplay = document.getElementById('excel-filename');
+        const backdrop = document.getElementById('excel-panel-backdrop');
+        const titleIcon = document.getElementById('excel-title-icon');
+        const panelTabs = document.getElementById('panel-tabs');
 
         if (!panel || !container || !tabsContainer || !closeBtn || !filenameDisplay) {
             throw new Error('Excel panel DOM elements not found. Ensure all required elements exist in the HTML.');
@@ -52,13 +112,71 @@ export class ExcelWorkspace {
         // Attach close button listener
         closeBtn.addEventListener('click', () => this.closePanel());
 
+        // Attach backdrop click listener (mobile: click backdrop to close)
+        if (backdrop) {
+            backdrop.addEventListener('click', () => this.closePanel());
+        }
+
+        // Setup tab click listeners
+        if (panelTabs) {
+            this.setupTabListeners(panelTabs);
+        }
+
         return {
             panel,
             container,
             tabsContainer,
             closeBtn,
-            filenameDisplay
+            filenameDisplay,
+            backdrop: backdrop || undefined,
+            titleIcon: titleIcon || undefined,
+            panelTabs: panelTabs || undefined
         };
+    }
+
+    /**
+     * Setup click listeners for panel tabs
+     */
+    private setupTabListeners(panelTabs: HTMLElement): void {
+        const tabs = panelTabs.querySelectorAll('.panel-tab');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = (tab as HTMLElement).dataset.tab as 'summary' | 'transactions' | 'journal';
+                if (tabId) {
+                    this.setActiveTab(tabId);
+                }
+            });
+        });
+    }
+
+    /**
+     * Set the active tab and update UI
+     */
+    private setActiveTab(tabId: 'summary' | 'transactions' | 'journal'): void {
+        this.activeTab = tabId;
+
+        // Update tab button states
+        if (this.elements.panelTabs) {
+            const tabs = this.elements.panelTabs.querySelectorAll('.panel-tab');
+            tabs.forEach(tab => {
+                const isActive = (tab as HTMLElement).dataset.tab === tabId;
+                tab.classList.toggle('active', isActive);
+            });
+        }
+
+        // Dispatch event to VATReportCard
+        window.dispatchEvent(new CustomEvent('panel-tab-change', {
+            detail: { tab: tabId }
+        }));
+    }
+
+    /**
+     * Show or hide the panel tabs
+     */
+    private showPanelTabs(show: boolean): void {
+        if (this.elements.panelTabs) {
+            this.elements.panelTabs.classList.toggle('hidden', !show);
+        }
     }
 
     /**
@@ -195,7 +313,21 @@ export class ExcelWorkspace {
                 this.elements.container
             );
 
-            logger.debug('Excel artifact opened', { filename, sheets: sheets.length, rows: previewRows.length });
+            // Update panel state
+            this.panelState = 'excel-preview';
+
+            // Hide panel tabs (not used for Excel preview)
+            this.showPanelTabs(false);
+
+            // Show backdrop on mobile
+            this.elements.backdrop?.classList.add('visible');
+
+            // Update title icon for Excel
+            if (this.elements.titleIcon) {
+                this.elements.titleIcon.textContent = '📊';
+            }
+
+            logger.debug('Excel artifact opened', { filename, sheets: sheets.length, rows: previewRows.length, state: this.panelState });
 
         } catch (error) {
             console.error('Error opening Excel artifact:', error);
@@ -430,12 +562,24 @@ export class ExcelWorkspace {
         this.currentWorkbook = null;
         this.currentFile = null;
         this.currentContent = null;
+        this.panelState = 'closed';
         this.elements.container.innerHTML = '';
         this.elements.tabsContainer.innerHTML = '';
         this.elements.filenameDisplay.textContent = '';
 
+        // Hide backdrop
+        this.elements.backdrop?.classList.remove('visible');
+
+        // Reset title icon
+        if (this.elements.titleIcon) {
+            this.elements.titleIcon.textContent = '📊';
+        }
+
         // Reset tabs visibility
         this.elements.tabsContainer.style.display = '';
+
+        // Hide panel tabs
+        this.showPanelTabs(false);
 
         // Call close callback if provided
         if (this.options.onClose) {
@@ -599,8 +743,17 @@ export class ExcelWorkspace {
             </div>
         `;
 
-        // Open the panel
+        // Open the panel and update state
         this.elements.panel.classList.add('open');
+        this.panelState = 'analyzing';
+
+        // Show backdrop on mobile
+        this.elements.backdrop?.classList.add('visible');
+
+        // Update title icon for analyzing state
+        if (this.elements.titleIcon) {
+            this.elements.titleIcon.textContent = '⚡';
+        }
     }
 
     /**
@@ -655,8 +808,9 @@ export class ExcelWorkspace {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const progressAny = progress as any;
-        if (progressAny.confidence !== undefined && confidenceContainer && confidenceBar && confidenceLabel) {
-            const confidence = progressAny.confidence as number;
+        const confidence = progressAny.confidence as number | undefined;
+
+        if (confidence !== undefined && !isNaN(confidence) && confidenceContainer && confidenceBar && confidenceLabel) {
             confidenceContainer.style.display = 'flex';
             confidenceBar.style.width = `${confidence}%`;
 
@@ -672,7 +826,7 @@ export class ExcelWorkspace {
             }
 
             confidenceBar.className = `confidence-bar ${confidenceClass}`;
-            confidenceLabel.textContent = `${label} (${confidence}%)`;
+            confidenceLabel.textContent = `${label} (${Math.round(confidence)}%)`;
         }
 
         // Show insight bubble if present (Claude-style AI explanation)
@@ -886,10 +1040,8 @@ export class ExcelWorkspace {
                         }] : undefined
                     };
 
-                    // VAT report is now shown inline in the chat via AIResponseRenderer
-                    // Side panel no longer needed - data flows through ChatService
-                    // this.openVATReport(_vatData);
-                    void _vatData; // Suppress unused variable warning
+                    // Show VAT report in side panel after analysis completes
+                    this.openVATReport(_vatData);
                 }
             }, 800); // Brief delay to show completion
         }
@@ -969,6 +1121,7 @@ export class ExcelWorkspace {
      * Show analysis error in the streaming UI
      */
     showAnalysisError(error: string): void {
+        this.panelState = 'error';
         this.elements.container.innerHTML = `
             <div class="excel-analyzing error">
                 <div class="error-icon">
@@ -1017,16 +1170,29 @@ export class ExcelWorkspace {
             // Hide sheet tabs (not needed for VAT report)
             this.elements.tabsContainer.style.display = 'none';
 
+            // Show panel tabs and reset to summary
+            this.showPanelTabs(true);
+            this.setActiveTab('summary');
+
             // Clear container and mount Preact component
             this.elements.container.innerHTML = '';
             this.vatReportUnmount = mountPreactComponent(
                 VATReportCard,
-                { data },
+                { data, initialTab: 'summary' },
                 this.elements.container
             );
 
-            // Open the panel
+            // Open the panel and update state
             this.elements.panel.classList.add('open');
+            this.panelState = 'vat-report';
+
+            // Show backdrop on mobile
+            this.elements.backdrop?.classList.add('visible');
+
+            // Update title icon for VAT report
+            if (this.elements.titleIcon) {
+                this.elements.titleIcon.textContent = '📄';
+            }
 
             // Dispatch event so main.ts can save the VAT report to messages table
             // Only if not opening from a button (skipSave = false)
@@ -1036,7 +1202,7 @@ export class ExcelWorkspace {
                 }));
             }
 
-            logger.debug('VAT report opened in panel (Preact)', { period: data.period, skipSave });
+            logger.debug('VAT report opened in panel (Preact)', { period: data.period, skipSave, state: this.panelState });
         } catch (error) {
             console.error('Error opening VAT report:', error);
             const errorMessage = error instanceof Error ? error.message : 'Okänt fel';

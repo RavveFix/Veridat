@@ -385,7 +385,7 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                     marginBottom: '1.5rem',
                     fontSize: '0.9rem'
                 }}>
-                    Anslut Britta till dina bokforingssystem.
+                    Anslut Veridat till dina bokforingssystem.
                 </p>
 
                 {error && (
@@ -550,7 +550,7 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                         color: 'var(--text-secondary)',
                         lineHeight: 1.5
                     }}>
-                        Nar du ansluter Fortnox kan Britta automatiskt skapa fakturor,
+                        Nar du ansluter Fortnox kan Veridat automatiskt skapa fakturor,
                         hamta kunder och artiklar, samt synka bokforingsdata.
                         All kommunikation sker sakert via Fortnox officiella API.
                     </p>

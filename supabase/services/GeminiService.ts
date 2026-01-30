@@ -8,6 +8,79 @@ import { GoogleGenerativeAI, SchemaType, type Tool } from "npm:@google/generativ
 
 const logger = createLogger("gemini");
 
+/**
+ * Rate limit error information extracted from Google API errors
+ */
+export interface GoogleRateLimitError {
+    isRateLimit: boolean;
+    retryAfter: number | null;  // seconds
+    message: string;
+}
+
+/**
+ * Custom error class for Google API rate limits
+ */
+export class GeminiRateLimitError extends Error {
+    public readonly retryAfter: number | null;
+    public readonly isRateLimit = true;
+
+    constructor(message: string, retryAfter: number | null = null) {
+        super(message);
+        this.name = 'GeminiRateLimitError';
+        this.retryAfter = retryAfter;
+    }
+}
+
+/**
+ * Extract rate limit information from Google API errors
+ * Google errors look like: [GoogleGenerativeAI Error]: Error fetching from ... : [429 Too Many Requests]
+ * May include retryDelay in the error details
+ */
+export function extractGoogleRateLimitInfo(error: unknown): GoogleRateLimitError {
+    const result: GoogleRateLimitError = {
+        isRateLimit: false,
+        retryAfter: null,
+        message: 'Unknown error'
+    };
+
+    if (error instanceof Error) {
+        result.message = error.message;
+
+        // Check for 429 status code in error message
+        const is429 = /\[429\s*(Too Many Requests)?\]/i.test(error.message) ||
+                      /Resource.*exhausted/i.test(error.message) ||
+                      /rate.*limit/i.test(error.message) ||
+                      /quota.*exceeded/i.test(error.message);
+
+        if (is429) {
+            result.isRateLimit = true;
+
+            // Try to extract retry delay from error message
+            // Format: retryDelay: "30s" or "30000ms" or similar
+            const retryMatch = error.message.match(/retry.*?(\d+)\s*(s|ms|seconds?|milliseconds?)?/i);
+            if (retryMatch) {
+                const value = parseInt(retryMatch[1], 10);
+                const unit = retryMatch[2]?.toLowerCase() || 's';
+                result.retryAfter = unit.startsWith('ms') ? Math.ceil(value / 1000) : value;
+            } else {
+                // Default retry after 30 seconds if not specified
+                result.retryAfter = 30;
+            }
+
+            result.message = 'Google API rate limit exceeded. Försök igen om en stund.';
+        }
+    } else if (typeof error === 'string') {
+        result.message = error;
+        if (/429|rate.*limit|quota.*exceeded/i.test(error)) {
+            result.isRateLimit = true;
+            result.retryAfter = 30;
+            result.message = 'Google API rate limit exceeded. Försök igen om en stund.';
+        }
+    }
+
+    return result;
+}
+
 export const SYSTEM_INSTRUCTION = `Du är Britta, en autonom AI-agent och expert på svensk bokföring.
 Du hjälper användaren att hantera bokföring och fakturering i Fortnox via API.
 Du kan läsa och analysera uppladdade dokument (PDF, bilder) som fakturor, kvitton och skattekonton.
@@ -328,7 +401,8 @@ export const sendMessageToGemini = async (
     message: string,
     fileData?: FileData,
     history?: Array<{ role: string, content: string }>,
-    apiKey?: string
+    apiKey?: string,
+    modelOverride?: string
 ): Promise<GeminiResponse> => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -339,9 +413,9 @@ export const sendMessageToGemini = async (
 
         const genAI = new GoogleGenerativeAI(key);
 
-        // Default model can be overridden via Supabase secrets/env
-        // Example: supabase secrets set GEMINI_MODEL=gemini-1.5-pro
-        const modelName = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
+        // Model priority: explicit override > env variable > default
+        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-preview";
+        logger.info(`Using Gemini model: ${modelName}`);
 
         const model = genAI.getGenerativeModel({
             model: modelName,
@@ -384,7 +458,7 @@ export const sendMessageToGemini = async (
         const result = await model.generateContent({
             contents: contents,
             generationConfig: {
-                temperature: 0.4,
+                temperature: 1.0, // Gemini 3 recommended setting
                 maxOutputTokens: 2048,
             },
         });
@@ -449,6 +523,13 @@ export const sendMessageToGemini = async (
         return { text: text || "Jag kunde inte generera ett svar just nu." };
     } catch (error) {
         logger.error("Gemini API Error", error);
+
+        // Check for rate limit errors and throw structured error
+        const rateLimitInfo = extractGoogleRateLimitInfo(error);
+        if (rateLimitInfo.isRateLimit) {
+            throw new GeminiRateLimitError(rateLimitInfo.message, rateLimitInfo.retryAfter);
+        }
+
         throw error;
     }
 };
@@ -460,15 +541,18 @@ export const sendMessageStreamToGemini = async (
     message: string,
     fileData?: FileData,
     history?: Array<{ role: string, content: string }>,
-    apiKey?: string
+    apiKey?: string,
+    modelOverride?: string
 ) => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
         if (!key) throw new Error("GEMINI_API_KEY not found");
 
         const genAI = new GoogleGenerativeAI(key);
-        // Use same model as non-streaming (gemini-1.5-flash has better rate limits)
-        const modelName = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
+        // Model priority: explicit override > env variable > default
+        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-preview";
+        logger.info(`Using Gemini model (streaming): ${modelName}`);
+        
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
@@ -501,7 +585,7 @@ export const sendMessageStreamToGemini = async (
         const result = await model.generateContentStream({
             contents: contents,
             generationConfig: {
-                temperature: 0.4,
+                temperature: 1.0, // Gemini 3 recommended setting
                 maxOutputTokens: 2048,
             },
         });
@@ -509,6 +593,13 @@ export const sendMessageStreamToGemini = async (
         return result.stream;
     } catch (error) {
         logger.error("Gemini Streaming API Error", error);
+
+        // Check for rate limit errors and throw structured error
+        const rateLimitInfo = extractGoogleRateLimitInfo(error);
+        if (rateLimitInfo.isRateLimit) {
+            throw new GeminiRateLimitError(rateLimitInfo.message, rateLimitInfo.retryAfter);
+        }
+
         throw error;
     }
 };
@@ -531,7 +622,7 @@ export const generateConversationTitle = async (
 
         const genAI = new GoogleGenerativeAI(key);
         // Use flash model for speed and low cost
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
         const prompt = `Generera en kort svensk titel (max 5 ord) som sammanfattar denna konversation. Svara ENDAST med titeln, inget annat.
 

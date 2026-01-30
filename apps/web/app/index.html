@@ -164,12 +164,7 @@
         <main class="main-content">
             <header class="top-bar">
                 <div class="actions">
-                    <div class="current-context">
-                        <span class="current-company-name" id="current-company-name"></span>
-                    </div>
-                    <div id="memory-indicator-root"></div>
                     <div class="company-selector">
-                        <span class="company-label">Företag</span>
                         <div class="company-select">
                             <select id="company-select" class="company-dropdown"></select>
                             <svg class="company-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -183,6 +178,7 @@
                             </svg>
                         </button>
                     </div>
+                    <div id="memory-indicator-root"></div>
                 </div>
             </header>
 
@@ -191,9 +187,16 @@
                 <div class="chat-wrapper chat-section">
                     <!-- Welcome Hero -->
                     <div class="welcome-hero">
-                        <div class="hero-avatar chat-orb large"></div>
-                        <h1>Hej där 👋</h1>
-                        <p>Berätta vad du behöver, så sköter vi resten.</p>
+                    <div class="hero-avatar veridat-spinner large">
+                        <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                        </svg>
+                    </div>
+                        <div id="welcome-header-mount">
+                            <h1>Hej där 👋</h1>
+                            <p>Berätta vad du behöver, så sköter vi resten.</p>
+                        </div>
 
                         <!-- Suggestions Container - Populated by JS/CSS usually, but static structure here for now -->
                         <div class="welcome-suggestions">
@@ -281,8 +284,11 @@
                                     </svg>
                                 </button>
 
-                                <input type="text" id="user-input" placeholder="Fråga mig vad som helst..."
-                                    autocomplete="off">
+                                <div class="user-input-relative" style="flex: 1; position: relative; display: flex; align-items: center; min-width: 0;">
+                                    <div id="animated-placeholder-container" class="animated-placeholder-container"></div>
+                                    <input type="text" id="user-input" placeholder=""
+                                        autocomplete="off">
+                                </div>
 
                                 <div id="voice-recording-ui" class="voice-recording-ui hidden">
                                     <div class="waveform-container">
@@ -337,11 +343,27 @@
                     </div>
                 </div>
 
-                <!-- Excel Panel (Split View) -->
+                <!-- Excel Panel Backdrop (Mobile) -->
+                <div id="excel-panel-backdrop" class="excel-panel-backdrop"></div>
+
+                <!-- Excel/Artifact Panel (Split View) -->
                 <div id="excel-panel" class="excel-panel">
                     <div class="excel-header">
-                        <span id="excel-filename">Sheet.xlsx</span>
-                        <button id="close-excel-panel">×</button>
+                        <div class="excel-title">
+                            <div class="excel-title-icon" id="excel-title-icon">📊</div>
+                            <span id="excel-filename">Sheet.xlsx</span>
+                        </div>
+                        <button id="close-excel-panel" class="close-excel-btn" title="Stäng panel">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 6L6 18M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <!-- Tab bar for VAT report navigation -->
+                    <div id="panel-tabs" class="panel-tabs hidden">
+                        <button class="panel-tab active" data-tab="summary">Sammanfattning</button>
+                        <button class="panel-tab" data-tab="transactions">Transaktioner</button>
+                        <button class="panel-tab" data-tab="journal">Bokföring</button>
                     </div>
                     <div id="sheet-tabs" class="sheet-tabs"></div>
                     <div id="excel-table-container"></div>

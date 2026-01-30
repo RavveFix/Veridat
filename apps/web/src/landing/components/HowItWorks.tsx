@@ -24,7 +24,7 @@ export function HowItWorks() {
         },
         {
             number: 2,
-            title: 'Britta analyserar',
+            title: 'Veridat analyserar',
             description: 'AI läser och kategoriserar alla transaktioner',
             icon: (
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -66,7 +66,7 @@ export function HowItWorks() {
         <section id="how-it-works" class="how-it-works-section">
             <div class="container">
                 <div class="section-header fade-in-up">
-                    <h2>Så fungerar Britta</h2>
+                    <h2>Så fungerar Veridat</h2>
                     <p class="section-subtitle">Från Excel-kaos till bokförd verifikation på sekunder</p>
                 </div>
 

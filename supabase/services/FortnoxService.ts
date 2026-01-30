@@ -6,7 +6,16 @@ import type {
     FortnoxCustomerListResponse,
     FortnoxArticleListResponse,
     FortnoxInvoice,
-    FortnoxInvoiceResponse
+    FortnoxInvoiceResponse,
+    FortnoxVoucher,
+    FortnoxVoucherResponse,
+    FortnoxVoucherListResponse,
+    FortnoxSupplierInvoice,
+    FortnoxSupplierInvoiceResponse,
+    FortnoxSupplierInvoiceListResponse,
+    FortnoxSupplier,
+    FortnoxSupplierResponse,
+    FortnoxSupplierListResponse
 } from '../functions/fortnox/types.ts';
 
 export interface FortnoxConfig {
@@ -163,5 +172,190 @@ export class FortnoxService {
             method: 'POST',
             body: JSON.stringify({ Invoice: invoiceData })
         });
+    }
+
+    // ========================================================================
+    // VOUCHER METHODS (Verifikationer)
+    // ========================================================================
+
+    /**
+     * Get all vouchers for a specific financial year and series
+     */
+    async getVouchers(financialYear?: number, voucherSeries?: string): Promise<FortnoxVoucherListResponse> {
+        let endpoint = '/vouchers';
+        const params: string[] = [];
+
+        if (financialYear) {
+            params.push(`financialyear=${financialYear}`);
+        }
+        if (voucherSeries) {
+            params.push(`voucherseries=${voucherSeries}`);
+        }
+
+        if (params.length > 0) {
+            endpoint += `?${params.join('&')}`;
+        }
+
+        return await this.request<FortnoxVoucherListResponse>(endpoint);
+    }
+
+    /**
+     * Get a specific voucher by series and number
+     */
+    async getVoucher(voucherSeries: string, voucherNumber: number, financialYear?: number): Promise<FortnoxVoucherResponse> {
+        let endpoint = `/vouchers/${voucherSeries}/${voucherNumber}`;
+        if (financialYear) {
+            endpoint += `?financialyear=${financialYear}`;
+        }
+        return await this.request<FortnoxVoucherResponse>(endpoint);
+    }
+
+    /**
+     * Create a new voucher (verifikation)
+     * Used for exporting VAT reports to Fortnox
+     */
+    async createVoucher(voucherData: FortnoxVoucher): Promise<FortnoxVoucherResponse> {
+        logger.info('Creating voucher in Fortnox', {
+            series: voucherData.VoucherSeries,
+            description: voucherData.Description,
+            rowCount: voucherData.VoucherRows.length
+        });
+
+        return await this.request<FortnoxVoucherResponse>('/vouchers', {
+            method: 'POST',
+            body: JSON.stringify({ Voucher: voucherData })
+        });
+    }
+
+    // ========================================================================
+    // SUPPLIER INVOICE METHODS (Leverantörsfakturor)
+    // ========================================================================
+
+    /**
+     * Get all supplier invoices
+     */
+    async getSupplierInvoices(params?: {
+        fromDate?: string;
+        toDate?: string;
+        supplierNumber?: string;
+    }): Promise<FortnoxSupplierInvoiceListResponse> {
+        let endpoint = '/supplierinvoices';
+        const queryParams: string[] = [];
+
+        if (params?.fromDate) {
+            queryParams.push(`fromdate=${params.fromDate}`);
+        }
+        if (params?.toDate) {
+            queryParams.push(`todate=${params.toDate}`);
+        }
+        if (params?.supplierNumber) {
+            queryParams.push(`suppliernumber=${params.supplierNumber}`);
+        }
+
+        if (queryParams.length > 0) {
+            endpoint += `?${queryParams.join('&')}`;
+        }
+
+        return await this.request<FortnoxSupplierInvoiceListResponse>(endpoint);
+    }
+
+    /**
+     * Get a specific supplier invoice
+     */
+    async getSupplierInvoice(givenNumber: number): Promise<FortnoxSupplierInvoiceResponse> {
+        return await this.request<FortnoxSupplierInvoiceResponse>(`/supplierinvoices/${givenNumber}`);
+    }
+
+    /**
+     * Create a new supplier invoice (leverantörsfaktura)
+     * Used for exporting analyzed transactions to Fortnox
+     */
+    async createSupplierInvoice(invoiceData: FortnoxSupplierInvoice): Promise<FortnoxSupplierInvoiceResponse> {
+        logger.info('Creating supplier invoice in Fortnox', {
+            supplierNumber: invoiceData.SupplierNumber,
+            invoiceNumber: invoiceData.InvoiceNumber,
+            total: invoiceData.Total
+        });
+
+        return await this.request<FortnoxSupplierInvoiceResponse>('/supplierinvoices', {
+            method: 'POST',
+            body: JSON.stringify({ SupplierInvoice: invoiceData })
+        });
+    }
+
+    /**
+     * Book a supplier invoice (bokför leverantörsfaktura)
+     */
+    async bookSupplierInvoice(givenNumber: number): Promise<FortnoxSupplierInvoiceResponse> {
+        return await this.request<FortnoxSupplierInvoiceResponse>(`/supplierinvoices/${givenNumber}/bookkeep`, {
+            method: 'PUT'
+        });
+    }
+
+    // ========================================================================
+    // SUPPLIER METHODS (Leverantörer)
+    // ========================================================================
+
+    /**
+     * Get all suppliers
+     */
+    async getSuppliers(): Promise<FortnoxSupplierListResponse> {
+        return await this.request<FortnoxSupplierListResponse>('/suppliers');
+    }
+
+    /**
+     * Get a specific supplier
+     */
+    async getSupplier(supplierNumber: string): Promise<FortnoxSupplierResponse> {
+        return await this.request<FortnoxSupplierResponse>(`/suppliers/${supplierNumber}`);
+    }
+
+    /**
+     * Create a new supplier (leverantör)
+     */
+    async createSupplier(supplierData: FortnoxSupplier): Promise<FortnoxSupplierResponse> {
+        logger.info('Creating supplier in Fortnox', {
+            name: supplierData.Name,
+            orgNr: supplierData.OrganisationNumber
+        });
+
+        return await this.request<FortnoxSupplierResponse>('/suppliers', {
+            method: 'POST',
+            body: JSON.stringify({ Supplier: supplierData })
+        });
+    }
+
+    /**
+     * Update an existing supplier
+     */
+    async updateSupplier(supplierNumber: string, supplierData: Partial<FortnoxSupplier>): Promise<FortnoxSupplierResponse> {
+        return await this.request<FortnoxSupplierResponse>(`/suppliers/${supplierNumber}`, {
+            method: 'PUT',
+            body: JSON.stringify({ Supplier: supplierData })
+        });
+    }
+
+    /**
+     * Find or create a supplier by organization number
+     */
+    async findOrCreateSupplier(supplierData: FortnoxSupplier): Promise<FortnoxSupplierResponse> {
+        // Try to find by org number first
+        if (supplierData.OrganisationNumber) {
+            try {
+                const suppliers = await this.getSuppliers();
+                const existing = suppliers.Suppliers?.find(
+                    s => s.OrganisationNumber === supplierData.OrganisationNumber
+                );
+                if (existing) {
+                    logger.info('Found existing supplier', { supplierNumber: existing.SupplierNumber });
+                    return { Supplier: existing };
+                }
+            } catch (error) {
+                logger.warn('Could not search suppliers', error);
+            }
+        }
+
+        // Create new supplier
+        return await this.createSupplier(supplierData);
     }
 }

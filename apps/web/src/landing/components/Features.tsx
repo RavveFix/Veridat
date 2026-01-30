@@ -4,7 +4,7 @@ export function Features() {
     const features = [
         {
             title: "Excel-analys",
-            description: "Ladda upp dina Excel-filer direkt. Britta analyserar innehållet, identifierar intäkter och kostnader.",
+            description: "Ladda upp dina Excel-filer direkt. Veridat analyserar innehållet, identifierar intäkter och kostnader.",
             icon: (
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -17,7 +17,7 @@ export function Features() {
         },
         {
             title: "Fortnox Integration",
-            description: "Britta pratar direkt med Fortnox. Skapa fakturor, kolla kunder och bokför verifikationer utan att lämna chatten.",
+            description: "Veridat pratar direkt med Fortnox. Skapa fakturor, kolla kunder och bokför verifikationer utan att lämna chatten.",
             icon: (
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>

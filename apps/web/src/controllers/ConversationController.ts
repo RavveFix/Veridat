@@ -2,16 +2,21 @@
  * ConversationController - Manages conversation loading and creation
  *
  * Extracted from main.ts (lines 200-295, 356-527)
+ * Enhanced with URL-based conversation routing for bookmarks and direct navigation
  */
 
 import { supabase } from '../lib/supabase';
 import { mountPreactComponent } from '../components/preact-adapter';
 import { ChatHistory } from '../components/Chat/ChatHistory';
 import { ConversationList } from '../components/Chat/ConversationList';
+import { WelcomeHeader } from '../components/WelcomeHeader';
 import { companyManager } from '../services/CompanyService';
 import { authService } from '../services/AuthService';
 import { uiController } from '../services/UIService';
 import { logger } from '../services/LoggerService';
+
+// UUID v4 regex pattern
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 
 export class ConversationController {
@@ -28,7 +33,147 @@ export class ConversationController {
     init(chatContainer: HTMLElement): void {
         this.chatContainer = chatContainer;
         this.setupEventListeners();
+        this.setupPopstateHandler();
         this.mountConversationList();
+        this.mountWelcomeHeader();
+    }
+
+    // ============================================
+    // URL Routing Methods
+    // ============================================
+
+    /**
+     * Parse conversation UUID from current URL
+     * Returns null if URL doesn't match /app/chat/{uuid} pattern
+     */
+    getConversationIdFromUrl(): string | null {
+        const path = window.location.pathname;
+        const match = path.match(/^\/app\/chat\/([a-f0-9-]{36})$/i);
+        return match ? match[1] : null;
+    }
+
+    /**
+     * Validate UUID format
+     */
+    isValidUUID(id: string): boolean {
+        return UUID_REGEX.test(id);
+    }
+
+    /**
+     * Update browser URL to reflect current conversation
+     * Uses pushState to enable back/forward navigation
+     */
+    updateUrlForConversation(conversationId: string | null, replace: boolean = false): void {
+        const newPath = conversationId ? `/app/chat/${conversationId}` : '/app/newchat';
+        const currentPath = window.location.pathname;
+
+        if (currentPath === newPath) return;
+
+        const state = { conversationId };
+        if (replace) {
+            window.history.replaceState(state, '', newPath);
+        } else {
+            window.history.pushState(state, '', newPath);
+        }
+        logger.debug('URL updated', { newPath, replace });
+    }
+
+    /**
+     * Load conversation from URL (for direct navigation/bookmarks)
+     * Validates the conversation exists and user has access
+     */
+    async loadConversationFromUrl(conversationId: string): Promise<boolean> {
+        logger.info('Loading conversation from URL', { conversationId });
+
+        // Validate UUID format
+        if (!this.isValidUUID(conversationId)) {
+            logger.warn('Invalid UUID in URL', { conversationId });
+            this.showUrlErrorAndRedirect('Ogiltig konversations-ID');
+            return false;
+        }
+
+        try {
+            // Verify conversation exists and user has access (RLS will enforce ownership)
+            const { data: conversation, error } = await supabase
+                .from('conversations')
+                .select('id, company_id')
+                .eq('id', conversationId)
+                .single();
+
+            if (error || !conversation) {
+                logger.warn('Conversation not found or access denied', { conversationId, error });
+                this.showUrlErrorAndRedirect('Konversationen kunde inte hittas');
+                return false;
+            }
+
+            // Check if conversation belongs to current company
+            const currentCompany = companyManager.getCurrent();
+            if (conversation.company_id && conversation.company_id !== currentCompany.id) {
+                // Try to switch to the conversation's company
+                const switched = companyManager.switchTo(conversation.company_id);
+                if (!switched) {
+                    logger.warn('Cannot switch to conversation company', {
+                        conversationCompanyId: conversation.company_id,
+                        currentCompanyId: currentCompany.id
+                    });
+                    this.showUrlErrorAndRedirect('Du har inte åtkomst till denna konversation');
+                    return false;
+                }
+                logger.info('Switched company for conversation', { companyId: conversation.company_id });
+            }
+
+            // Load the conversation
+            await this.loadConversation(conversationId);
+            return true;
+        } catch (error) {
+            logger.error('Error loading conversation from URL', error);
+            this.showUrlErrorAndRedirect('Ett fel uppstod vid inläsning av konversationen');
+            return false;
+        }
+    }
+
+    /**
+     * Show error toast and redirect to new chat
+     */
+    private showUrlErrorAndRedirect(message: string): void {
+        uiController.showError(message);
+        // Use replaceState to avoid polluting browser history with bad URL
+        window.history.replaceState({}, '', '/app/newchat');
+        this.startNewChat();
+    }
+
+    /**
+     * Setup popstate handler for browser back/forward navigation
+     */
+    private setupPopstateHandler(): void {
+        window.addEventListener('popstate', async (event) => {
+            logger.debug('Popstate event', { state: event.state, path: window.location.pathname });
+
+            const path = window.location.pathname;
+            const conversationId = this.getConversationIdFromUrl();
+
+            if (conversationId) {
+                // Navigate to specific conversation
+                await this.loadConversationFromUrl(conversationId);
+            } else if (path === '/app/newchat' || path === '/app' || path === '/app/') {
+                // Navigate to new chat
+                await this.startNewChat();
+            }
+        });
+    }
+
+    private mountWelcomeHeader(): void {
+        const mountPoint = document.getElementById('welcome-header-mount');
+        if (mountPoint) {
+            mountPreactComponent(
+                WelcomeHeader,
+                {
+                    title: "Hej där 👋",
+                    subtitle: "Berätta vad du behöver, så sköter vi resten."
+                },
+                mountPoint
+            );
+        }
     }
 
     private mountConversationList(): void {
@@ -108,6 +253,9 @@ export class ConversationController {
 
         // Hide welcome state and show chat
         this.setWelcomeState(false);
+
+        // Update URL to reflect current conversation
+        this.updateUrlForConversation(conversationId);
 
         // Re-mount chat
         if (this.chatContainer) {

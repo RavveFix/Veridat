@@ -1,6 +1,6 @@
 {
-    "name": "Britta - Bokföringsexpert",
-    "short_name": "Britta",
+    "name": "Veridat - Bokföringsexpert",
+    "short_name": "Veridat",
     "description": "AI-driven bokföringsassistent för svenska företag",
     "start_url": "/app/",
     "display": "standalone",
@@ -31,7 +31,7 @@
         {
             "name": "Ny konversation",
             "url": "/app/",
-            "description": "Starta en ny konversation med Britta"
+            "description": "Starta en ny konversation med Veridat"
         }
     ]
 }

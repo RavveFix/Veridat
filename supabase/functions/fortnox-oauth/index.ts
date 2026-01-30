@@ -22,13 +22,13 @@ const logger = createLogger('fortnox-oauth');
 const FORTNOX_AUTH_URL = 'https://apps.fortnox.se/oauth-v1/auth';
 const FORTNOX_TOKEN_URL = 'https://apps.fortnox.se/oauth-v1/token';
 
-// Required scopes for full accounting integration
+// Required scopes for accounting integration
+// Must match scopes enabled in Fortnox Developer Portal
 const FORTNOX_SCOPES = [
     'customer',
     'article',
     'invoice',
     'bookkeeping',
-    'settings',
     'companyinformation'
 ].join(' ');
 
@@ -190,7 +190,7 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
     const errorDescription = url.searchParams.get('error_description');
 
     // Get app URL for redirects
-    const appUrl = Deno.env.get('APP_URL') || 'https://britta.se/app';
+    const appUrl = Deno.env.get('APP_URL') || 'https://veridat.se/app';
 
     if (error) {
         logger.error('Fortnox OAuth error', { error, errorDescription });

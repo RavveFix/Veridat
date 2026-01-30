@@ -4,8 +4,16 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 import { createLogger } from "../../services/LoggerService.ts";
 import { createOptionsResponse, getCorsHeaders } from "../../services/CorsService.ts";
+import { extractGoogleRateLimitInfo } from "../../services/GeminiService.ts";
 
 const logger = createLogger("memory-generator");
+
+// Delay before Gemini API call to avoid concurrent requests with main chat
+const GEMINI_API_DELAY_MS = 2500; // 2.5 seconds
+
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 const ALLOWED_CATEGORIES = new Set([
     "work_context",
@@ -35,11 +43,20 @@ Kategorier:
 - preferences: Hur användaren vill ha saker (avrundning, format, etc)
 - history: Viktiga händelser, tidigare analyser
 - top_of_mind: Pågående projekt, aktuella frågor
+
+VIKTIGT:
+- Extrahera ENDAST specifika, unika fakta som är värda att minnas
+- Undvik generella påståenden som "Användaren gillar att ställa frågor"
+- Fokusera på: specifika org.nummer, belopp, perioder, namn, preferenser
+- Max 2-3 minnen per kategori
+- Varje minne ska vara minst 20 tecken långt
 `;
 
 const MAX_MESSAGES = 60;
 const MAX_MESSAGE_CHARS = 900;
 const MAX_MEMORIES = 8;
+const MIN_MEMORY_LENGTH = 20;
+const MAX_MEMORIES_PER_CATEGORY = 3;
 
 type MemoryEntry = {
     category?: string;
@@ -154,6 +171,10 @@ Deno.serve(async (req: Request) => {
 
         const prompt = `${MEMORY_PROMPT_HEADER}\nKonversation:\n${transcript}`;
 
+        // Delay to avoid concurrent API calls with main chat response
+        logger.debug('Delaying Gemini API call to avoid rate limits', { delayMs: GEMINI_API_DELAY_MS });
+        await delay(GEMINI_API_DELAY_MS);
+
         const genAI = new GoogleGenerativeAI(geminiKey);
         const modelName = Deno.env.get("MEMORY_MODEL") || Deno.env.get("GEMINI_MODEL") || "gemini-2.0-flash";
         const model = genAI.getGenerativeModel({
@@ -198,12 +219,31 @@ Deno.serve(async (req: Request) => {
                 .filter(Boolean)
         );
 
+        // Group by category to limit per-category count
+        const categoryCount: Record<string, number> = {};
+
         const inserts = memories
             .map((memory) => ({
                 category: memory?.category?.trim(),
                 content: memory?.content?.trim()
             }))
-            .filter((memory) => memory.content && memory.category && ALLOWED_CATEGORIES.has(memory.category))
+            .filter((memory) => {
+                // Basic validation
+                if (!memory.content || !memory.category || !ALLOWED_CATEGORIES.has(memory.category)) {
+                    return false;
+                }
+                // Minimum length filter
+                if (memory.content.length < MIN_MEMORY_LENGTH) {
+                    return false;
+                }
+                // Per-category limit
+                const count = categoryCount[memory.category] || 0;
+                if (count >= MAX_MEMORIES_PER_CATEGORY) {
+                    return false;
+                }
+                categoryCount[memory.category] = count + 1;
+                return true;
+            })
             .filter((memory) => {
                 const normalized = normalizeContent(memory.content as string);
                 if (!normalized || existingSet.has(normalized)) {
@@ -238,6 +278,25 @@ Deno.serve(async (req: Request) => {
         });
     } catch (error) {
         logger.error("Memory generator error", error);
+
+        // Check for Google API rate limit errors
+        const rateLimitInfo = extractGoogleRateLimitInfo(error);
+        if (rateLimitInfo.isRateLimit) {
+            const retryAfter = rateLimitInfo.retryAfter || 30;
+            return new Response(JSON.stringify({
+                error: 'google_rate_limit',
+                message: 'Google API är tillfälligt överbelastad.',
+                retryAfter
+            }), {
+                status: 429,
+                headers: {
+                    ...getCorsHeaders(),
+                    "Content-Type": "application/json",
+                    "Retry-After": String(retryAfter)
+                }
+            });
+        }
+
         const message = error instanceof Error ? error.message : "Unknown error";
         return new Response(JSON.stringify({ error: message }), {
             status: 500,

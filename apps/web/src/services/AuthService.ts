@@ -259,7 +259,7 @@ class AuthServiceClass {
      */
     redirectToApp(): void {
         logger.info('Redirecting to app');
-        window.location.href = '/app';
+        window.location.href = '/app/newchat';
     }
 }
 

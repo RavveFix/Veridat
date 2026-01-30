@@ -1,7 +1,7 @@
 {
-    "name": "Britta - Bokföringsexpert",
-    "short_name": "Britta",
-    "description": "AI-driven bokföringsassistent för svenska företag",
+    "name": "Veridat - AI Bokföring",
+    "short_name": "Veridat",
+    "description": "Automatisera din bokföring med Veridat. AI sköter moms, kvitton och deklaration.",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#0a0e17",
@@ -31,7 +31,7 @@
         {
             "name": "Ny konversation",
             "url": "/",
-            "description": "Starta en ny konversation med Britta"
+            "description": "Starta en ny konversation med Veridat"
         }
     ]
 }

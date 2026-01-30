@@ -179,6 +179,14 @@ li {
     background-clip: text;
 }
 
+.brand-logo {
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
 .sub-nav {
     display: flex;
     gap: 1.5rem;

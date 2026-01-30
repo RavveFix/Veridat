@@ -360,7 +360,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
 
                                     {plan !== 'pro' && (
                                         <a
-                                            href="mailto:hej@britta.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20skulle%20vilja%20uppgradera%20till%20Pro%20(199%20kr%2Fm%C3%A5n).%0A%0AMvh"
+                                            href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20skulle%20vilja%20uppgradera%20till%20Pro%20(199%20kr%2Fm%C3%A5n).%0A%0AMvh"
                                             style={{
                                                 display: 'block',
                                                 marginTop: '1rem',

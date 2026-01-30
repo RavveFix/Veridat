@@ -194,7 +194,8 @@ Deno.serve(async (req: Request) => {
 
                 const safeLimit = Math.min(Math.max(limit, 1), 25);
 
-                let searchQuery = supabase
+                // 1. Search in messages (full-text search)
+                let messageSearchQuery = supabase
                     .from("messages")
                     .select(`
                         id,
@@ -212,23 +213,73 @@ Deno.serve(async (req: Request) => {
                     .limit(safeLimit);
 
                 if (company_id) {
-                    searchQuery = searchQuery.eq("conversation.company_id", company_id);
+                    messageSearchQuery = messageSearchQuery.eq("conversation.company_id", company_id);
                 }
 
-                const { data: searchResults, error } = await searchQuery;
-                if (error) throw error;
+                // 2. Search in conversation titles and summaries (ILIKE)
+                const escapedQuery = query.replace(/[%_]/g, "\\$&");
+                let titleSearchQuery = supabase
+                    .from("conversations")
+                    .select("id, title, summary, created_at, updated_at")
+                    .eq("user_id", user.id)
+                    .or(`title.ilike.%${escapedQuery}%,summary.ilike.%${escapedQuery}%`)
+                    .order("updated_at", { ascending: false })
+                    .limit(safeLimit);
 
-                result = {
-                    results: (searchResults || []).map((row) => {
-                        // Supabase returns !inner joins as single objects, but types say array
-                        const conv = row.conversation as unknown as { id: string; title: string };
-                        return {
+                if (company_id) {
+                    titleSearchQuery = titleSearchQuery.eq("company_id", company_id);
+                }
+
+                // Run both searches in parallel
+                const [messageResponse, titleResponse] = await Promise.all([
+                    messageSearchQuery,
+                    titleSearchQuery
+                ]);
+
+                if (messageResponse.error) throw messageResponse.error;
+                if (titleResponse.error) throw titleResponse.error;
+
+                // 3. Combine and deduplicate results
+                const seenConversationIds = new Set<string>();
+                const combinedResults: Array<{
+                    conversation_id: string;
+                    conversation_title: string | null;
+                    snippet: string;
+                    created_at: string;
+                    match_type: "title" | "message";
+                }> = [];
+
+                // Title matches first (prioritized)
+                for (const row of titleResponse.data || []) {
+                    if (!seenConversationIds.has(row.id)) {
+                        seenConversationIds.add(row.id);
+                        combinedResults.push({
+                            conversation_id: row.id,
+                            conversation_title: row.title,
+                            snippet: row.summary || "Matchade konversationstitel",
+                            created_at: row.updated_at || row.created_at,
+                            match_type: "title"
+                        });
+                    }
+                }
+
+                // Then message matches
+                for (const row of messageResponse.data || []) {
+                    const conv = row.conversation as unknown as { id: string; title: string };
+                    if (!seenConversationIds.has(conv.id)) {
+                        seenConversationIds.add(conv.id);
+                        combinedResults.push({
                             conversation_id: conv.id,
                             conversation_title: conv.title,
                             snippet: extractSnippet(row.content, query),
-                            created_at: row.created_at
-                        };
-                    })
+                            created_at: row.created_at,
+                            match_type: "message"
+                        });
+                    }
+                }
+
+                result = {
+                    results: combinedResults.slice(0, safeLimit)
                 };
                 break;
             }

@@ -28,7 +28,7 @@ export function parseAIResponse(text: string): ParsedContent[] {
     const blocks: ParsedContent[] = [];
 
     // 1. Identify all code blocks and tables with their indices
-    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+    const codeBlockRegex = /```(\w+)?\s?\n?([\s\S]*?)```/g;
     const tableRegex = /((?:^|\n)\|.*\|(?:\n|$)(?:\|[-:| ]*\|(?:\n|$))(?:\|.*\|(?:\n|$))*)/g;
 
     interface FoundBlock {

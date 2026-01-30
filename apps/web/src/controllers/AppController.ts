@@ -95,16 +95,29 @@ export class AppController {
         // Initialize voice input
         voiceInputController.init();
 
-        // Load conversation from database for current company
-        const currentCompany = companyManager.getCurrent();
+        // Load conversation based on URL route
+        const path = window.location.pathname;
+        const chatMatch = path.match(/^\/app\/chat\/([a-f0-9-]{36})$/i);
 
-        // Check for new chat route
-        if (window.location.pathname === '/app/newchat') {
+        if (chatMatch) {
+            // Direct link to specific conversation
+            const conversationId = chatMatch[1];
+            logger.info('Loading conversation from URL', { conversationId });
+            const loaded = await conversationController.loadConversationFromUrl(conversationId);
+            if (!loaded) {
+                // loadConversationFromUrl handles redirect on failure
+                logger.warn('Failed to load conversation from URL, redirecting to new chat');
+            }
+        } else if (path === '/app/newchat') {
+            // New chat route
+            await conversationController.startNewChat();
+        } else if (path === '/app' || path === '/app/') {
+            // Default /app route - redirect to new chat for fresh start
             await conversationController.startNewChat();
         } else {
-            await conversationController.loadFromDB(currentCompany.id).catch((error: unknown) => {
-                logger.error('Failed to load initial conversation', error);
-            });
+            // Unknown /app/* route - fallback to new chat
+            logger.warn('Unknown app route, starting new chat', { path });
+            await conversationController.startNewChat();
         }
 
         // Auto-focus input

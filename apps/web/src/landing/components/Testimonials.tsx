@@ -4,14 +4,14 @@ export function Testimonials() {
         {
             name: "Erik Svensson",
             role: "VD, TechConsult AB",
-            content: "Britta har sparat mig timmar varje månad. Att kunna slänga in Excel-filer och få svar direkt är magiskt.",
+            content: "Veridat har sparat mig timmar varje månad. Att kunna slänga in Excel-filer och få svar direkt är magiskt.",
             initials: "ES",
             color: "#FF5F56"
         },
         {
             name: "Maria Lindberg",
             role: "Frilansande Designer",
-            content: "Jag hatar bokföring, men Britta gör det nästan kul. Det känns som att ha en riktig ekonom i fickan.",
+            content: "Jag hatar bokföring, men Veridat gör det nästan kul. Det känns som att ha en riktig ekonom i fickan.",
             initials: "ML",
             color: "#FFBD2E"
         },
@@ -55,7 +55,7 @@ export function Testimonials() {
                 <div style="text-align: center; margin-bottom: 4rem;">
                     <h2 style="font-size: 2.5rem; margin-bottom: 1rem;">Vad våra användare säger</h2>
                     <p style="color: var(--text-secondary); max-width: 600px; margin: 0 auto;">
-                        Över 1000 svenska företagare använder redan Britta för att förenkla sin vardag.
+                        Över 1000 svenska företagare använder redan Veridat för att förenkla sin vardag.
                     </p>
                 </div>
 

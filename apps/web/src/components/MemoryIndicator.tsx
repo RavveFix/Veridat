@@ -33,6 +33,22 @@ const CATEGORY_LABELS: Record<string, string> = {
     user_defined: '📝 Eget'
 };
 
+function formatRelativeTime(dateString: string | null): string {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just nu';
+    if (diffMins < 60) return `${diffMins} min sedan`;
+    if (diffHours < 24) return `${diffHours} tim sedan`;
+    if (diffDays < 7) return `${diffDays} dagar sedan`;
+    return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+}
+
 export const MemoryIndicator: FunctionComponent = () => {
     const [memories, setMemories] = useState<MemoryItem[]>([]);
     const [isOpen, setIsOpen] = useState(false);
@@ -270,9 +286,9 @@ export const MemoryIndicator: FunctionComponent = () => {
                 {isGenerating ? (
                     <span class="memory-spinner" aria-hidden="true" />
                 ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z" />
-                        <path d="M12 6v6l4 2" />
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
                     </svg>
                 )}
                 <span class="memory-button-label">Minne</span>
@@ -327,6 +343,13 @@ export const MemoryIndicator: FunctionComponent = () => {
                                     </button>
                                 </div>
                                 <p>{memory.content}</p>
+                                {memory.updated_at && (
+                                    <div class="memory-item-footer">
+                                        <span class="memory-timestamp">
+                                            Senast använd: {formatRelativeTime(memory.updated_at)}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>

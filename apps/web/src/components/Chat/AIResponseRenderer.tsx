@@ -1,8 +1,10 @@
 import { FunctionComponent } from 'preact';
 import { memo } from 'preact/compat';
-import { useMemo } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import { parseAIResponse, markdownToHtml, containsCodeBlock, containsMarkdownTable, parseMarkdownTable } from '../../utils/markdownParser';
-import { ArtifactCard, VATArtifact, CodeArtifact } from './ArtifactCard';
+import { ArtifactCard, CodeArtifact } from './ArtifactCard';
+import { VATSummaryCard } from './VATSummaryCard';
+import { MemoryUsageNotice, type UsedMemory } from './MemoryUsageNotice';
 import type { VATReportData } from '../../types/vat';
 
 interface AIResponseRendererProps {
@@ -14,6 +16,8 @@ interface AIResponseRendererProps {
     } | null;
     fileName?: string | null;
     fileUrl?: string | null;
+    /** Memories used by Britta to generate this response - for transparency */
+    usedMemories?: UsedMemory[];
 }
 
 /**
@@ -30,6 +34,7 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     metadata,
     fileName,
     fileUrl,
+    usedMemories,
 }) => {
     // Memoize expensive parsing operations
     const hasStructuredContent = useMemo(
@@ -46,26 +51,23 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
         () => !hasStructuredContent && !metadata?.type ? markdownToHtml(content) : null,
         [content, hasStructuredContent, metadata?.type]
     );
-    // Check if this is a VAT report response
+    // Check if this is a VAT report response - show compact inline card
+    // Full report is displayed in the side panel
     if (metadata?.type === 'vat_report' && metadata.data) {
         const vatData = metadata.data;
         return (
             <div class="ai-response">
-                {/* Render any leading text before the artifact */}
-                {content && !content.includes('Momsredovisning skapad') && (
-                    <div
-                        class="response-text"
-                        dangerouslySetInnerHTML={{ __html: markdownToHtml(content) }}
-                    />
+                {/* Memory usage transparency notice */}
+                {usedMemories && usedMemories.length > 0 && (
+                    <MemoryUsageNotice memories={usedMemories} />
                 )}
-
-                <VATArtifact
-                    period={vatData.period || ''}
-                    companyName={vatData.company?.name}
+                {/* Compact inline summary card - full report opens in side panel */}
+                <VATSummaryCard
+                    period={vatData.period || 'Period okänd'}
+                    netVat={vatData.vat?.net ?? 0}
                     totalIncome={vatData.summary?.total_income}
-                    totalCosts={vatData.summary?.total_costs}
-                    totalVat={vatData.vat?.net}
                     fullData={vatData}
+                    fileUrl={metadata.file_url}
                 />
             </div>
         );
@@ -75,6 +77,10 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     if (hasStructuredContent && parsedBlocks) {
         return (
             <div class="ai-response">
+                {/* Memory usage transparency notice */}
+                {usedMemories && usedMemories.length > 0 && (
+                    <MemoryUsageNotice memories={usedMemories} />
+                )}
                 {parsedBlocks.map((block, index) => {
                     if (block.type === 'code') {
                         return (
@@ -128,6 +134,10 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     if (fileName && fileUrl && fileName.endsWith('.xlsx')) {
         return (
             <div class="ai-response">
+                {/* Memory usage transparency notice */}
+                {usedMemories && usedMemories.length > 0 && (
+                    <MemoryUsageNotice memories={usedMemories} />
+                )}
                 <div
                     class="response-text"
                     dangerouslySetInnerHTML={{ __html: markdownToHtml(content) }}
@@ -157,11 +167,42 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     }
 
     // Default: render as enhanced markdown (use memoized HTML)
+    const [startCopy, setStartCopy] = useState(false); // Using strict boolean to trigger re-render if needed, but actually we need local state for feedback
+
     return (
-        <div
-            class="ai-response response-text"
-            dangerouslySetInnerHTML={{ __html: htmlContent || markdownToHtml(content) }}
-        />
+        <div class="ai-response-container" style={{ position: 'relative' }}>
+            {/* Memory usage transparency notice */}
+            {usedMemories && usedMemories.length > 0 && (
+                <MemoryUsageNotice memories={usedMemories} />
+            )}
+            <div
+                class="ai-response response-text"
+                dangerouslySetInnerHTML={{ __html: htmlContent || markdownToHtml(content) }}
+            />
+            <div class="message-actions">
+                <button 
+                    class={`copy-action-btn ${startCopy ? 'copied' : ''}`}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(content);
+                        setStartCopy(true);
+                        setTimeout(() => setStartCopy(false), 2000);
+                    }}
+                    title="Kopiera hela svaret"
+                >
+                    {startCopy ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem' }}>
+                            ✓ Kopierat
+                        </span>
+                    ) : (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    )}
+                </button>
+            </div>
+        </div>
     );
 };
 

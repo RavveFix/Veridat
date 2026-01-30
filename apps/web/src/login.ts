@@ -37,7 +37,7 @@ async function initLogin() {
     if (session) {
         logger.info('User already logged in, redirecting to app');
         // Keep loader visible while redirecting
-        window.location.href = '/app';
+        window.location.href = '/app/newchat';
         return;
     }
 

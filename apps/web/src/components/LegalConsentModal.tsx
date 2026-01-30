@@ -238,7 +238,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                         WebkitTextFillColor: 'transparent',
                         backgroundClip: 'text'
                     }}>
-                        Britta
+                        Veridat
                     </h1>
                     <p style={{
                         margin: '0.5rem 0 0 0',

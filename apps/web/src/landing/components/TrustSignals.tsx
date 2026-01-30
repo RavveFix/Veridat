@@ -79,7 +79,7 @@ export function TrustSignals() {
     return (
         <section class="trust-section fade-in-up">
             <div class="container">
-                <p class="trust-label">Företagare litar på Britta</p>
+                <p class="trust-label">Företagare litar på Veridat</p>
 
                 <div class="stats-grid">
                     {stats.map((stat, index) => (

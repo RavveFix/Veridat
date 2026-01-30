@@ -8,5 +8,6 @@
     ],
     "deno.disablePaths": [
         "apps/web"
-    ]
+    ],
+    "claudeCode.useTerminal": false
 }

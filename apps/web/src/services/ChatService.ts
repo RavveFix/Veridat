@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase';
 import { logger } from './LoggerService';
 import { fileService } from './FileService';
 import { companyManager } from './CompanyService';
+import { modelService } from './ModelService';
 import type { VATReportResponse } from '../types/vat';
 
 type RateLimitEventDetail = {
@@ -19,6 +20,28 @@ type RateLimitEventDetail = {
     resetAt: string | null;
     message?: string | null;
 };
+
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 2000; // 2 seconds base delay
+
+/**
+ * Sleep for a specified number of milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Calculate exponential backoff delay
+ */
+function getBackoffDelay(attempt: number, baseDelayMs: number, retryAfterHeader?: number | null): number {
+    // If server provides Retry-After, use that (in seconds -> ms)
+    if (retryAfterHeader && retryAfterHeader > 0) {
+        return retryAfterHeader * 1000;
+    }
+    // Exponential backoff: 2s, 4s, 8s
+    return baseDelayMs * Math.pow(2, attempt);
+}
 
 function toNumberOrNull(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -54,6 +77,13 @@ export interface ChatMessage {
     created_at?: string;
 }
 
+/** Memory used by Britta for transparency */
+export interface UsedMemory {
+    id: string;
+    category: string;
+    preview: string;
+}
+
 export interface GeminiResponse {
     type: 'text' | 'json';
     data: string | Record<string, unknown>;
@@ -64,6 +94,8 @@ export interface GeminiResponse {
         userFriendlyMessage: string;
         actionSuggestion?: string;
     };
+    /** Memories used to generate this response - for transparency */
+    usedMemories?: UsedMemory[];
 }
 
 export interface AnalysisResult {
@@ -160,28 +192,101 @@ class ChatServiceClass {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) throw new Error('Not authenticated');
 
-            // Use direct fetch for streaming support
-            const response = await fetch(`${this.supabaseUrl}/functions/v1/gemini-chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.access_token}`
-                },
-                body: JSON.stringify({
-                    message,
-                    fileData,
-                    fileDataPages,
-                    documentText,
-                    history,
-                    conversationId,
-                    companyId: company.id,
-                    fileUrl,
-                    fileName: file?.name || null,
-                    vatReportContext
-                })
-            });
+            // Retry logic for Google API rate limits
+            let response: Response | null = null;
+            let lastError: Error | null = null;
+
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                try {
+                    // Use direct fetch for streaming support
+                    response = await fetch(`${this.supabaseUrl}/functions/v1/gemini-chat`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${session.access_token}`
+                        },
+                        body: JSON.stringify({
+                            message,
+                            fileData,
+                            fileDataPages,
+                            documentText,
+                            history,
+                            conversationId,
+                            companyId: company.id,
+                            fileUrl,
+                            fileName: file?.name || null,
+                            vatReportContext,
+                            model: modelService.getApiModel()
+                        })
+                    });
+
+                    if (response.ok) {
+                        break; // Success, exit retry loop
+                    }
+
+                    // Handle 429 rate limit errors
+                    if (response.status === 429) {
+                        const errorData = await response.clone().json().catch(() => ({})) as Record<string, unknown>;
+                        const errorType = errorData.error as string | undefined;
+
+                        // If it's our rate limit (not Google's), don't retry
+                        if (errorType === 'rate_limit_exceeded') {
+                            const detail = await extractRateLimitDetail(response);
+                            window.dispatchEvent(new CustomEvent<RateLimitEventDetail>('chat-rate-limit', { detail }));
+                            window.dispatchEvent(new CustomEvent('rate-limit-active', {
+                                detail: { resetAt: detail.resetAt }
+                            }));
+                            throw new Error(detail.message || 'Gräns nådd');
+                        }
+
+                        // Google API rate limit - retry with backoff
+                        if (errorType === 'google_rate_limit' && attempt < MAX_RETRIES - 1) {
+                            const retryAfter = toNumberOrNull(response.headers.get('Retry-After')) ||
+                                              toNumberOrNull(errorData.retryAfter);
+                            const delayMs = getBackoffDelay(attempt, BASE_DELAY_MS, retryAfter);
+
+                            logger.info(`Google API rate limit hit, retrying in ${delayMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+
+                            // Dispatch event for UI to show "Väntar på Google API..."
+                            window.dispatchEvent(new CustomEvent('google-api-retry', {
+                                detail: {
+                                    attempt: attempt + 1,
+                                    maxAttempts: MAX_RETRIES,
+                                    delayMs,
+                                    message: 'Väntar på Google API...'
+                                }
+                            }));
+
+                            await sleep(delayMs);
+                            continue; // Retry
+                        }
+                    }
+
+                    // Other errors - don't retry
+                    break;
+
+                } catch (fetchError) {
+                    lastError = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
+                    // Network errors - could retry, but let's not for now
+                    break;
+                }
+            }
+
+            if (!response) {
+                throw lastError || new Error('Nätverksfel');
+            }
 
             if (!response.ok) {
+                // Handle remaining 429 that wasn't retried (exhausted retries or our rate limit)
+                if (response.status === 429) {
+                    const detail = await extractRateLimitDetail(response);
+                    window.dispatchEvent(new CustomEvent<RateLimitEventDetail>('chat-rate-limit', { detail }));
+                    window.dispatchEvent(new CustomEvent('rate-limit-active', {
+                        detail: { resetAt: detail.resetAt }
+                    }));
+                    throw new Error(detail.message || 'Google API överbelastad. Försök igen om en stund.');
+                }
+
                 const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
                 throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
             }
@@ -200,6 +305,7 @@ class ChatServiceClass {
                 const decoder = new TextDecoder();
                 let fullText = "";
                 let toolCall: any = null;
+                let usedMemories: UsedMemory[] = [];
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -223,6 +329,11 @@ class ChatServiceClass {
                                 if (data.toolCall) {
                                     toolCall = data.toolCall;
                                 }
+                                // Capture used memories for transparency
+                                if (data.usedMemories && Array.isArray(data.usedMemories)) {
+                                    usedMemories = data.usedMemories;
+                                    console.log('🧠 [ChatService] Received usedMemories:', usedMemories.length);
+                                }
                             } catch (e) {
                                 logger.warn('Failed to parse SSE data', { dataStr });
                             }
@@ -234,12 +345,18 @@ class ChatServiceClass {
                 window.dispatchEvent(new CustomEvent('chat-refresh'));
 
                 if (toolCall) {
-                    return { type: 'json', data: toolCall.args, toolCall: { tool: toolCall.name, args: toolCall.args } } as any;
+                    return {
+                        type: 'json',
+                        data: toolCall.args,
+                        toolCall: { tool: toolCall.name, args: toolCall.args },
+                        usedMemories: usedMemories.length > 0 ? usedMemories : undefined
+                    } as any;
                 }
 
                 return {
                     type: 'text',
-                    data: fullText
+                    data: fullText,
+                    usedMemories: usedMemories.length > 0 ? usedMemories : undefined
                 } as GeminiResponse;
             }
 

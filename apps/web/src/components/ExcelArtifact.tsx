@@ -1,5 +1,6 @@
 import { FunctionComponent } from 'preact';
 import { useState, useMemo } from 'preact/hooks';
+import { BorderBeam } from '@/registry/magicui/border-beam';
 
 export interface ExcelSheet {
     name: string;
@@ -141,6 +142,13 @@ export const ExcelArtifact: FunctionComponent<ExcelArtifactProps> = ({
 
     return (
         <div class="excel-artifact">
+            <BorderBeam 
+                size={250} 
+                duration={12} 
+                delay={0} 
+                colorFrom="var(--accent-primary)" 
+                colorTo="var(--accent-secondary)"
+            />
             {/* Header */}
             <div class="excel-artifact-header">
                 <div class="excel-artifact-header-left">

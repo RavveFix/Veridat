@@ -19,6 +19,7 @@ export interface Message {
     content: string;
     file_url: string | null;
     file_name: string | null;
+    metadata: Record<string, unknown> | null;
     created_at: string;
 }
 
@@ -108,7 +109,8 @@ export class ConversationService {
         role: 'user' | 'assistant',
         content: string,
         fileUrl?: string | null,
-        fileName?: string | null
+        fileName?: string | null,
+        metadata?: Record<string, unknown> | null
     ): Promise<Message> {
         try {
             const { data, error } = await this.supabase
@@ -118,7 +120,8 @@ export class ConversationService {
                     role,
                     content,
                     file_url: fileUrl || null,
-                    file_name: fileName || null
+                    file_name: fileName || null,
+                    metadata: metadata || null
                 })
                 .select()
                 .single();

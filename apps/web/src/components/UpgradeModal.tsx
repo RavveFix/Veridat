@@ -12,9 +12,9 @@ export const UpgradeModal: FunctionComponent<UpgradeModalProps> = ({ onClose, re
         }
     };
 
-    const contactEmail = 'hej@britta.se';
-    const emailSubject = encodeURIComponent('Intresserad av Britta Pro');
-    const emailBody = encodeURIComponent('Hej!\n\nJag är intresserad av att uppgradera till Britta Pro.\n\nMitt företag:\nAntal anställda:\n\nTack!');
+    const contactEmail = 'hej@veridat.se';
+    const emailSubject = encodeURIComponent('Intresserad av Veridat Pro');
+    const emailBody = encodeURIComponent('Hej!\n\nJag är intresserad av att uppgradera till Veridat Pro.\n\nMitt företag:\nAntal anställda:\n\nTack!');
 
     return (
         <div class="upgrade-modal-overlay" onClick={handleOverlayClick}>
@@ -40,6 +40,13 @@ export const UpgradeModal: FunctionComponent<UpgradeModalProps> = ({ onClose, re
                     <div class="upgrade-modal__benefit">
                         <div class="upgrade-modal__benefit-icon">✓</div>
                         <div class="upgrade-modal__benefit-text">
+                            <strong>Gemini 3 Pro</strong> – djupare analys och bättre svar
+                        </div>
+                    </div>
+
+                    <div class="upgrade-modal__benefit">
+                        <div class="upgrade-modal__benefit-icon">✓</div>
+                        <div class="upgrade-modal__benefit-text">
                             <strong>40 förfrågningar</strong> per timme (vs 10 gratis)
                         </div>
                     </div>
@@ -55,13 +62,6 @@ export const UpgradeModal: FunctionComponent<UpgradeModalProps> = ({ onClose, re
                         <div class="upgrade-modal__benefit-icon">✓</div>
                         <div class="upgrade-modal__benefit-text">
                             <strong>Prioriterad support</strong> via e-post
-                        </div>
-                    </div>
-
-                    <div class="upgrade-modal__benefit">
-                        <div class="upgrade-modal__benefit-icon">✓</div>
-                        <div class="upgrade-modal__benefit-text">
-                            <strong>Avancerad filanalys</strong> för större filer
                         </div>
                     </div>
                 </div>

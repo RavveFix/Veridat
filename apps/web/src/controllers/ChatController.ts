@@ -13,6 +13,8 @@ import { uiController } from '../services/UIService';
 import { logger } from '../services/LoggerService';
 import { conversationController } from './ConversationController';
 import { memoryService } from '../services/MemoryService';
+import { mountPreactComponent } from '../components/preact-adapter';
+import { TextAnimate } from '../registry/magicui/text-animate';
 import type { VATReportResponse, VATReportData } from '../types/vat';
 
 export class ChatController {
@@ -22,6 +24,7 @@ export class ChatController {
     private rateLimitActive: boolean = false;
     private rateLimitResetAt: string | null = null;
     private conversationLoading: boolean = false;
+    private placeholderUnmount: (() => void) | null = null;
 
     init(excelWorkspace: ExcelWorkspace): void {
         this.excelWorkspace = excelWorkspace;
@@ -33,6 +36,7 @@ export class ChatController {
         this.setupRateLimitHandlers();
         this.setupCompanyChangeHandler();
         this.setupConversationLoadingHandler();
+        this.setupAnimatedPlaceholder();
     }
 
     /**
@@ -68,6 +72,7 @@ export class ChatController {
 
         // Clear input field
         uiController.clearInput();
+        this.togglePlaceholder();
     }
 
     private setupRateLimitHandlers(): void {
@@ -104,16 +109,23 @@ export class ChatController {
 
     private updateInputForConversationLoading(): void {
         const { userInput } = uiController.elements;
+        const placeholderContainer = document.getElementById('animated-placeholder-container');
         if (!userInput) return;
 
         if (this.conversationLoading) {
             userInput.disabled = true;
+            if (placeholderContainer) {
+                placeholderContainer.classList.add('hidden');
+            }
             userInput.placeholder = 'Laddar konversation...';
             userInput.classList.add('loading');
         } else if (!this.rateLimitActive) {
             // Only re-enable if not rate limited
             userInput.disabled = false;
-            userInput.placeholder = 'Fråga mig vad som helst...';
+            if (placeholderContainer && !userInput.value) {
+                placeholderContainer.classList.remove('hidden');
+            }
+            userInput.placeholder = ''; // Clear static placeholder when animated is active
             userInput.classList.remove('loading');
             // Focus input after loading completes for better UX
             setTimeout(() => userInput.focus(), 50);
@@ -122,10 +134,14 @@ export class ChatController {
 
     private updateInputForRateLimit(): void {
         const { userInput } = uiController.elements;
+        const placeholderContainer = document.getElementById('animated-placeholder-container');
         if (!userInput) return;
 
         if (this.rateLimitActive) {
             userInput.disabled = true;
+            if (placeholderContainer) {
+                placeholderContainer.classList.add('hidden');
+            }
             const resetTime = this.rateLimitResetAt
                 ? new Date(this.rateLimitResetAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
                 : 'snart';
@@ -133,8 +149,72 @@ export class ChatController {
             userInput.classList.add('rate-limited');
         } else {
             userInput.disabled = false;
-            userInput.placeholder = 'Fråga mig vad som helst...';
+            if (placeholderContainer && !userInput.value) {
+                placeholderContainer.classList.remove('hidden');
+            }
+            userInput.placeholder = ''; // Clear static placeholder when animated is active
             userInput.classList.remove('rate-limited');
+        }
+    }
+
+    private setupAnimatedPlaceholder(): void {
+        const placeholderContainer = document.getElementById('animated-placeholder-container');
+        const { userInput } = uiController.elements;
+
+        if (placeholderContainer && userInput) {
+            // Initial mount
+            this.mountPlaceholder();
+
+            // Toggle visibility on input
+            userInput.addEventListener('input', () => {
+                if (userInput.value.length > 0) {
+                    placeholderContainer.classList.add('hidden');
+                } else if (!this.conversationLoading && !this.rateLimitActive) {
+                    placeholderContainer.classList.remove('hidden');
+                }
+            });
+
+            // Handle focus/blur if needed (optional, but good for UX)
+            userInput.addEventListener('focus', () => {
+                // We keep it visible until typing starts
+            });
+        }
+    }
+
+    private mountPlaceholder(): void {
+        const placeholderContainer = document.getElementById('animated-placeholder-container');
+        if (!placeholderContainer) return;
+
+        // Cleanup previous if exists
+        if (this.placeholderUnmount) {
+            this.placeholderUnmount();
+        }
+
+        this.placeholderUnmount = mountPreactComponent(
+            TextAnimate,
+            {
+               children: "Fråga mig vad som helst...",
+               animation: "blurInUp",
+               by: "character",
+               once: false // Set to false to allow re-animation on remount/whileInView
+            },
+            placeholderContainer
+        );
+    }
+
+    private togglePlaceholder(forceRemount: boolean = false): void {
+        const placeholderContainer = document.getElementById('animated-placeholder-container');
+        const { userInput } = uiController.elements;
+
+        if (placeholderContainer && userInput) {
+            if (userInput.value.length === 0 && !this.conversationLoading && !this.rateLimitActive) {
+                if (forceRemount) {
+                    this.mountPlaceholder();
+                }
+                placeholderContainer.classList.remove('hidden');
+            } else {
+                placeholderContainer.classList.add('hidden');
+            }
         }
     }
 
@@ -322,8 +402,8 @@ export class ChatController {
                 conversationController.transitionFromWelcome();
                 companyManager.setConversationId(conversationId);
                 conversationController.mountChatHistory(conversationId);
-                // Update URL back to /app to indicate active conversation
-                window.history.pushState({}, '', '/app');
+                // Update URL to include conversation ID for bookmarking/sharing
+                window.history.pushState({ conversationId }, '', `/app/chat/${conversationId}`);
                 chatService.dispatchRefresh();
             } else {
                 restoreButton();
@@ -390,23 +470,24 @@ export class ChatController {
         // Clear input and file
         uiController.clearInput();
         this.clearFile();
+        this.togglePlaceholder(true); // Force remount for re-animation
 
         // Show AI response based on file type
         if (vatReportResponse && vatReportResponse.type === 'vat_report' && this.excelWorkspace) {
-            // VAT report is now shown inline in chat via AIResponseRenderer
-            // Side panel no longer needed - comment out openVATReport call
-            // this.excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined, true);
+            // Open VAT report in side panel automatically
+            this.excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined, true);
 
             if (conversationId) {
                 await supabase.from('messages').insert({
                     conversation_id: conversationId,
                     role: 'assistant',
-                    content: `✅ **Momsredovisning skapad för ${vatReportResponse.data.period}**\n\nRapporten visas till höger. Du kan fortsätta ställa frågor samtidigt som du tittar på rapporten.`,
+                    content: `Momsredovisning klar för ${vatReportResponse.data.period}`,
                     file_name: fileToSend?.name || null,
                     file_url: fileUrl || null,
                     metadata: JSON.parse(JSON.stringify({
                         type: 'vat_report',
                         data: vatReportResponse.data,
+                        file_url: fileUrl || null,
                         analyzed_at: new Date().toISOString()
                     }))
                 });
@@ -454,6 +535,14 @@ export class ChatController {
                     } else if (response?.type === 'json') {
                         uiController.showError('Jag behöver lite mer information för att gå vidare. Försök igen.');
                     }
+                }
+
+                // Dispatch usedMemories for transparency (if any were used)
+                if (response?.usedMemories && response.usedMemories.length > 0) {
+                    console.log('🧠 [ChatController] Dispatching usedMemories:', response.usedMemories.length);
+                    window.dispatchEvent(new CustomEvent('chat-used-memories', {
+                        detail: { memories: response.usedMemories }
+                    }));
                 }
                 chatService.dispatchRefresh();
 

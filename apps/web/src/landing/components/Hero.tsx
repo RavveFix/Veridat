@@ -1,9 +1,6 @@
 import { supabase } from '../../lib/supabase';
-import { useEffect, useState } from 'preact/hooks';
 
 export function Hero() {
-    const [text, setText] = useState('');
-    const fullText = 'Framtiden';
     
     // Dynamic Date Logic
     const today = new Date();
@@ -11,20 +8,6 @@ export function Hero() {
     const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     const reportDateString = prevMonthDate.toISOString().slice(0, 7); // YYYY-MM
     
-    // Typing Effect
-    useEffect(() => {
-        let currentIndex = 0;
-        const interval = setInterval(() => {
-            if (currentIndex <= fullText.length) {
-                setText(fullText.slice(0, currentIndex));
-                currentIndex++;
-            } else {
-                clearInterval(interval);
-            }
-        }, 150); // Typing speed
-        return () => clearInterval(interval);
-    }, []);
-
     const handleOpenApp = async (e: MouseEvent) => {
         e.preventDefault();
         const { data: { session } } = await supabase.auth.getSession();
@@ -46,18 +29,18 @@ export function Hero() {
                          `}</style>
                     </div>
                     <h1 style="font-size: clamp(3.5rem, 8vw, 6rem); margin-bottom: 1.5rem;">
-                        Din AI-ekonom för <br />
+                        Sveriges Smidigaste <br />
                         <span class="text-gradient-primary">
-                            {text}<span class="cursor-caret"></span>
+                            AI-Bokföring
                         </span>
                     </h1>
                     <p style="font-size: 1.25rem; color: var(--text-secondary); max-width: 600px; margin: 0 auto 3rem;">
-                        Släpp Excel-kaoset. Ladda upp dina filer och låt Britta analysera, kategorisera och förbereda din bokföring automatiskt.
+                        Släpp Excel-kaoset. Ladda upp dina filer och låt Veridat analysera, kategorisera och förbereda din bokföring automatiskt.
                     </p>
 
                     <div style="display: flex; gap: 1rem; justify-content: center; margin-bottom: 6rem;">
                         <a href="/login" class="btn btn-primary btn-glow" onClick={handleOpenApp}>
-                            Öppna Britta
+                            Öppna Veridat
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <line x1="5" y1="12" x2="19" y2="12"></line>
                                 <polyline points="12 5 19 12 12 19"></polyline>
@@ -117,8 +100,8 @@ export function Hero() {
                                     </div>
 
                                     {/* AI Message */}
-                                    <div style="align-self: flex-start; display: flex; gap: 1rem; max-width: 85%;">
-                                        <div style="font-size: 1.1rem; font-weight: 700; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; align-self: flex-start; padding-top: 1.5rem;">Britta</div>
+                    <div style="align-self: flex-start; display: flex; gap: 1rem; max-width: 85%;">
+                                        <div class="brand-logo" style="font-size: 1.1rem; align-self: flex-start; padding-top: 1.5rem;">Veridat</div>
                                         <div class="tech-card">
                                             <div style="position: relative; z-index: 1;">
                                                 <strong style="color: var(--accent-primary); display: block; margin-bottom: 1rem; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.05em; font-size: 0.9rem;">SAMMANFATTNING_{reportDateString}</strong>

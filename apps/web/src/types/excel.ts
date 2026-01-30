@@ -18,6 +18,12 @@ export interface ExcelPanelElements {
   tabsContainer: HTMLElement;
   closeBtn: HTMLElement;
   filenameDisplay: HTMLElement;
+  /** Optional backdrop for mobile overlay */
+  backdrop?: HTMLElement;
+  /** Optional title icon element */
+  titleIcon?: HTMLElement;
+  /** Optional panel tabs for VAT report navigation */
+  panelTabs?: HTMLElement;
 }
 
 /**
