@@ -4,6 +4,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { parseAIResponse, markdownToHtml, containsCodeBlock, containsMarkdownTable, parseMarkdownTable } from '../../utils/markdownParser';
 import { ArtifactCard, CodeArtifact } from './ArtifactCard';
 import { VATSummaryCard } from './VATSummaryCard';
+import { JournalEntryCard, type JournalEntry, type JournalValidation, type JournalTransaction } from './JournalEntryCard';
 import { MemoryUsageNotice, type UsedMemory } from './MemoryUsageNotice';
 import type { VATReportData } from '../../types/vat';
 
@@ -13,6 +14,11 @@ interface AIResponseRendererProps {
         type?: string;
         data?: VATReportData;
         file_url?: string;
+        // Journal entry metadata
+        verification_id?: string;
+        entries?: JournalEntry[];
+        validation?: JournalValidation;
+        transaction?: JournalTransaction;
     } | null;
     fileName?: string | null;
     fileUrl?: string | null;
@@ -68,6 +74,23 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
                     totalIncome={vatData.summary?.total_income}
                     fullData={vatData}
                     fileUrl={metadata.file_url}
+                />
+            </div>
+        );
+    }
+
+    // Check if this is a journal entry response - show formatted verifikat
+    if (metadata?.type === 'journal_entry' && metadata.entries && metadata.validation && metadata.transaction) {
+        return (
+            <div class="ai-response">
+                {usedMemories && usedMemories.length > 0 && (
+                    <MemoryUsageNotice memories={usedMemories} />
+                )}
+                <JournalEntryCard
+                    verificationId={metadata.verification_id || 'N/A'}
+                    entries={metadata.entries}
+                    validation={metadata.validation}
+                    transaction={metadata.transaction}
                 />
             </div>
         );

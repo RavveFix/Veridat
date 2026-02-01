@@ -206,10 +206,10 @@ export function parseMarkdownTable(text: string): string | null {
     if (!lines[0].includes('|')) return null;
 
     const parseRow = (line: string): string[] => {
-        return line
-            .split('|')
-            .map(cell => cell.trim())
-            .filter(cell => cell.length > 0);
+        const cells = line.split('|').map(cell => cell.trim());
+        // slice(1, -1) removes leading/trailing empty strings from pipe boundaries
+        // but preserves empty cells in the middle (critical for debet/kredit tables)
+        return cells.slice(1, -1);
     };
 
     // Check for separator row (|---|---|)

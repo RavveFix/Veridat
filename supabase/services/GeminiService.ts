@@ -229,6 +229,51 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
 2. Följ god redovisningssed och BAS-kontoplanen.
 3. Om något går fel, förklara problemet enkelt för användaren.
 4. Var proaktiv - ge råd innan användaren frågar.
+
+## 📊 Bokföringsassistent (Direktbokning via Chat)
+Du kan hjälpa användaren att bokföra transaktioner direkt i chatten genom att skapa verifikationer.
+
+### När ska du bokföra?
+Känna igen förfrågningar som:
+- "boka en intäkt på 100 kronor inklusive moms"
+- "bokför försäljning 250 kr inkl moms"
+- "registrera en kostnad på 500 kr + moms"
+- "skapa verifikat för inköp 1000 kr exkl moms"
+
+### Parametrar att extrahera:
+1. **Transaktionstyp**:
+   - Intäkt/försäljning/inkomst → type: "revenue"
+   - Kostnad/inköp/utgift → type: "expense"
+
+2. **Belopp**:
+   - "100 kr inkl moms" → gross_amount: 100
+   - "100 kr exkl moms" → beräkna brutto: 100 × 1.25 = 125 (för 25% moms)
+
+3. **Momssats**:
+   - Om inte angiven, använd 25% (svensk standardmoms)
+   - Acceptera: 25, 12, 6, eller 0
+
+4. **Beskrivning**:
+   - Om användaren anger (t.ex. "försäljning konsulttjänst"), använd det
+   - Annars generera passande beskrivning (t.ex. "Försäljning 25% moms")
+
+### Validering och förtydligande:
+- Om beloppet är oklart, fråga användaren
+- Om "inkl/exkl moms" inte anges, anta "inkl moms" och informera användaren
+- Om momsats inte anges, använd 25% och informera användaren
+
+### Efter bokföring:
+Förklara verifikatet tydligt:
+"✅ Verifikat BRITTA-2026-02-001 skapat!
+
+**Försäljning 100 kr inkl moms (25%)**
+- Bank: +100 kr (debet)
+- Försäljning: 80 kr (kredit)
+- Utgående moms: 20 kr (kredit)
+
+Bokföringen är balanserad."
+
+**VIKTIGT**: Använd verktyget create_journal_entry för att skapa verifikatet.
 `;
 
 const tools: Tool[] = [
@@ -308,6 +353,37 @@ const tools: Tool[] = [
                     type: SchemaType.OBJECT,
                     properties: {}, // No parameters needed
                 }
+            },
+            {
+                name: "create_journal_entry",
+                description: "Skapar ett balanserat verifikat (journal entry) för svensk bokföring. Använd när användaren ber dig bokföra en transaktion (t.ex. 'boka intäkt 100 kr', 'bokför kostnad 500 kr').",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        type: {
+                            type: SchemaType.STRING,
+                            description: "Typ av transaktion: 'revenue' för intäkter/försäljning, 'expense' för kostnader/inköp",
+                            enum: ["revenue", "expense"]
+                        },
+                        gross_amount: {
+                            type: SchemaType.NUMBER,
+                            description: "Bruttobelopp inklusive moms (t.ex. 125.00 för 100 kr + 25% moms)"
+                        },
+                        vat_rate: {
+                            type: SchemaType.NUMBER,
+                            description: "Momssats i procent. Giltiga värden: 25 (standard), 12, 6 eller 0. Om användaren inte anger momssats, använd 25."
+                        },
+                        description: {
+                            type: SchemaType.STRING,
+                            description: "Beskrivning av transaktionen (t.ex. 'Försäljning konsulttjänst', 'Inköp kontorsmaterial')"
+                        },
+                        is_roaming: {
+                            type: SchemaType.BOOLEAN,
+                            description: "För EV-laddning: true om det är roamingintäkt (0% moms enligt EU C-60/23). Default: false"
+                        }
+                    },
+                    required: ["type", "gross_amount", "vat_rate", "description"]
+                }
             }
         ]
     }
@@ -339,6 +415,15 @@ export type ConversationSearchArgs = {
 
 export type RecentChatsArgs = {
     limit?: number;
+    [key: string]: unknown;
+};
+
+export type CreateJournalEntryArgs = {
+    type: 'revenue' | 'expense';
+    gross_amount: number;
+    vat_rate: 25 | 12 | 6 | 0;
+    description: string;
+    is_roaming?: boolean;
     [key: string]: unknown;
 };
 

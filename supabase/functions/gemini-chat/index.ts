@@ -1,8 +1,10 @@
 // Supabase Edge Function for Gemini Chat
 /// <reference path="../../types/deno.d.ts" />
 
-import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, GeminiRateLimitError, type FileData, type ConversationSearchArgs, type RecentChatsArgs } from "../../services/GeminiService.ts";
+import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, GeminiRateLimitError, type FileData, type ConversationSearchArgs, type RecentChatsArgs, type CreateJournalEntryArgs } from "../../services/GeminiService.ts";
 import { sendMessageToOpenAI } from "../../services/OpenAIService.ts";
+import { createSalesJournalEntries, createCostJournalEntries, validateJournalBalance, generateVerificationId } from "../../services/JournalService.ts";
+import { roundToOre } from "../../services/SwedishRounding.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { CompanyMemoryService, type CompanyMemory } from "../../services/CompanyMemoryService.ts";
 import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
@@ -1021,11 +1023,111 @@ ANVÄNDARFRÅGA:
                         toolResult = await fortnoxService.getArticles();
                         responseText = `Här är dina artiklar: ${toolResult.Articles.map((a: any) => a.Description).join(', ')}`;
                         break;
+                    case 'create_journal_entry': {
+                        const journalArgs = args as CreateJournalEntryArgs;
+                        const { type: txType, gross_amount, vat_rate, description: txDescription, is_roaming } = journalArgs;
+
+                        // Calculate net and VAT amounts with öre precision
+                        const vatMultiplier = 1 + (vat_rate / 100);
+                        const netAmount = roundToOre(gross_amount / vatMultiplier);
+                        const vatAmount = roundToOre(gross_amount - netAmount);
+
+                        // Generate journal entries using existing services
+                        const entries = txType === 'revenue'
+                            ? createSalesJournalEntries(netAmount, vatAmount, vat_rate, is_roaming ?? false)
+                            : createCostJournalEntries(netAmount, vatAmount, vat_rate, txDescription);
+
+                        // Validate balance
+                        const validation = validateJournalBalance(entries);
+
+                        // Generate verification ID
+                        const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+                        let verificationId: string;
+                        try {
+                            const { data, error: rpcError } = await supabaseAdmin.rpc('get_next_verification_id', {
+                                p_period: period,
+                                p_company_id: resolvedCompanyId || 'default'
+                            });
+                            if (rpcError || !data) {
+                                // Fallback if RPC not yet deployed
+                                verificationId = generateVerificationId(period, Date.now() % 1000);
+                            } else {
+                                verificationId = data;
+                            }
+                        } catch {
+                            verificationId = generateVerificationId(period, Date.now() % 1000);
+                        }
+
+                        // Save to journal_entries table
+                        try {
+                            await supabaseAdmin.from('journal_entries').insert({
+                                user_id: userId,
+                                company_id: resolvedCompanyId || null,
+                                conversation_id: conversationId || null,
+                                verification_id: verificationId,
+                                period,
+                                transaction_type: txType,
+                                gross_amount,
+                                net_amount: netAmount,
+                                vat_amount: vatAmount,
+                                vat_rate,
+                                description: txDescription,
+                                entries: JSON.stringify(entries),
+                                is_balanced: validation.balanced
+                            });
+                        } catch (dbErr) {
+                            logger.warn('Could not save journal entry to database', dbErr);
+                        }
+
+                        // Build metadata for chat display
+                        const journalMetadata = {
+                            type: 'journal_entry',
+                            verification_id: verificationId,
+                            entries,
+                            validation,
+                            transaction: { type: txType, gross_amount, vat_rate, description: txDescription }
+                        };
+
+                        // Format response text
+                        const typeLabel = txType === 'revenue' ? 'Intäkt' : 'Kostnad';
+                        const entryLines = entries.map((e: any) =>
+                            `| ${e.account} | ${e.accountName} | ${e.debit > 0 ? roundToOre(e.debit).toFixed(2) : '—'} | ${e.credit > 0 ? roundToOre(e.credit).toFixed(2) : '—'} |`
+                        ).join('\n');
+
+                        responseText = `Verifikat **${verificationId}** skapat!\n\n` +
+                            `**${typeLabel} ${gross_amount.toFixed(2)} kr inkl moms (${vat_rate}%)**\n\n` +
+                            `| Konto | Kontonamn | Debet | Kredit |\n` +
+                            `|-------|-----------|-------|--------|\n` +
+                            `${entryLines}\n` +
+                            `| | **Summa** | **${validation.totalDebit.toFixed(2)}** | **${validation.totalCredit.toFixed(2)}** |\n\n` +
+                            (validation.balanced ? 'Bokföringen är balanserad.' : 'Varning: Bokföringen är INTE balanserad!');
+
+                        // Save message with metadata for UI rendering
+                        if (conversationId && conversationService) {
+                            try {
+                                await conversationService.addMessage(conversationId, 'assistant', responseText, null, null, journalMetadata);
+                            } catch (msgErr) {
+                                logger.warn('Could not save journal message', msgErr);
+                            }
+                        }
+
+                        // Return as journal_entry type for rich UI rendering
+                        return new Response(JSON.stringify({
+                            type: 'text',
+                            data: responseText,
+                            metadata: journalMetadata,
+                            usedMemories: usedMemories.length > 0 ? usedMemories : undefined
+                        }), {
+                            headers: { ...responseHeaders, "Content-Type": "application/json" }
+                        });
+                    }
                 }
             } catch (err) {
                 logger.error('Tool execution failed', err);
                 responseText = tool === 'conversation_search' || tool === 'recent_chats'
                     ? "Jag kunde inte söka i tidigare konversationer just nu."
+                    : tool === 'create_journal_entry'
+                    ? "Ett fel uppstod när verifikatet skulle skapas. Försök igen."
                     : "Ett fel uppstod när jag försökte nå Fortnox.";
             }
 

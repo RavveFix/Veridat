@@ -94,6 +94,8 @@ export interface GeminiResponse {
         userFriendlyMessage: string;
         actionSuggestion?: string;
     };
+    /** Metadata from tool calls (e.g., journal entries, VAT reports) */
+    metadata?: Record<string, unknown>;
     /** Memories used to generate this response - for transparency */
     usedMemories?: UsedMemory[];
 }
