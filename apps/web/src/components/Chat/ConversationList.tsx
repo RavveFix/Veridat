@@ -301,7 +301,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
         }
     };
 
-    if (loading) {
+    if (loading && conversations.length === 0) {
         return (
             <div style="padding: 1rem; text-align: center; color: var(--text-secondary);">
                 <div class="spinner" style="width: 20px; height: 20px; border: 2px solid rgba(255,255,255,0.1); border-radius: 50%; border-top-color: var(--accent-primary); animation: spin 1s ease-in-out infinite; margin: 0 auto 0.5rem;"></div>

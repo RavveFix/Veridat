@@ -180,12 +180,7 @@ export class ConversationController {
         const listContainer = document.getElementById('conversation-list-container');
         if (!listContainer) return;
 
-        // Re-mount to keep highlight + list in sync
-        if (this.listUnmount) {
-            this.listUnmount();
-            this.listUnmount = null;
-            listContainer.innerHTML = '';
-        }
+        // Re-render in place to keep highlight + list in sync without flashing loaders
 
         const currentId = companyManager.getConversationId();
         const currentCompany = companyManager.getCurrent();
