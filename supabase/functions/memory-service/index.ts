@@ -1,4 +1,4 @@
-/// <reference path="../../types/deno.d.ts" />
+/// <reference path="../types/deno.d.ts" />
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createLogger } from "../../services/LoggerService.ts";
@@ -28,6 +28,12 @@ type MemoryRow = {
     category: string;
     content: string;
     updated_at: string | null;
+    last_used_at?: string | null;
+    created_at?: string | null;
+    confidence?: number | null;
+    memory_tier?: string | null;
+    importance?: number | null;
+    expires_at?: string | null;
 };
 
 const ALLOWED_CATEGORIES = new Set([
@@ -38,9 +44,39 @@ const ALLOWED_CATEGORIES = new Set([
     "user_defined"
 ]);
 
+const CATEGORY_TIER_MAP: Record<string, string> = {
+    work_context: "fact",
+    preferences: "profile",
+    history: "episodic",
+    top_of_mind: "project",
+    user_defined: "profile"
+};
+
+const CATEGORY_IMPORTANCE_MAP: Record<string, number> = {
+    work_context: 0.8,
+    preferences: 0.8,
+    history: 0.7,
+    top_of_mind: 0.7,
+    user_defined: 0.9
+};
+
 function normalizeCategory(category?: string): string {
     if (!category) return "user_defined";
     return ALLOWED_CATEGORIES.has(category) ? category : "user_defined";
+}
+
+function resolveTier(category: string): string {
+    return CATEGORY_TIER_MAP[category] || "fact";
+}
+
+function resolveImportance(category: string): number {
+    return CATEGORY_IMPORTANCE_MAP[category] ?? 0.7;
+}
+
+function computeExpiry(category: string): string | null {
+    if (category !== "top_of_mind") return null;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    return expiresAt.toISOString();
 }
 
 function formatMemoriesForPrompt(memories: MemoryRow[]): string {
@@ -109,6 +145,14 @@ function extractSnippet(content: string, query: string, contextLength = 90): str
     return snippet;
 }
 
+function getEnv(keys: string[]): string | undefined {
+    for (const key of keys) {
+        const value = Deno.env.get(key);
+        if (value && value.trim()) return value.trim();
+    }
+    return undefined;
+}
+
 Deno.serve(async (req: Request) => {
     if (req.method === "OPTIONS") {
         return createOptionsResponse();
@@ -125,8 +169,8 @@ Deno.serve(async (req: Request) => {
             });
         }
 
-        const supabaseUrl = Deno.env.get("SUPABASE_URL");
-        const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+        const supabaseUrl = getEnv(["SUPABASE_URL", "SB_SUPABASE_URL", "API_URL"]);
+        const supabaseAnonKey = getEnv(["SUPABASE_ANON_KEY", "SB_SUPABASE_ANON_KEY", "ANON_KEY"]);
 
         if (!supabaseUrl || !supabaseAnonKey) {
             return new Response(JSON.stringify({ error: "Missing Supabase configuration" }), {
@@ -161,7 +205,7 @@ Deno.serve(async (req: Request) => {
 
                 const { data: memories, error } = await supabase
                     .from("user_memories")
-                    .select("id, category, content, updated_at")
+                    .select("id, category, content, updated_at, last_used_at, created_at, confidence, memory_tier, importance, expires_at")
                     .eq("user_id", user.id)
                     .eq("company_id", company_id)
                     .order("category", { ascending: true })
@@ -170,17 +214,6 @@ Deno.serve(async (req: Request) => {
                 if (error) throw error;
 
                 const memoryRows = (memories || []) as MemoryRow[];
-
-                if (memoryRows.length > 0) {
-                    const memoryIds = memoryRows.map((memory) => memory.id);
-                    const { error: updateError } = await supabase
-                        .from("user_memories")
-                        .update({ last_used_at: new Date().toISOString() })
-                        .in("id", memoryIds);
-                    if (updateError) {
-                        logger.warn("Failed to update memory last_used_at", { error: updateError.message });
-                    }
-                }
 
                 result = {
                     memories: formatMemoriesForPrompt(memoryRows),
@@ -318,14 +351,22 @@ Deno.serve(async (req: Request) => {
                 const content = query?.trim();
                 if (!content) throw new Error("content is required");
 
+                const normalizedCategory = normalizeCategory(category);
+                const memoryTier = resolveTier(normalizedCategory);
+                const importance = resolveImportance(normalizedCategory);
+                const expiresAt = computeExpiry(normalizedCategory);
+
                 const { data: newMemory, error: addError } = await supabase
                     .from("user_memories")
                     .insert({
                         user_id: user.id,
                         company_id,
-                        category: normalizeCategory(category),
+                        category: normalizedCategory,
                         content,
-                        confidence: 1.0
+                        confidence: 1.0,
+                        memory_tier: memoryTier,
+                        importance,
+                        expires_at: expiresAt
                     })
                     .select()
                     .single();

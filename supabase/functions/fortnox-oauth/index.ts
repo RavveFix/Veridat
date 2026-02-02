@@ -1,4 +1,4 @@
-/// <reference path="../../types/deno.d.ts" />
+/// <reference path="../types/deno.d.ts" />
 
 /**
  * Fortnox OAuth Edge Function

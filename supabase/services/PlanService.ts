@@ -1,6 +1,6 @@
 // Plan Service for Supabase Edge Functions
 // Manual Free/Pro plan resolution + rate limit config
-/// <reference path="../types/deno.d.ts" />
+/// <reference path="../functions/types/deno.d.ts" />
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { createLogger } from './LoggerService.ts';

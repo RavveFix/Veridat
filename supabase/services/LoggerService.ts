@@ -1,6 +1,6 @@
 // Logger Service for Supabase Edge Functions
 // Provides consistent, tagged logging across all Edge Functions
-/// <reference path="../types/deno.d.ts" />
+/// <reference path="../functions/types/deno.d.ts" />
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 

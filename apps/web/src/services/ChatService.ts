@@ -82,6 +82,7 @@ export interface UsedMemory {
     id: string;
     category: string;
     preview: string;
+    reason?: string;
 }
 
 export interface GeminiResponse {

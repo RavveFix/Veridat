@@ -1,5 +1,5 @@
 // Supabase Edge Function for Gemini Chat
-/// <reference path="../../types/deno.d.ts" />
+/// <reference path="../types/deno.d.ts" />
 
 import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, GeminiRateLimitError, type FileData, type ConversationSearchArgs, type RecentChatsArgs, type CreateJournalEntryArgs } from "../../services/GeminiService.ts";
 import { sendMessageToOpenAI } from "../../services/OpenAIService.ts";
@@ -18,6 +18,14 @@ import { FortnoxService } from "../../services/FortnoxService.ts";
 
 const logger = createLogger('gemini-chat');
 const RATE_LIMIT_ENDPOINT = 'ai';
+
+function getEnv(keys: string[]): string | undefined {
+    for (const key of keys) {
+        const value = Deno.env.get(key);
+        if (value && value.trim()) return value.trim();
+    }
+    return undefined;
+}
 
 function truncateText(value: string, maxChars: number): string {
     const trimmed = value.trim();
@@ -65,6 +73,13 @@ type UserMemoryRow = {
     id: string;
     category: string;
     content: string;
+    updated_at?: string | null;
+    last_used_at?: string | null;
+    created_at?: string | null;
+    confidence?: number | null;
+    memory_tier?: string | null;
+    importance?: number | null;
+    expires_at?: string | null;
 };
 
 // For transparency: track which memories were used in the response
@@ -72,6 +87,7 @@ type UsedMemory = {
     id: string;
     category: string;
     preview: string;  // First 50 chars of content
+    reason?: string;
 };
 
 type HistorySearchResult = {
@@ -119,6 +135,200 @@ function formatUserMemoriesForContext(memories: UserMemoryRow[]): string | null 
         sectionText,
         "</userMemories>"
     ].join("\n");
+}
+
+type MemoryTier = "profile" | "project" | "episodic" | "fact";
+
+const MEMORY_TIER_BY_CATEGORY: Record<string, MemoryTier> = {
+    work_context: "fact",
+    preferences: "profile",
+    history: "episodic",
+    top_of_mind: "project",
+    user_defined: "profile"
+};
+
+const MEMORY_STOP_WORDS = new Set([
+    "och", "att", "som", "det", "den", "detta", "har", "hade", "ska", "kan", "inte", "med", "för",
+    "till", "från", "på", "av", "om", "ni", "vi", "jag", "du", "är", "var", "vara", "the", "and", "or"
+]);
+
+const MAX_MEMORY_CONTEXT = 10;
+const MAX_STABLE_MEMORIES = 4;
+const MAX_CONTEXTUAL_MEMORIES = 6;
+
+function normalizeTokens(text: string): string[] {
+    return text
+        .toLowerCase()
+        .replace(/[^a-z0-9åäö]+/gi, " ")
+        .split(/\s+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 2 && !MEMORY_STOP_WORDS.has(token));
+}
+
+function resolveMemoryTier(memory: UserMemoryRow): MemoryTier {
+    const tier = memory.memory_tier || "";
+    if (tier === "profile" || tier === "project" || tier === "episodic" || tier === "fact") {
+        return tier;
+    }
+    return MEMORY_TIER_BY_CATEGORY[memory.category] || "fact";
+}
+
+function toNumberOrNull(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+}
+
+function clampScore(value: unknown, fallback: number): number {
+    const parsed = toNumberOrNull(value);
+    if (parsed === null) return fallback;
+    return Math.min(1, Math.max(0, parsed));
+}
+
+function getHalfLifeDays(tier: MemoryTier): number {
+    switch (tier) {
+        case "project":
+            return 30;
+        case "episodic":
+            return 180;
+        case "profile":
+        case "fact":
+        default:
+            return 365;
+    }
+}
+
+function computeRecencyScore(dateString: string | null | undefined, tier: MemoryTier): number {
+    if (!dateString) return 0.3;
+    const parsed = new Date(dateString);
+    if (Number.isNaN(parsed.getTime())) return 0.3;
+    const diffMs = Date.now() - parsed.getTime();
+    const diffDays = Math.max(0, diffMs / (1000 * 60 * 60 * 24));
+    const halfLife = getHalfLifeDays(tier);
+    return Math.exp(-diffDays / halfLife);
+}
+
+function computeOverlapScore(queryTokens: string[], contentTokens: string[]): number {
+    if (queryTokens.length === 0 || contentTokens.length === 0) return 0;
+    const contentSet = new Set(contentTokens);
+    let matches = 0;
+    for (const token of queryTokens) {
+        if (contentSet.has(token)) matches += 1;
+    }
+    const normalization = Math.max(1, Math.min(queryTokens.length, 6));
+    return matches / normalization;
+}
+
+function isMemoryExpired(memory: UserMemoryRow): boolean {
+    if (!memory.expires_at) return false;
+    const parsed = new Date(memory.expires_at);
+    if (Number.isNaN(parsed.getTime())) return false;
+    return parsed.getTime() < Date.now();
+}
+
+function buildMemoryReason(
+    tier: MemoryTier,
+    overlapScore: number,
+    recencyScore: number
+): string {
+    if (overlapScore >= 0.2) return "Matchade frågan";
+    if (tier === "project") return recencyScore > 0.5 ? "Aktuellt projekt" : "Projektminne";
+    if (tier === "episodic") return "Historik";
+    if (tier === "profile") return "Profil/preferens";
+    return "Faktaminne";
+}
+
+type ScoredMemory = {
+    memory: UserMemoryRow;
+    tier: MemoryTier;
+    isStable: boolean;
+    score: number;
+    overlapScore: number;
+    recencyScore: number;
+    reason: string;
+};
+
+function selectRelevantMemories(memories: UserMemoryRow[], message: string): {
+    selected: UserMemoryRow[];
+    usedMemories: UsedMemory[];
+} {
+    const queryTokens = normalizeTokens(message || "");
+
+    const scored: ScoredMemory[] = [];
+    for (const memory of memories) {
+        if (isMemoryExpired(memory)) continue;
+        if (!memory.content) continue;
+
+        const tier = resolveMemoryTier(memory);
+        const isStable = tier === "profile" || tier === "fact";
+        const recencyScore = computeRecencyScore(memory.last_used_at || memory.updated_at || memory.created_at, tier);
+        const overlapScore = computeOverlapScore(queryTokens, normalizeTokens(memory.content));
+        const importance = clampScore(memory.importance, isStable ? 0.7 : 0.6);
+        const confidence = clampScore(memory.confidence, 0.7);
+        const tierBoost = isStable ? 0.2 : 0;
+
+        if (!isStable && overlapScore === 0 && recencyScore < 0.35) {
+            continue;
+        }
+
+        const score = overlapScore * 2
+            + recencyScore * 0.9
+            + importance * 0.8
+            + confidence * 0.4
+            + tierBoost;
+
+        scored.push({
+            memory,
+            tier,
+            isStable,
+            score,
+            overlapScore,
+            recencyScore,
+            reason: buildMemoryReason(tier, overlapScore, recencyScore)
+        });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+
+    const stable = scored.filter((item) => item.isStable);
+    const contextual = scored.filter((item) => !item.isStable);
+
+    const selected: ScoredMemory[] = [];
+    const selectedIds = new Set<string>();
+
+    const pushItems = (items: ScoredMemory[], maxToAdd: number) => {
+        let added = 0;
+        for (const item of items) {
+            if (selected.length >= MAX_MEMORY_CONTEXT) break;
+            if (added >= maxToAdd) break;
+            if (selectedIds.has(item.memory.id)) continue;
+            selected.push(item);
+            selectedIds.add(item.memory.id);
+            added += 1;
+        }
+    };
+
+    pushItems(stable, MAX_STABLE_MEMORIES);
+    pushItems(contextual, MAX_CONTEXTUAL_MEMORIES);
+
+    if (selected.length < MAX_MEMORY_CONTEXT) {
+        pushItems(scored, MAX_MEMORY_CONTEXT - selected.length);
+    }
+
+    const usedMemories = selected.map((item) => ({
+        id: item.memory.id,
+        category: item.memory.category,
+        preview: item.memory.content.substring(0, 50) + (item.memory.content.length > 50 ? "..." : ""),
+        reason: item.reason
+    }));
+
+    return {
+        selected: selected.map((item) => item.memory),
+        usedMemories
+    };
 }
 
 function extractSnippet(content: string, query: string, contextLength = 90): string {
@@ -446,8 +656,11 @@ Deno.serve(async (req: Request) => {
         }
 
         // Initialize Supabase client with service role for rate limiting
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabaseUrl = getEnv(['SUPABASE_URL', 'SB_SUPABASE_URL', 'API_URL']);
+        const supabaseServiceKey = getEnv(['SUPABASE_SERVICE_ROLE_KEY', 'SB_SERVICE_ROLE_KEY', 'SERVICE_ROLE_KEY', 'SECRET_KEY']);
+        if (!supabaseUrl || !supabaseServiceKey) {
+            throw new Error('Missing Supabase service role configuration');
+        }
         const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
         // Initialize AuditService for BFL compliance logging
@@ -682,7 +895,9 @@ Deno.serve(async (req: Request) => {
                         company_id: resolvedCompanyId,
                         category: 'user_defined',
                         content: memoryRequest,
-                        confidence: 1.0
+                        confidence: 1.0,
+                        memory_tier: 'profile',
+                        importance: 0.9
                     });
 
                     await supabaseAdmin.from('memory_user_edits').insert({
@@ -782,34 +997,33 @@ ANVÄNDARFRÅGA:
             try {
                 const { data: userMemories, error: userMemoriesError } = await supabaseAdmin
                     .from('user_memories')
-                    .select('id, category, content, updated_at')
+                    .select('id, category, content, updated_at, last_used_at, created_at, confidence, memory_tier, importance, expires_at')
                     .eq('user_id', userId)
                     .eq('company_id', resolvedCompanyId)
-                    .order('category', { ascending: true })
-                    .order('updated_at', { ascending: false });
+                    .order('updated_at', { ascending: false })
+                    .limit(200);
 
                 if (userMemoriesError) {
                     logger.warn('Failed to load user memories', { userId, companyId: resolvedCompanyId });
                 } else if (userMemories && userMemories.length > 0) {
-                    const memoryContext = formatUserMemoriesForContext(userMemories as UserMemoryRow[]);
+                    const memoryRows = userMemories as UserMemoryRow[];
+                    const selection = selectRelevantMemories(memoryRows, message);
+                    const selectedMemories = selection.selected;
+
+                    const memoryContext = formatUserMemoriesForContext(selectedMemories);
                     if (memoryContext) {
                         contextBlocks.push(memoryContext);
 
-                        // Track used memories for transparency
-                        for (const memory of userMemories as UserMemoryRow[]) {
-                            usedMemories.push({
-                                id: memory.id,
-                                category: memory.category,
-                                preview: memory.content.substring(0, 50) + (memory.content.length > 50 ? '...' : '')
-                            });
-                        }
+                        usedMemories.push(...selection.usedMemories);
                     }
 
-                    const memoryIds = (userMemories as UserMemoryRow[]).map((memory) => memory.id);
-                    await supabaseAdmin
-                        .from('user_memories')
-                        .update({ last_used_at: new Date().toISOString() })
-                        .in('id', memoryIds);
+                    const memoryIds = selectedMemories.map((memory) => memory.id);
+                    if (memoryIds.length > 0) {
+                        await supabaseAdmin
+                            .from('user_memories')
+                            .update({ last_used_at: new Date().toISOString() })
+                            .in('id', memoryIds);
+                    }
                 }
             } catch (memoryError) {
                 logger.warn('Failed to load user memories', { userId, companyId: resolvedCompanyId });

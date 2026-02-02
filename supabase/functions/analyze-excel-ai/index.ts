@@ -1,7 +1,7 @@
 // Deterministisk Excel-analys - 100% noggrannhet
 // Excel → Direkt parsing (exakt som Python) → Färdig rapport
 // AI används ENDAST för företagsnamn/period om det saknas
-/// <reference path="../../types/deno.d.ts" />
+/// <reference path="../types/deno.d.ts" />
 
 import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";

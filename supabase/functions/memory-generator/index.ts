@@ -1,4 +1,4 @@
-/// <reference path="../../types/deno.d.ts" />
+/// <reference path="../types/deno.d.ts" />
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
@@ -22,6 +22,13 @@ const ALLOWED_CATEGORIES = new Set([
     "top_of_mind"
 ]);
 
+const ALLOWED_TIERS = new Set([
+    "profile",
+    "project",
+    "episodic",
+    "fact"
+]);
+
 const MEMORY_SYSTEM_INSTRUCTION = `Du är en svensk AI-assistent som sammanfattar konversationer och extraherar relevanta minnen.
 Svara alltid med ett ENDAST giltigt JSON-objekt utan extra text eller markdown.`;
 
@@ -34,7 +41,13 @@ Svara i JSON:
 {
   "summary": "...",
   "memories": [
-    { "category": "work_context|preferences|history|top_of_mind", "content": "..." }
+    {
+      "category": "work_context|preferences|history|top_of_mind",
+      "content": "...",
+      "tier": "profile|project|episodic|fact",
+      "importance": 0.0-1.0,
+      "ttl_days": 30
+    }
   ]
 }
 
@@ -44,12 +57,20 @@ Kategorier:
 - history: Viktiga händelser, tidigare analyser
 - top_of_mind: Pågående projekt, aktuella frågor
 
+Tier:
+- profile: Stabilt om användarens preferenser/identitet
+- fact: Stabil fakta om bolaget (kan behöva uppdateras)
+- episodic: Händelser/utfall som är historiska
+- project: Pågående arbete (kortlivat)
+
 VIKTIGT:
 - Extrahera ENDAST specifika, unika fakta som är värda att minnas
 - Undvik generella påståenden som "Användaren gillar att ställa frågor"
 - Fokusera på: specifika org.nummer, belopp, perioder, namn, preferenser
 - Max 2-3 minnen per kategori
 - Varje minne ska vara minst 20 tecken långt
+- Ange importance (0.4-1.0) baserat på nytta
+- Ange ttl_days endast om minnet är kortlivat (t.ex. top_of_mind ~30 dagar, history ~180 dagar)
 `;
 
 const MAX_MESSAGES = 60;
@@ -57,10 +78,16 @@ const MAX_MESSAGE_CHARS = 900;
 const MAX_MEMORIES = 8;
 const MIN_MEMORY_LENGTH = 20;
 const MAX_MEMORIES_PER_CATEGORY = 3;
+const MIN_IMPORTANCE = 0.4;
+const MAX_TTL_DAYS = 365;
 
 type MemoryEntry = {
     category?: string;
     content?: string;
+    tier?: string;
+    importance?: number;
+    ttl_days?: number;
+    confidence?: number;
 };
 
 type MemoryResponse = {
@@ -91,6 +118,89 @@ function normalizeContent(content: string): string {
     return content.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function getEnv(keys: string[]): string | undefined {
+    for (const key of keys) {
+        const value = Deno.env.get(key);
+        if (value && value.trim()) return value.trim();
+    }
+    return undefined;
+}
+
+const CATEGORY_TIER_MAP: Record<string, string> = {
+    work_context: "fact",
+    preferences: "profile",
+    history: "episodic",
+    top_of_mind: "project"
+};
+
+const CATEGORY_DEFAULT_IMPORTANCE: Record<string, number> = {
+    work_context: 0.75,
+    preferences: 0.7,
+    history: 0.6,
+    top_of_mind: 0.6
+};
+
+const GENERIC_MEMORY_PATTERNS: RegExp[] = [
+    /^hej/i,
+    /^hejsan/i,
+    /^tack/i,
+    /^ok(ey)?\b/i,
+    /^bra\b/i,
+    /^toppen\b/i,
+    /^perfekt\b/i
+];
+
+function toNumber(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+}
+
+function clampNumber(value: unknown, min: number, max: number): number | null {
+    const parsed = toNumber(value);
+    if (parsed === null) return null;
+    return Math.min(max, Math.max(min, parsed));
+}
+
+function resolveTier(category?: string, tier?: string): string {
+    if (tier && ALLOWED_TIERS.has(tier)) return tier;
+    if (category && CATEGORY_TIER_MAP[category]) return CATEGORY_TIER_MAP[category];
+    return "fact";
+}
+
+function resolveImportance(category?: string, importance?: number): number {
+    const fallback = category ? (CATEGORY_DEFAULT_IMPORTANCE[category] ?? 0.6) : 0.6;
+    const normalized = clampNumber(importance, 0, 1);
+    return normalized ?? fallback;
+}
+
+function resolveTtlDays(ttlDays?: number): number | null {
+    const normalized = clampNumber(ttlDays, 1, MAX_TTL_DAYS);
+    if (normalized === null) return null;
+    return Math.round(normalized);
+}
+
+function defaultTtlDays(category?: string): number | null {
+    if (category === "top_of_mind") return 30;
+    if (category === "history") return 180;
+    return null;
+}
+
+function computeExpiry(ttlDays?: number | null): string | null {
+    if (!ttlDays || ttlDays <= 0) return null;
+    const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
+    return expiresAt.toISOString();
+}
+
+function isGenericMemory(content: string): boolean {
+    const normalized = content.trim().toLowerCase();
+    if (normalized.length >= 25) return false;
+    return GENERIC_MEMORY_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 Deno.serve(async (req: Request) => {
     if (req.method === "OPTIONS") {
         return createOptionsResponse();
@@ -99,8 +209,8 @@ Deno.serve(async (req: Request) => {
     const corsHeaders = getCorsHeaders();
 
     try {
-        const supabaseUrl = Deno.env.get("SUPABASE_URL");
-        const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        const supabaseUrl = getEnv(["SUPABASE_URL", "SB_SUPABASE_URL", "API_URL"]);
+        const supabaseServiceKey = getEnv(["SUPABASE_SERVICE_ROLE_KEY", "SB_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY", "SECRET_KEY"]);
         const geminiKey = Deno.env.get("GEMINI_API_KEY");
 
         if (!supabaseUrl || !supabaseServiceKey) {
@@ -213,9 +323,22 @@ Deno.serve(async (req: Request) => {
             .eq("user_id", conversation.user_id)
             .eq("company_id", conversation.company_id);
 
+        const { data: removedEdits } = await supabase
+            .from("memory_user_edits")
+            .select("content")
+            .eq("user_id", conversation.user_id)
+            .eq("company_id", conversation.company_id)
+            .eq("edit_type", "remove");
+
         const existingSet = new Set(
             (existingMemories || [])
                 .map((memory) => normalizeContent(memory.content || ""))
+                .filter(Boolean)
+        );
+
+        const removedSet = new Set(
+            (removedEdits || [])
+                .map((edit) => normalizeContent(edit.content || ""))
                 .filter(Boolean)
         );
 
@@ -223,17 +346,43 @@ Deno.serve(async (req: Request) => {
         const categoryCount: Record<string, number> = {};
 
         const inserts = memories
-            .map((memory) => ({
-                category: memory?.category?.trim(),
-                content: memory?.content?.trim()
-            }))
+            .map((memory) => {
+                const category = typeof memory?.category === "string" ? memory.category.trim() : undefined;
+                const content = typeof memory?.content === "string" ? memory.content.trim() : undefined;
+                const tierInput = typeof memory?.tier === "string" ? memory.tier.trim() : undefined;
+                const tier = resolveTier(category, tierInput);
+                const importance = resolveImportance(category, memory?.importance);
+                const ttlDays = resolveTtlDays(memory?.ttl_days) ?? defaultTtlDays(category);
+                const expiresAt = computeExpiry(ttlDays);
+                const confidence = clampNumber(memory?.confidence, 0.3, 1.0) ?? 0.8;
+
+                return {
+                    category,
+                    content,
+                    tier,
+                    importance,
+                    ttlDays,
+                    expiresAt,
+                    confidence
+                };
+            })
             .filter((memory) => {
                 // Basic validation
                 if (!memory.content || !memory.category || !ALLOWED_CATEGORIES.has(memory.category)) {
                     return false;
                 }
+                if (!ALLOWED_TIERS.has(memory.tier)) {
+                    return false;
+                }
+                if (isGenericMemory(memory.content)) {
+                    return false;
+                }
                 // Minimum length filter
                 if (memory.content.length < MIN_MEMORY_LENGTH) {
+                    return false;
+                }
+                // Minimum importance filter
+                if (memory.importance < MIN_IMPORTANCE) {
                     return false;
                 }
                 // Per-category limit
@@ -246,7 +395,7 @@ Deno.serve(async (req: Request) => {
             })
             .filter((memory) => {
                 const normalized = normalizeContent(memory.content as string);
-                if (!normalized || existingSet.has(normalized)) {
+                if (!normalized || existingSet.has(normalized) || removedSet.has(normalized)) {
                     return false;
                 }
                 existingSet.add(normalized);
@@ -258,7 +407,10 @@ Deno.serve(async (req: Request) => {
                 category: memory.category,
                 content: memory.content,
                 source_conversation_id: conversation_id,
-                confidence: 0.8
+                confidence: memory.confidence,
+                memory_tier: memory.tier,
+                importance: memory.importance,
+                expires_at: memory.expiresAt
             }))
             .slice(0, MAX_MEMORIES);
 

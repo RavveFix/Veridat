@@ -1,6 +1,6 @@
 // CORS Headers Service for Supabase Edge Functions
 // Provides environment-aware CORS configuration
-/// <reference path="../types/deno.d.ts" />
+/// <reference path="../functions/types/deno.d.ts" />
 
 /**
  * Get CORS headers based on environment.

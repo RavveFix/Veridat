@@ -1,6 +1,6 @@
 // Deno-compatible Gemini Service for Supabase Edge Functions
 // Using @google/generative-ai package compatible with Deno
-/// <reference path="../types/deno.d.ts" />
+/// <reference path="../functions/types/deno.d.ts" />
 
 import { createLogger } from "./LoggerService.ts";
 

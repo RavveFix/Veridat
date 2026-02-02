@@ -9,6 +9,11 @@ type MemoryItem = {
     category: string;
     content: string;
     updated_at: string | null;
+    last_used_at?: string | null;
+    created_at?: string | null;
+    memory_tier?: string | null;
+    importance?: number | null;
+    expires_at?: string | null;
 };
 
 type MemoryResponse = {
@@ -47,6 +52,20 @@ function formatRelativeTime(dateString: string | null): string {
     if (diffHours < 24) return `${diffHours} tim sedan`;
     if (diffDays < 7) return `${diffDays} dagar sedan`;
     return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+}
+
+function formatShortDate(dateString: string | null): string {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+}
+
+function isExpired(dateString: string | null | undefined): boolean {
+    if (!dateString) return false;
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return false;
+    return date.getTime() < Date.now();
 }
 
 export const MemoryIndicator: FunctionComponent = () => {
@@ -326,32 +345,45 @@ export const MemoryIndicator: FunctionComponent = () => {
                         {!isLoading && memories.length === 0 && (
                             <div class="memory-empty">Inga minnen ännu. Lägg till något Veridat ska komma ihåg.</div>
                         )}
-                        {memories.map((memory) => (
-                            <div key={memory.id} class="memory-item">
-                                <div class="memory-item-header">
-                                    <span class="memory-category">
-                                        {CATEGORY_LABELS[memory.category] || memory.category}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        class="memory-delete"
-                                        onClick={() => handleDeleteMemory(memory.id)}
-                                        aria-label="Ta bort minne"
-                                        disabled={isLoading}
-                                    >
-                                        ×
-                                    </button>
-                                </div>
-                                <p>{memory.content}</p>
-                                {memory.updated_at && (
-                                    <div class="memory-item-footer">
-                                        <span class="memory-timestamp">
-                                            Senast använd: {formatRelativeTime(memory.updated_at)}
+                        {memories.map((memory) => {
+                            const timestamp = memory.last_used_at || memory.updated_at || memory.created_at || null;
+                            const timestampLabel = memory.last_used_at
+                                ? 'Senast använd'
+                                : (memory.updated_at ? 'Uppdaterad' : 'Skapad');
+                            const expired = isExpired(memory.expires_at);
+
+                            return (
+                                <div key={memory.id} class="memory-item">
+                                    <div class="memory-item-header">
+                                        <span class="memory-category">
+                                            {CATEGORY_LABELS[memory.category] || memory.category}
                                         </span>
+                                        <button
+                                            type="button"
+                                            class="memory-delete"
+                                            onClick={() => handleDeleteMemory(memory.id)}
+                                            aria-label="Ta bort minne"
+                                            disabled={isLoading}
+                                        >
+                                            ×
+                                        </button>
                                     </div>
-                                )}
-                            </div>
-                        ))}
+                                    <p>{memory.content}</p>
+                                    {timestamp && (
+                                        <div class="memory-item-footer">
+                                            <span class="memory-timestamp">
+                                                {timestampLabel}: {formatRelativeTime(timestamp)}
+                                            </span>
+                                            {memory.expires_at && (
+                                                <span class={`memory-expiry ${expired ? 'memory-expiry--expired' : ''}`}>
+                                                    {expired ? 'Utgånget' : `Gäller till: ${formatShortDate(memory.expires_at)}`}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
 
                     {isAdding ? (

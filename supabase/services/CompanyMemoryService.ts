@@ -1,6 +1,6 @@
 // Company Memory Service for Supabase Edge Functions
 // Stores small per-company summaries to improve AI continuity across chats.
-/// <reference path="../types/deno.d.ts" />
+/// <reference path="../functions/types/deno.d.ts" />
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 

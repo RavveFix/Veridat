@@ -1,6 +1,6 @@
 // OpenAI Service for Supabase Edge Functions
 // Provides a GeminiResponse-compatible interface (text + tool calls)
-/// <reference path="../types/deno.d.ts" />
+/// <reference path="../functions/types/deno.d.ts" />
 
 import { createLogger } from "./LoggerService.ts";
 import type { CreateInvoiceArgs, FileData, GeminiResponse, ToolCall } from "./GeminiService.ts";

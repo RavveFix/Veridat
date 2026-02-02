@@ -5,6 +5,7 @@ export interface UsedMemory {
     id: string;
     category: string;
     preview: string;
+    reason?: string;
 }
 
 interface MemoryUsageNoticeProps {
@@ -76,6 +77,11 @@ export const MemoryUsageNotice: FunctionComponent<MemoryUsageNoticeProps> = ({
                             <span class="memory-usage-preview">
                                 {memory.preview}
                             </span>
+                            {memory.reason && (
+                                <span class="memory-usage-reason">
+                                    {memory.reason}
+                                </span>
+                            )}
                         </div>
                     ))}
                 </div>
