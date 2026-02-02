@@ -57,10 +57,14 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
     }, []);
 
     useEffect(() => {
-        fetchConversations();
+        fetchConversations(true);
 
         // Listen for new chat creation to refresh list (backwards compatibility)
-        const handleRefresh = () => fetchConversations();
+        const handleRefresh = (event?: Event) => {
+            const customEvent = event as CustomEvent<{ force?: boolean }> | undefined;
+            const forceRefresh = customEvent?.detail?.force ?? true;
+            fetchConversations(forceRefresh);
+        };
         window.addEventListener('refresh-conversation-list', handleRefresh);
         window.addEventListener('chat-refresh', handleRefresh);
 
@@ -93,7 +97,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
                     // Re-fetch if the change is for current company or if no company filter
                     if (!activeCompanyId || newCompanyId === activeCompanyId || oldCompanyId === activeCompanyId) {
-                        fetchConversations();
+                        fetchConversations(true);
                     }
                 })
                 .subscribe();
@@ -110,6 +114,10 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
     const fetchConversations = async (forceRefresh = false) => {
         const cacheKey = activeCompanyId || 'all';
+
+        if (forceRefresh) {
+            conversationCache.delete(cacheKey);
+        }
 
         // Check cache first - show cached data immediately
         if (!forceRefresh && conversationCache.has(cacheKey)) {

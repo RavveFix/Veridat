@@ -39,11 +39,40 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const currentChannelRef = useRef<any>(null);
+    const fetchVersionRef = useRef(0);
+    const fetchTimeoutRef = useRef<number | null>(null);
     // Streaming debounce refs
     const streamingBufferRef = useRef<string>('');
     const debounceTimerRef = useRef<number | null>(null);
     // Subscription version to prevent stale callbacks from different conversations
     const subscriptionVersionRef = useRef<number>(0);
+
+    useEffect(() => {
+        // Reset transient state when switching conversations or starting a new chat
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+        }
+        streamingBufferRef.current = '';
+        setStreamingMessage(null);
+        setStreamingUsedMemories([]);
+        setOptimisticMessages([]);
+        setIsThinking(false);
+        setThinkingTimeout(false);
+        setErrorMessage(null);
+        setFetchError(null);
+        setMessages([]);
+        setIsInitialLoad(true);
+    }, [conversationId]);
+
+    useEffect(() => {
+        return () => {
+            if (fetchTimeoutRef.current) {
+                clearTimeout(fetchTimeoutRef.current);
+                fetchTimeoutRef.current = null;
+            }
+        };
+    }, []);
 
     // Date formatting helper
     const formatDateSeparator = (dateStr: string): string => {
@@ -65,6 +94,16 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         return currentDate !== previousDate;
     };
     const fetchMessages = async () => {
+        const fetchId = ++fetchVersionRef.current;
+        const clearFetchTimeout = () => {
+            if (fetchTimeoutRef.current) {
+                clearTimeout(fetchTimeoutRef.current);
+                fetchTimeoutRef.current = null;
+            }
+        };
+
+        clearFetchTimeout();
+
         if (!conversationId) {
             setMessages([]);
             setIsInitialLoad(false);
@@ -77,6 +116,20 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             return;
         }
 
+        // Guard against hanging requests - fail fast with retry UI
+        clearFetchTimeout();
+        fetchTimeoutRef.current = window.setTimeout(() => {
+            if (fetchId !== fetchVersionRef.current) return;
+            setFetchError('Laddningen tog för lång tid. Försök igen.');
+            setIsInitialLoad(false);
+            window.dispatchEvent(new CustomEvent('chat-messages-loaded', {
+                detail: {
+                    count: 0,
+                    conversationId
+                }
+            }));
+        }, 15000);
+
         // Loading is tracked via isInitialLoad
         setFetchError(null);
         try {
@@ -87,6 +140,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                 .order('created_at', { ascending: true });
 
             if (error) throw error;
+            if (fetchId !== fetchVersionRef.current) return;
             setMessages(data || []);
             // Dispatch event for welcome state toggle
             window.dispatchEvent(new CustomEvent('chat-messages-loaded', {
@@ -96,10 +150,19 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                 }
             }));
         } catch (error) {
+            if (fetchId !== fetchVersionRef.current) return;
             const errorMsg = error instanceof Error ? error.message : 'Kunde inte ladda meddelanden';
             console.error('Error fetching messages:', error);
             setFetchError(errorMsg);
+            window.dispatchEvent(new CustomEvent('chat-messages-loaded', {
+                detail: {
+                    count: 0,
+                    conversationId
+                }
+            }));
         } finally {
+            if (fetchId !== fetchVersionRef.current) return;
+            clearFetchTimeout();
             setIsInitialLoad(false);
         }
     };

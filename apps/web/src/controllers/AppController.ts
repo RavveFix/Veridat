@@ -16,9 +16,11 @@ import { ExcelWorkspace } from '../components/ExcelWorkspace';
 import { MemoryIndicator } from '../components/MemoryIndicator';
 import { SearchModalWrapper } from '../components/SearchModal';
 import { initKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { FortnoxSidebar } from '../components/FortnoxSidebar';
 
 // Services
 import { logger } from '../services/LoggerService';
+import { fortnoxContextService } from '../services/FortnoxContextService';
 import { authService } from '../services/AuthService';
 import { companyManager } from '../services/CompanyService';
 import { uiController } from '../services/UIService';
@@ -34,10 +36,13 @@ import { modelSelectorController } from './ModelSelectorController';
 
 export class AppController {
     private excelWorkspace: ExcelWorkspace | null = null;
+    private fortnoxSidebar: FortnoxSidebar | null = null;
     private settingsCleanup: (() => void) | null = null;
     private integrationsCleanup: (() => void) | null = null;
     private settingsListenerAttached = false;
     private integrationsListenerAttached = false;
+    private lastActiveAt = Date.now();
+    private resumeInProgress = false;
 
     async init(): Promise<void> {
         logger.debug('AppController.init() starting...');
@@ -94,6 +99,9 @@ export class AppController {
 
         // Initialize voice input
         voiceInputController.init();
+
+        // Setup app lifecycle handlers (resume from idle)
+        this.setupLifecycleHandlers();
 
         // Load conversation based on URL route
         const path = window.location.pathname;
@@ -163,11 +171,10 @@ export class AppController {
                 return true;
             }
 
-            // New user without any consent - should not happen with click-through flow
-            // But handle gracefully by redirecting to login
-            logger.warn('No consent found, redirecting to login');
-            authService.redirectToLogin();
-            return false;
+            // Authenticated user without consent (e.g. magic link opened on another device)
+            // Show consent modal instead of redirecting to avoid login loops.
+            logger.warn('No consent found for authenticated user, showing consent modal');
+            return this.showReconsentModal();
         }
 
         return true;
@@ -184,15 +191,15 @@ export class AppController {
                 .eq('id', session.user.id)
                 .single();
 
-            // Has accepted before but version is outdated
-            return !!profile?.has_accepted_terms && !!profile?.terms_version;
+            // If user has accepted previously, treat missing/outdated version as re-consent.
+            return !!profile?.has_accepted_terms;
         } catch {
             return false;
         }
     }
 
     private showReconsentModal(): boolean {
-        logger.info('Showing re-consent modal for updated terms');
+        logger.info('Showing consent modal');
         uiController.removeLoaderImmediately();
 
         // Use mountModal helper (same pattern as SettingsModal)
@@ -255,6 +262,88 @@ export class AppController {
         });
     }
 
+    private setupLifecycleHandlers(): void {
+        const markActive = () => {
+            this.lastActiveAt = Date.now();
+        };
+
+        window.addEventListener('focus', () => {
+            void this.handleAppResume('focus');
+        });
+
+        window.addEventListener('online', () => {
+            void this.handleAppResume('online');
+        });
+
+        window.addEventListener('blur', markActive);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                markActive();
+                if (typeof supabase.auth.stopAutoRefresh === 'function') {
+                    supabase.auth.stopAutoRefresh();
+                }
+                return;
+            }
+            void this.handleAppResume('visibility');
+        });
+    }
+
+    private async handleAppResume(source: 'focus' | 'visibility' | 'online'): Promise<void> {
+        const now = Date.now();
+        const idleMs = now - this.lastActiveAt;
+        this.lastActiveAt = now;
+
+        // Avoid noisy refreshes unless we were idle for a bit
+        if (idleMs < 60_000 && source !== 'online') {
+            return;
+        }
+
+        if (this.resumeInProgress) return;
+        this.resumeInProgress = true;
+
+        try {
+            if (typeof supabase.auth.startAutoRefresh === 'function') {
+                supabase.auth.startAutoRefresh();
+            }
+
+            const { data: { session } } = await supabase.auth.getSession();
+
+            if (!session) {
+                if (authService.isProtectedPage()) {
+                    authService.redirectToLogin();
+                }
+                return;
+            }
+
+            const expiresAtMs = (session.expires_at ?? 0) * 1000;
+            const shouldRefresh = expiresAtMs > 0 && Date.now() > (expiresAtMs - 2 * 60 * 1000);
+
+            if (shouldRefresh) {
+                const { data, error } = await supabase.auth.refreshSession();
+                if (error) {
+                    logger.warn('Session refresh failed on resume', { error, source });
+                } else if (data?.session?.access_token && typeof supabase.realtime?.setAuth === 'function') {
+                    supabase.realtime.setAuth(data.session.access_token);
+                }
+            } else if (session.access_token && typeof supabase.realtime?.setAuth === 'function') {
+                supabase.realtime.setAuth(session.access_token);
+            }
+
+            if (typeof supabase.realtime?.connect === 'function') {
+                supabase.realtime.connect();
+            }
+
+            // Force refresh of chat + conversation list after idle
+            window.dispatchEvent(new CustomEvent('refresh-conversation-list', { detail: { force: true } }));
+            window.dispatchEvent(new CustomEvent('chat-refresh'));
+        } catch (error) {
+            logger.warn('Failed to recover app after idle', { error, source });
+        } finally {
+            this.resumeInProgress = false;
+        }
+    }
+
     private initializeControllers(): void {
         // Theme controller
         themeController.init();
@@ -302,6 +391,9 @@ export class AppController {
         modelSelectorController.init();
 
         this.mountMemoryComponents();
+
+        // Initialize Fortnox Sidebar
+        this.initFortnoxSidebar();
     }
 
     private mountMemoryComponents(): void {
@@ -411,6 +503,39 @@ export class AppController {
                 window.location.href = 'mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20skulle%20vilja%20uppgradera%20till%20Pro-versionen.%0A%0AMvh';
             });
         }
+    }
+
+    private initFortnoxSidebar(): void {
+        this.fortnoxSidebar = new FortnoxSidebar();
+        this.fortnoxSidebar.init('fortnox-sidebar');
+
+        // Toggle button in header
+        const toggleBtn = document.getElementById('fortnox-sidebar-toggle') as HTMLButtonElement;
+        if (toggleBtn) {
+            this.fortnoxSidebar.setToggleButton(toggleBtn);
+            toggleBtn.addEventListener('click', () => {
+                this.fortnoxSidebar?.toggle();
+            });
+        }
+
+        // Check Fortnox connection and preload data
+        fortnoxContextService.checkConnection().then(status => {
+            if (status === 'connected') {
+                fortnoxContextService.preloadData();
+            }
+            // Hide toggle button if not connected
+            if (toggleBtn && status === 'disconnected') {
+                toggleBtn.style.display = 'none';
+            }
+        });
+
+        // Show toggle when Fortnox becomes connected
+        fortnoxContextService.addEventListener('connection-changed', ((e: Event) => {
+            const status = (e as CustomEvent).detail;
+            if (toggleBtn) {
+                toggleBtn.style.display = status === 'connected' ? '' : 'none';
+            }
+        }) as EventListener);
     }
 }
 

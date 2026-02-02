@@ -176,7 +176,7 @@ export class ConversationController {
         }
     }
 
-    private mountConversationList(): void {
+    mountConversationList(): void {
         const listContainer = document.getElementById('conversation-list-container');
         if (!listContainer) return;
 
@@ -235,7 +235,7 @@ export class ConversationController {
         this.isLoadingConversation = true;
 
         // Dispatch loading event to coordinate input state
-        window.dispatchEvent(new CustomEvent('conversation-loading', { detail: { loading: true } }));
+        window.dispatchEvent(new CustomEvent('conversation-loading', { detail: { loading: true, conversationId } }));
 
         logger.info('Loading conversation', { conversationId, requestId });
 
@@ -275,6 +275,9 @@ export class ConversationController {
             );
         }
 
+        uiController.clearInput();
+        uiController.focusInput();
+
         // NOTE: Don't dispatch loading: false here - ChatController listens for
         // 'chat-messages-loaded' event from ChatHistory to clear loading state
         // This ensures input stays disabled until messages are actually loaded
@@ -283,6 +286,19 @@ export class ConversationController {
 
     async startNewChat(): Promise<void> {
         logger.info('Resetting UI for new chat (lazy creation)');
+
+        // Cancel any pending conversation load to avoid race conditions
+        if (this.loadDebounceTimer) {
+            clearTimeout(this.loadDebounceTimer);
+            this.loadDebounceTimer = null;
+        }
+        // Invalidate in-flight load requests and clear loading state
+        this.loadRequestId += 1;
+        if (this.isLoadingConversation) {
+            this.isLoadingConversation = false;
+        }
+        window.dispatchEvent(new CustomEvent('conversation-loading', { detail: { loading: false, conversationId: null } }));
+
         companyManager.setConversationId(null);
 
         // Update list highlight
@@ -298,6 +314,11 @@ export class ConversationController {
 
         // Re-mount chat with null ID to show Welcome screen
         if (this.chatContainer) {
+            if (this.chatUnmount) {
+                this.chatUnmount();
+                this.chatUnmount = null;
+            }
+            this.chatContainer.innerHTML = '';
             this.chatUnmount = mountPreactComponent(
                 ChatHistory,
                 { conversationId: null },
@@ -403,6 +424,9 @@ export class ConversationController {
             // Hide welcome state and show chat
             this.setWelcomeState(false);
 
+            // Keep URL in sync on company switch
+            this.updateUrlForConversation(conversationId, true);
+
             // Mount ChatHistory component with new conversation
             if (this.chatContainer) {
                 this.chatUnmount = mountPreactComponent(
@@ -411,6 +435,9 @@ export class ConversationController {
                     this.chatContainer
                 );
             }
+
+            uiController.clearInput();
+            uiController.focusInput();
         } catch (error) {
             logger.error('Error loading conversation from DB', error);
             await this.startNewChat();

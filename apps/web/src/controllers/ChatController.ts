@@ -24,6 +24,8 @@ export class ChatController {
     private rateLimitActive: boolean = false;
     private rateLimitResetAt: string | null = null;
     private conversationLoading: boolean = false;
+    private loadingConversationId: string | null = null;
+    private conversationLoadingTimeout: number | null = null;
     private placeholderUnmount: (() => void) | null = null;
 
     init(excelWorkspace: ExcelWorkspace): void {
@@ -93,17 +95,50 @@ export class ChatController {
 
     private setupConversationLoadingHandler(): void {
         // Listen for conversation loading start
-        window.addEventListener('conversation-loading', ((e: CustomEvent<{ loading: boolean }>) => {
+        window.addEventListener('conversation-loading', ((e: CustomEvent<{ loading: boolean; conversationId?: string | null }>) => {
             this.conversationLoading = e.detail.loading;
+            this.loadingConversationId = typeof e.detail?.conversationId === 'string'
+                ? e.detail.conversationId
+                : e.detail?.conversationId ?? null;
+
+            if (this.conversationLoading) {
+                if (this.conversationLoadingTimeout) {
+                    clearTimeout(this.conversationLoadingTimeout);
+                }
+                this.conversationLoadingTimeout = window.setTimeout(() => {
+                    if (!this.conversationLoading) return;
+                    logger.warn('Conversation loading timed out', { conversationId: this.loadingConversationId });
+                    this.conversationLoading = false;
+                    this.loadingConversationId = null;
+                    this.updateInputForConversationLoading();
+                    uiController.showError('Laddningen tog för lång tid. Försök igen.');
+                }, 20000);
+            } else if (this.conversationLoadingTimeout) {
+                clearTimeout(this.conversationLoadingTimeout);
+                this.conversationLoadingTimeout = null;
+            }
+
             this.updateInputForConversationLoading();
         }) as EventListener);
 
         // Listen for messages loaded to end loading state (ChatHistory dispatches this)
-        window.addEventListener('chat-messages-loaded', (() => {
-            if (this.conversationLoading) {
-                this.conversationLoading = false;
-                this.updateInputForConversationLoading();
+        window.addEventListener('chat-messages-loaded', ((event: Event) => {
+            if (!this.conversationLoading) return;
+            const customEvent = event as CustomEvent<{ conversationId?: string | null }>;
+            const loadedConversationId = customEvent.detail?.conversationId ?? null;
+
+            if (this.loadingConversationId) {
+                if (!loadedConversationId) return;
+                if (loadedConversationId !== this.loadingConversationId) return;
             }
+
+            this.conversationLoading = false;
+            this.loadingConversationId = null;
+            if (this.conversationLoadingTimeout) {
+                clearTimeout(this.conversationLoadingTimeout);
+                this.conversationLoadingTimeout = null;
+            }
+            this.updateInputForConversationLoading();
         }) as EventListener);
     }
 
@@ -392,10 +427,12 @@ export class ChatController {
             if (conversationId) {
                 conversationController.transitionFromWelcome();
                 companyManager.setConversationId(conversationId);
+                conversationController.mountConversationList();
                 conversationController.mountChatHistory(conversationId);
                 // Update URL to include conversation ID for bookmarking/sharing
                 window.history.pushState({ conversationId }, '', `/app/chat/${conversationId}`);
                 chatService.dispatchRefresh();
+                window.dispatchEvent(new CustomEvent('refresh-conversation-list', { detail: { force: true } }));
             } else {
                 restoreButton();
                 uiController.showError('Kunde inte starta konversationen. Försök igen.');
