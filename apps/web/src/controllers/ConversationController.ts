@@ -188,7 +188,7 @@ export class ConversationController {
             ConversationList,
             {
                 currentConversationId: currentId || null,
-                onSelectConversation: (id) => this.loadConversation(id),
+                onSelectConversation: (id: string) => this.loadConversation(id),
                 companyId: currentCompany?.id || null
             },
             listContainer

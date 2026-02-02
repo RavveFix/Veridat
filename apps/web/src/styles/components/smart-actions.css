@@ -1,0 +1,64 @@
+/* Smart Actions - Contextual action buttons under AI messages */
+
+.smart-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    padding-left: 0;
+}
+
+.smart-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 99px;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.smart-action-btn:hover {
+    background: rgba(43, 75, 155, 0.15);
+    border-color: rgba(43, 75, 155, 0.3);
+    color: #6b8de3;
+}
+
+.smart-action-btn:active {
+    transform: scale(0.97);
+}
+
+.smart-action-btn svg {
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.smart-action-btn:hover svg {
+    opacity: 1;
+}
+
+/* Light theme */
+[data-theme="light"] .smart-action-btn {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.10);
+}
+
+[data-theme="light"] .smart-action-btn:hover {
+    background: rgba(43, 75, 155, 0.08);
+    border-color: rgba(43, 75, 155, 0.25);
+    color: #2B4B9B;
+}
+
+/* Mobile: larger touch targets */
+@media (max-width: 768px) {
+    .smart-action-btn {
+        padding: 8px 14px;
+        font-size: 0.8rem;
+    }
+}

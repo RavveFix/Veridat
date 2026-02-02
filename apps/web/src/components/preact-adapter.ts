@@ -14,7 +14,7 @@ import { h } from 'preact';
  * const unmount = mountPreactComponent(MyComponent, { title: 'Hello' }, document.getElementById('root'));
  * // Later: unmount();
  */
-export function mountPreactComponent<P extends Record<string, unknown>>(
+export function mountPreactComponent<P extends object>(
     component: ComponentType<P>,
     props: P,
     container: HTMLElement
