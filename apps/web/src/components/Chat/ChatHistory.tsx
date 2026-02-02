@@ -268,7 +268,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             }
             streamingBufferRef.current = '';
             setStreamingMessage(null);
-            setStreamingUsedMemories([]); // Clear used memories for new conversation
             setOptimisticMessages(prev => [...prev, tempMessage]);
             setIsThinking(true);
             setErrorMessage(null);
