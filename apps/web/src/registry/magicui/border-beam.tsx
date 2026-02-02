@@ -1,5 +1,7 @@
-import { FunctionComponent } from 'preact';
+import { FunctionComponent, type JSX } from 'preact';
 import { cn } from '@/lib/utils';
+
+type BorderBeamStyle = JSX.CSSProperties & Record<`--${string}`, string>;
 
 interface BorderBeamProps {
     className?: string;
@@ -10,7 +12,7 @@ interface BorderBeamProps {
     colorFrom?: string;
     colorTo?: string;
     delay?: number;
-    style?: any;
+    style?: BorderBeamStyle;
 }
 
 /**
@@ -41,7 +43,7 @@ export const BorderBeam: FunctionComponent<BorderBeamProps> = ({
                 ...(colorFrom ? { '--color-from': colorFrom } : {}),
                 ...(colorTo ? { '--color-to': colorTo } : {}),
                 ...style
-            }}
+            } as BorderBeamStyle}
         />
     );
 };

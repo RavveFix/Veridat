@@ -1,5 +1,5 @@
 export class VoiceService {
-    private recognition: any;
+    private recognition: SpeechRecognition | null = null;
     private isListening: boolean = false;
     private onResultCallback: ((text: string) => void) | null = null;
     private onStateChangeCallback: ((isListening: boolean) => void) | null = null;
@@ -12,39 +12,45 @@ export class VoiceService {
     private animationFrame: number | null = null;
 
     constructor() {
-        if ('webkitSpeechRecognition' in window) {
-            // @ts-ignore
-            this.recognition = new webkitSpeechRecognition();
+        const recognitionCtor = this.getSpeechRecognitionCtor();
+        if (recognitionCtor) {
+            this.recognition = new recognitionCtor();
             this.setupRecognition();
-        } else if ('SpeechRecognition' in window) {
-            // @ts-ignore
-            this.recognition = new SpeechRecognition();
-            this.setupRecognition();
-        } else {
-            console.warn('Web Speech API not supported in this browser.');
+            return;
         }
+
+        console.warn('Web Speech API not supported in this browser.');
+    }
+
+    private getSpeechRecognitionCtor(): (new () => SpeechRecognition) | null {
+        const speechWindow = window as Window & {
+            SpeechRecognition?: new () => SpeechRecognition;
+            webkitSpeechRecognition?: new () => SpeechRecognition;
+        };
+        return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
     }
 
     private setupRecognition() {
-        if (!this.recognition) return;
+        const recognition = this.recognition;
+        if (!recognition) return;
 
-        this.recognition.continuous = false;
-        this.recognition.interimResults = true;
-        this.recognition.lang = 'sv-SE'; // Swedish
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'sv-SE'; // Swedish
 
-        this.recognition.onstart = () => {
+        recognition.onstart = () => {
             this.isListening = true;
             this.notifyStateChange();
             this.startAudioAnalysis();
         };
 
-        this.recognition.onend = () => {
+        recognition.onend = () => {
             this.isListening = false;
             this.notifyStateChange();
             this.stopAudioAnalysis();
         };
 
-        this.recognition.onresult = (event: any) => {
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
             let finalTranscript = '';
             let interimTranscript = '';
 
@@ -62,7 +68,7 @@ export class VoiceService {
             }
         };
 
-        this.recognition.onerror = (event: any) => {
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
             console.error('Speech recognition error', event.error);
             this.isListening = false;
             this.notifyStateChange();
@@ -74,8 +80,11 @@ export class VoiceService {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-            // @ts-ignore - AudioContext might be prefixed
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const audioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+            if (!audioContextCtor) {
+                throw new Error('AudioContext not supported');
+            }
+            this.audioContext = new audioContextCtor();
             this.analyser = this.audioContext.createAnalyser();
             this.microphone = this.audioContext.createMediaStreamSource(stream);
 

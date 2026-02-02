@@ -1,9 +1,10 @@
 import { mountPreactComponent } from '../components/preact-adapter';
+import type { ComponentType } from 'preact';
 
-export interface ModalMountOptions {
+export interface ModalMountOptions<P extends Record<string, unknown> = Record<string, unknown>> {
     containerId: string;
-    Component: any;
-    props: Record<string, any>;
+    Component: ComponentType<P>;
+    props: P;
 }
 
 /**
@@ -11,7 +12,9 @@ export interface ModalMountOptions {
  * Creates a container if it doesn't exist and mounts the Preact component
  * @returns Cleanup function to unmount the modal
  */
-export function mountModal({ containerId, Component, props }: ModalMountOptions): () => void {
+export function mountModal<P extends Record<string, unknown>>(
+    { containerId, Component, props }: ModalMountOptions<P>
+): () => void {
     let container = document.getElementById(containerId);
 
     if (!container) {

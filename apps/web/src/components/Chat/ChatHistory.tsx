@@ -1,6 +1,7 @@
 import { FunctionComponent } from 'preact';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'preact/hooks';
 import { supabase } from '../../lib/supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
 import { FetchErrorFallback } from '../ErrorBoundary';
 import type { VATReportData } from '../../types/vat';
@@ -8,6 +9,8 @@ import { AIResponseRenderer, UserMessageRenderer } from './AIResponseRenderer';
 import { StreamingText } from './StreamingText';
 import { UpgradeModal } from '../UpgradeModal';
 import { ThinkingAnimation } from './ThinkingAnimation';
+import { SmartActions } from './SmartActions';
+import type { DetectedEntity } from '../../services/EntityDetectionService';
 
 type Message = Database['public']['Tables']['messages']['Row'];
 
@@ -34,9 +37,10 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     const [showUpgradeModal, setShowUpgradeModal] = useState(false);
     const [showScrollButton, setShowScrollButton] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
+    const [detectedEntities, setDetectedEntities] = useState<DetectedEntity[]>([]);
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const currentChannelRef = useRef<any>(null);
+    const currentChannelRef = useRef<RealtimeChannel | null>(null);
     const fetchVersionRef = useRef(0);
     const fetchTimeoutRef = useRef<number | null>(null);
     const previousConversationIdRef = useRef<string | null>(null);
@@ -59,6 +63,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         }
         streamingBufferRef.current = '';
         setStreamingMessage(null);
+        setDetectedEntities([]);
 
         if (!isCreatingConversation) {
             setOptimisticMessages([]);
@@ -281,6 +286,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             }
             streamingBufferRef.current = '';
             setStreamingMessage(null);
+            setDetectedEntities([]);
             pendingOptimisticRef.current = true;
             setOptimisticMessages(prev => [...prev, tempMessage]);
             setIsThinking(true);
@@ -350,6 +356,16 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             window.removeEventListener('chat-rate-limit', handleRateLimit as EventListener);
             window.removeEventListener('chat-streaming-chunk', handleStreamingChunk as EventListener);
         };
+    }, []);
+
+    // Handle entity detection from AI responses
+    useEffect(() => {
+        const handleEntities = (e: CustomEvent<{ entities: DetectedEntity[] }>) => {
+            setDetectedEntities(e.detail.entities);
+        };
+
+        window.addEventListener('fortnox-entities-detected', handleEntities as EventListener);
+        return () => window.removeEventListener('fortnox-entities-detected', handleEntities as EventListener);
     }, []);
 
     // Handle show-upgrade-modal event (from ModelSelectorController when clicking locked Pro)
@@ -538,6 +554,13 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                     </>
                 );
             })}
+
+            {/* Smart Actions under last AI message */}
+            {detectedEntities.length > 0 && !isThinking && !streamingMessage && allMessages.length > 0 && allMessages[allMessages.length - 1]?.role === 'assistant' && (
+                <div class="message ai-message">
+                    <SmartActions entities={detectedEntities} />
+                </div>
+            )}
 
             {(isThinking || streamingMessage) && (
                 <div class="message ai-message thinking-message">

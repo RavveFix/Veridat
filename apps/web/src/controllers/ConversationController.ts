@@ -351,8 +351,8 @@ export class ConversationController {
         });
 
         // Listen for conversation deletion
-        window.addEventListener('conversation-deleted', (e: any) => {
-            const { id } = e.detail;
+        window.addEventListener('conversation-deleted', ((e: Event) => {
+            const { id } = (e as CustomEvent<{ id: string }>).detail ?? {};
             logger.info('Conversation deleted', { id });
 
             const currentCompany = companyManager.getCurrent();
@@ -362,7 +362,7 @@ export class ConversationController {
                     this.chatContainer.innerHTML = '';
                 }
             }
-        });
+        }) as EventListener);
 
         // Listen for create new conversation request
         window.addEventListener('create-new-conversation', async () => {

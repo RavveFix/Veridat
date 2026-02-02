@@ -13,6 +13,8 @@ import { uiController } from '../services/UIService';
 import { logger } from '../services/LoggerService';
 import { conversationController } from './ConversationController';
 import { memoryService } from '../services/MemoryService';
+import { entityDetectionService } from '../services/EntityDetectionService';
+import { skillDetectionService } from '../services/SkillDetectionService';
 import { mountPreactComponent } from '../components/preact-adapter';
 import { TextAnimate } from '../registry/magicui/text-animate';
 import type { VATReportResponse, VATReportData } from '../types/vat';
@@ -352,8 +354,8 @@ export class ChatController {
 
     private setupExcelEventListeners(): void {
         // Listen for open-excel events from ChatHistory
-        window.addEventListener('open-excel', (e: any) => {
-            const { url, name } = e.detail;
+        window.addEventListener('open-excel', ((e: Event) => {
+            const { url, name } = (e as CustomEvent<{ url?: string; name?: string }>).detail ?? {};
             if (url && name && this.excelWorkspace) {
                 // Use the new Claude-inspired artifact UI
                 this.excelWorkspace.openExcelArtifact(url, name, () => {
@@ -361,7 +363,7 @@ export class ChatController {
                     console.log('Re-analysis requested for:', name);
                 });
             }
-        });
+        }) as EventListener);
 
     }
 
@@ -586,6 +588,20 @@ export class ChatController {
                 }
 
                 chatService.dispatchRefresh();
+
+                // Run entity detection on AI response
+                const responseText = response?.type === 'text' && typeof response.data === 'string' ? response.data : '';
+                if (responseText) {
+                    const entities = entityDetectionService.detect(responseText);
+                    if (entities.length > 0) {
+                        window.dispatchEvent(new CustomEvent('fortnox-entities-detected', {
+                            detail: { entities }
+                        }));
+                    }
+                }
+
+                // Run skill detection on user message
+                skillDetectionService.analyzeMessage(message);
 
                 // Schedule automatic memory generation after idle timeout
                 if (conversationId) {

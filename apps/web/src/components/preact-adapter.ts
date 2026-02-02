@@ -14,13 +14,13 @@ import { h } from 'preact';
  * const unmount = mountPreactComponent(MyComponent, { title: 'Hello' }, document.getElementById('root'));
  * // Later: unmount();
  */
-export function mountPreactComponent<P extends Record<string, any>>(
+export function mountPreactComponent<P extends Record<string, unknown>>(
     component: ComponentType<P>,
     props: P,
     container: HTMLElement
 ): () => void {
     // Mount the Preact component
-    render(h(component, props as any), container);
+    render(h(component, props as P), container);
 
     // Return cleanup function
     return () => {

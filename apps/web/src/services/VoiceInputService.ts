@@ -136,8 +136,11 @@ export class VoiceInputController {
      */
     private showToast(message: string, type: 'success' | 'warning' | 'error' = 'warning'): void {
         // Try to use the global showToast if available
-        if (typeof (window as any).showToast === 'function') {
-            (window as any).showToast(message, type);
+        const toastWindow = window as Window & {
+            showToast?: (toastMessage: string, toastType?: 'success' | 'warning' | 'error') => void;
+        };
+        if (typeof toastWindow.showToast === 'function') {
+            toastWindow.showToast(message, type);
             return;
         }
 

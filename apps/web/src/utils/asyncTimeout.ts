@@ -30,7 +30,7 @@ export class TimeoutError extends Error {
  * );
  */
 export async function withTimeout<T>(
-    promise: Promise<T>,
+    promise: PromiseLike<T>,
     timeoutMs: number = 10000,
     errorMessage?: string
 ): Promise<T> {

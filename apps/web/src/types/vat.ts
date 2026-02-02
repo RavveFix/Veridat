@@ -90,7 +90,7 @@ export interface ChargingSession {
     id: string;
     kwh: number;
     amount: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 /**

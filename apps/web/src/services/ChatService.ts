@@ -95,6 +95,10 @@ export interface GeminiResponse {
         userFriendlyMessage: string;
         actionSuggestion?: string;
     };
+    toolCall?: {
+        tool: string;
+        args: Record<string, unknown>;
+    };
     /** Metadata from tool calls (e.g., journal entries, VAT reports) */
     metadata?: Record<string, unknown>;
     /** Memories used to generate this response - for transparency */
@@ -307,7 +311,7 @@ class ChatServiceClass {
 
                 const decoder = new TextDecoder();
                 let fullText = "";
-                let toolCall: any = null;
+                let toolCall: { name: string; args: Record<string, unknown> } | null = null;
                 let usedMemories: UsedMemory[] = [];
 
                 while (true) {
@@ -323,7 +327,11 @@ class ChatServiceClass {
                             if (dataStr === '[DONE]') continue;
 
                             try {
-                                const data = JSON.parse(dataStr);
+                                const data = JSON.parse(dataStr) as {
+                                    text?: string;
+                                    toolCall?: { name: string; args: Record<string, unknown> };
+                                    usedMemories?: UsedMemory[];
+                                };
                                 if (data.text) {
                                     fullText += data.text;
                                     console.log('📡 [ChatService] Streaming chunk:', data.text.substring(0, 50));
@@ -337,7 +345,7 @@ class ChatServiceClass {
                                     usedMemories = data.usedMemories;
                                     console.log('🧠 [ChatService] Received usedMemories:', usedMemories.length);
                                 }
-                            } catch (e) {
+                            } catch {
                                 logger.warn('Failed to parse SSE data', { dataStr });
                             }
                         }
@@ -353,14 +361,14 @@ class ChatServiceClass {
                         data: toolCall.args,
                         toolCall: { tool: toolCall.name, args: toolCall.args },
                         usedMemories: usedMemories.length > 0 ? usedMemories : undefined
-                    } as any;
+                    };
                 }
 
                 return {
                     type: 'text',
                     data: fullText,
                     usedMemories: usedMemories.length > 0 ? usedMemories : undefined
-                } as GeminiResponse;
+                };
             }
 
             // Fallback for non-streaming response
@@ -708,7 +716,7 @@ class ChatServiceClass {
                         } else if (data.step === 'error') {
                             throw new Error(data.error || 'Analys misslyckades');
                         }
-                    } catch (parseError) {
+                    } catch {
                         // Ignore parse errors for partial chunks
                     }
                 }

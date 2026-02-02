@@ -93,10 +93,10 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                 .maybeSingle();
 
             const { data: fortnoxTokens, error: tokenError } = await withTimeout(
-                fortnoxQuery as unknown as Promise<typeof fortnoxQuery>,
+                fortnoxQuery,
                 10000,
                 'Tidsgräns för att hämta Fortnox-status'
-            ) as any;
+            );
 
             if (tokenError && tokenError.code !== 'PGRST116') {
                 console.error('Error checking Fortnox status:', tokenError);
@@ -236,10 +236,10 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                 .eq('user_id', user.id);
 
             const { error: deleteError } = await withTimeout(
-                deleteQuery as unknown as Promise<typeof deleteQuery>,
+                deleteQuery,
                 10000,
                 'Tidsgräns för borttagning'
-            ) as any;
+            );
 
             if (deleteError) throw deleteError;
 

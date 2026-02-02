@@ -1,6 +1,9 @@
 import * as XLSX from 'xlsx';
 import type { VATReportData } from '../types/vat';
 
+type SheetRow = Array<string | number | null>;
+type SheetData = SheetRow[];
+
 export async function generateExcelFile(data: VATReportData): Promise<void> {
     const { period, company, sales, costs, vat, journal_entries, summary } = data;
 
@@ -8,7 +11,7 @@ export async function generateExcelFile(data: VATReportData): Promise<void> {
     const wb = XLSX.utils.book_new();
 
     // Sheet 1: Sammanfattning
-    const summaryData: any[][] = [
+    const summaryData: SheetData = [
         ['MOMSREDOVISNING', period],
         [],
         ['Företag:', company?.name || ''],
@@ -34,7 +37,7 @@ export async function generateExcelFile(data: VATReportData): Promise<void> {
     XLSX.utils.book_append_sheet(wb, summarySheet, 'Sammanfattning');
 
     // Sheet 2: Försäljning
-    const salesData: any[][] = [['Beskrivning', 'Netto (exkl moms)', 'Moms', 'Momssats (%)']];
+    const salesData: SheetData = [['Beskrivning', 'Netto (exkl moms)', 'Moms', 'Momssats (%)']];
     sales.forEach(s => salesData.push([s.description, s.net, s.vat, s.rate]));
 
     const salesSheet = XLSX.utils.aoa_to_sheet(salesData);
@@ -42,7 +45,7 @@ export async function generateExcelFile(data: VATReportData): Promise<void> {
     XLSX.utils.book_append_sheet(wb, salesSheet, 'Försäljning');
 
     // Sheet 3: Kostnader
-    const costsData: any[][] = [['Beskrivning', 'Netto (exkl moms)', 'Moms', 'Momssats (%)']];
+    const costsData: SheetData = [['Beskrivning', 'Netto (exkl moms)', 'Moms', 'Momssats (%)']];
     costs.forEach(c => costsData.push([c.description, c.net, c.vat, c.rate]));
 
     const costsSheet = XLSX.utils.aoa_to_sheet(costsData);
@@ -50,7 +53,7 @@ export async function generateExcelFile(data: VATReportData): Promise<void> {
     XLSX.utils.book_append_sheet(wb, costsSheet, 'Kostnader');
 
     // Sheet 4: Momsuppdelning
-    const vatData: any[][] = [
+    const vatData: SheetData = [
         ['UTGÅENDE MOMS'],
         ['Moms 25%', vat.outgoing_25 || 0],
         ['Moms 12%', vat.outgoing_12 || 0],
@@ -70,7 +73,7 @@ export async function generateExcelFile(data: VATReportData): Promise<void> {
     XLSX.utils.book_append_sheet(wb, vatSheet, 'Moms');
 
     // Sheet 5: Verifikationer
-    const journalData: any[][] = [['Konto', 'Kontonamn', 'Debet', 'Kredit']];
+    const journalData: SheetData = [['Konto', 'Kontonamn', 'Debet', 'Kredit']];
     journal_entries.forEach(e => journalData.push([e.account, e.name, e.debit, e.credit]));
 
     // Add totals

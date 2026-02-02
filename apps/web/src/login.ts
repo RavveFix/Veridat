@@ -123,13 +123,19 @@ async function initLogin() {
         }
 
         // Proceed with login
-        await performLogin(email, messageEl, submitBtn, loginForm);
+        await performLogin(email, fullName, messageEl, submitBtn, loginForm);
     });
 
     logger.debug('Login form event listener attached');
 }
 
-async function performLogin(email: string, messageEl: HTMLDivElement, submitBtn: HTMLButtonElement, loginForm: HTMLFormElement) {
+async function performLogin(
+    email: string,
+    fullName: string,
+    messageEl: HTMLDivElement,
+    submitBtn: HTMLButtonElement,
+    loginForm: HTMLFormElement
+) {
     try {
         logger.debug('Calling Supabase signInWithOtp...');
         const { error } = await supabase.auth.signInWithOtp({
@@ -137,7 +143,10 @@ async function performLogin(email: string, messageEl: HTMLDivElement, submitBtn:
             options: {
                 // Send the magic link back to the login route so the callback can be processed reliably.
                 // If Supabase rejects a redirect URL, it may fall back to the Site URL (often `/`).
-                emailRedirectTo: window.location.origin + '/login'
+                emailRedirectTo: window.location.origin + '/login',
+                data: {
+                    full_name: fullName
+                }
             }
         });
 
@@ -157,12 +166,13 @@ async function performLogin(email: string, messageEl: HTMLDivElement, submitBtn:
         // Hide form
         loginForm.style.display = 'none';
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error('Login error:', error);
+        const errorMessage = error instanceof Error ? error.message : null;
 
         // Show error message
         if (messageEl) {
-            messageEl.textContent = error.message || 'Ett fel uppstod. Försök igen.';
+            messageEl.textContent = errorMessage || 'Ett fel uppstod. Försök igen.';
             messageEl.classList.add('error');
         }
 

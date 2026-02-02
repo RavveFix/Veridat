@@ -74,10 +74,10 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                 .maybeSingle();
 
             const { data, error } = await withTimeout(
-                usageQuery as unknown as Promise<typeof usageQuery>,
+                usageQuery,
                 10000,
                 'Tidsgräns för användningsdata'
-            ) as any;
+            );
 
             if (error) throw error;
 
@@ -131,10 +131,10 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                 .single();
 
             const { data, error } = await withTimeout(
-                profileQuery as unknown as Promise<typeof profileQuery>,
+                profileQuery,
                 10000,
                 'Tidsgräns för profilhämtning'
-            ) as any;
+            );
 
             if (error) throw error;
 
@@ -178,10 +178,10 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                 .eq('id', user.id);
 
             const { error } = await withTimeout(
-                updateQuery as unknown as Promise<typeof updateQuery>,
+                updateQuery,
                 10000,
                 'Tidsgräns för sparande'
-            ) as any;
+            );
 
             if (error) throw error;
 
