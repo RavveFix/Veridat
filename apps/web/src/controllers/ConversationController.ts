@@ -22,7 +22,6 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export class ConversationController {
     private chatContainer: HTMLElement | null = null;
     private chatUnmount: (() => void) | null = null;
-    private listUnmount: (() => void) | null = null;
     private isWelcomeTransitioning: boolean = false;
 
     // Loading synchronization state
@@ -185,7 +184,7 @@ export class ConversationController {
         const currentId = companyManager.getConversationId();
         const currentCompany = companyManager.getCurrent();
 
-        this.listUnmount = mountPreactComponent(
+        mountPreactComponent(
             ConversationList,
             {
                 currentConversationId: currentId || null,
