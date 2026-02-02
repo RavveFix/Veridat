@@ -20,7 +20,7 @@ import { FortnoxSidebar } from '../components/FortnoxSidebar';
 
 // Services
 import { logger } from '../services/LoggerService';
-import { fortnoxContextService } from '../services/FortnoxContextService';
+import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
 import { authService } from '../services/AuthService';
 import { companyManager } from '../services/CompanyService';
 import { uiController } from '../services/UIService';
@@ -519,7 +519,7 @@ export class AppController {
         }
 
         // Check Fortnox connection and preload data
-        fortnoxContextService.checkConnection().then(status => {
+        fortnoxContextService.checkConnection().then((status: FortnoxConnectionStatus) => {
             if (status === 'connected') {
                 fortnoxContextService.preloadData();
             }
