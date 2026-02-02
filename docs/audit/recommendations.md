@@ -1,4 +1,4 @@
-# Recommendations & Action Plan - Britta Project
+# Recommendations & Action Plan - Veridat Project
 
 **Genomförd:** 2025-11-26
 **Syfte:** Exekverbar handlingsplan för att städa och organisera kodbasen
@@ -581,7 +581,7 @@ After ALL changes, verify:
 ### Landing Page
 - [ ] http://localhost:5173/ loads
 - [ ] "Logga in" button works
-- [ ] "Öppna Britta" button works
+- [ ] "Öppna Veridat" button works
 
 ### Login Page
 - [ ] http://localhost:5173/login.html loads

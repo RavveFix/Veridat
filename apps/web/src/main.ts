@@ -1,5 +1,5 @@
 /**
- * Britta Application Entry Point
+ * Veridat Application Entry Point
  *
  * This file bootstraps the application by initializing the AppController.
  * All business logic has been extracted to controllers in src/controllers/.

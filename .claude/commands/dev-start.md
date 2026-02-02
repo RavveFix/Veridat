@@ -1,5 +1,5 @@
 ---
-description: Start all Britta development services (Frontend, Python API, Supabase)
+description: Start all Veridat development services (Frontend, Python API, Supabase)
 allowed-tools: Bash
 ---
 
@@ -28,7 +28,7 @@ set -e
 PROJECT_DIR="/Users/ravonstrawder/Desktop/Britta"
 cd "$PROJECT_DIR"
 
-echo "🚀 Starting Britta Development Environment..."
+echo "🚀 Starting Veridat Development Environment..."
 echo ""
 
 # Check prerequisites

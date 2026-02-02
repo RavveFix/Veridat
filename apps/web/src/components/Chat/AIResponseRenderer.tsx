@@ -22,7 +22,7 @@ interface AIResponseRendererProps {
     } | null;
     fileName?: string | null;
     fileUrl?: string | null;
-    /** Memories used by Britta to generate this response - for transparency */
+    /** Memories used by Veridat to generate this response - for transparency */
     usedMemories?: UsedMemory[];
 }
 

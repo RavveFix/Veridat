@@ -169,7 +169,7 @@ async function performLogin(email: string, messageEl: HTMLDivElement, submitBtn:
         // Re-enable button
         if (submitBtn) {
             submitBtn.disabled = false;
-            submitBtn.textContent = 'Kom igång med Britta';
+            submitBtn.textContent = 'Kom igång med Veridat';
         }
     }
 }

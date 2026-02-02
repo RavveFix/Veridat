@@ -1,5 +1,5 @@
 /**
- * ChatService - Chat and messaging for Britta
+ * ChatService - Chat and messaging for Veridat
  *
  * Handles:
  * - Sending messages to Gemini AI
@@ -77,7 +77,7 @@ export interface ChatMessage {
     created_at?: string;
 }
 
-/** Memory used by Britta for transparency */
+/** Memory used by Veridat for transparency */
 export interface UsedMemory {
     id: string;
     category: string;

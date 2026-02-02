@@ -1,4 +1,4 @@
-# Duplicates Analysis - Britta Project
+# Duplicates Analysis - Veridat Project
 
 **Genomförd:** 2025-11-26
 **Syfte:** Identifiera all duplicerad kod, dependencies, och funktionalitet

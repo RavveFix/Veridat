@@ -28,7 +28,7 @@ function getCategoryLabel(category: string): string {
 /**
  * MemoryUsageNotice - Transparency indicator for memory usage
  *
- * Shows when Britta used stored memories to answer.
+ * Shows when Veridat used stored memories to answer.
  * Follows Claude AI's transparency principle - users should know
  * when their data is being used.
  */
@@ -55,7 +55,7 @@ export const MemoryUsageNotice: FunctionComponent<MemoryUsageNoticeProps> = ({
                     </svg>
                 </span>
                 <span class="memory-usage-text">
-                    Britta använde {count} {memoryWord}
+                    Veridat använde {count} {memoryWord}
                 </span>
                 <button
                     class="memory-usage-expand"

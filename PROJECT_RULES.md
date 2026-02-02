@@ -1,6 +1,6 @@
 # Project Rules for Antigravity Agent
 
-This document defines the strict rules, technology stack, and architectural patterns for the Britta project. You must follow these guidelines for all code generation and modifications.
+This document defines the strict rules, technology stack, and architectural patterns for the Veridat project. You must follow these guidelines for all code generation and modifications.
 
 ## 1. Technology Stack
 

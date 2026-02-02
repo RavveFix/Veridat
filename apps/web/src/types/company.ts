@@ -1,5 +1,5 @@
 /**
- * Company-related type definitions for Britta
+ * Company-related type definitions for Veridat
  */
 
 /**
@@ -49,7 +49,7 @@ export interface CompanyDocument {
 }
 
 /**
- * Represents a company in the Britta application
+ * Represents a company in the Veridat application
  */
 export interface Company {
     id: string;

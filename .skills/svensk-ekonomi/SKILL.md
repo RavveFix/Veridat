@@ -1,7 +1,7 @@
 ---
 name: svensk-ekonomi
 version: 1.0.0
-author: Britta Team
+author: Veridat Team
 description: |
   Svensk redovisning, momshantering och bokföring enligt BAS-kontoplanen.
   Specialiserad på elbilsladdning, CPO/eMSP-transaktioner och OCPI roaming.
@@ -176,9 +176,9 @@ Alla beräkningar valideras enligt:
 
 ---
 
-## Integration med Britta
+## Integration med Veridat
 
-Denna skill används automatiskt av Britta-projektet:
+Denna skill används automatiskt av Veridat-projektet:
 
 1. **Frontend** (`src/main.ts`) laddar upp Excel-filer
 2. **python-proxy Edge Function** routar till Python API

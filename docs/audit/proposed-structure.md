@@ -1,4 +1,4 @@
-# Proposed Structure - Britta Project
+# Proposed Structure - Veridat Project
 
 **Genomförd:** 2025-11-26
 **Syfte:** Definiera ideal projektstruktur efter cleanup
@@ -563,7 +563,7 @@ import { Company } from '@/types/company';
 ## README.md Template (ADD THIS)
 
 ```markdown
-# Britta - AI Bokföringsexpert
+# Veridat - AI Bokföringsexpert
 
 AI-driven bokföringsassistent för svenska småföretagare med Excel-analys och Fortnox-integration.
 

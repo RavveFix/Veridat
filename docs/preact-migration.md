@@ -2,7 +2,7 @@
 
 ## Översikt
 
-Detta dokument beskriver hur vi gradvis migrerar från vanilla TypeScript till Preact-komponenter i Britta-projektet. Den första migrerade komponenten är **VATReportCard**.
+Detta dokument beskriver hur vi gradvis migrerar från vanilla TypeScript till Preact-komponenter i Veridat-projektet. Den första migrerade komponenten är **VATReportCard**.
 
 ## Varför Preact?
 

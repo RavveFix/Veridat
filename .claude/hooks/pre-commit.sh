@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-commit validation hook for Britta
+# Pre-commit validation hook for Veridat
 # Validates code before commits (secrets, linting, JSON)
 
 set -e

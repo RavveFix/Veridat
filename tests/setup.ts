@@ -1,5 +1,5 @@
 /**
- * Britta Test Setup
+ * Veridat Test Setup
  *
  * This file configures the test environment for Vitest/Jest.
  * Import this in vitest.config.ts or jest.config.js.

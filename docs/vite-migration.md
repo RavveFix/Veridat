@@ -5,14 +5,14 @@
 
 ## Sammanfattning
 
-Britta har migrerats från vanilla JavaScript till ett modernt Vite + TypeScript-byggsystem. Detta ger bättre utvecklarupplevelse, typsäkerhet, och optimerade produktionsbyggen.
+Veridat har migrerats från vanilla JavaScript till ett modernt Vite + TypeScript-byggsystem. Detta ger bättre utvecklarupplevelse, typsäkerhet, och optimerade produktionsbyggen.
 
 ## Vad som ändrades
 
 ### 1. Ny Projektstruktur
 
 ```
-britta/
+veridat/
 ├── src/
 │   ├── main.ts              # Huvudapplikation (konverterad från JS)
 │   ├── styles/

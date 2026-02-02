@@ -1,5 +1,5 @@
 /**
- * FileService - File handling for Britta
+ * FileService - File handling for Veridat
  *
  * Handles:
  * - File to base64 conversion

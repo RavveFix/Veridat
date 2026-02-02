@@ -27,7 +27,7 @@ export interface VerificationMetadata {
 
 /**
  * Generate verification ID according to BFL 7:1
- * Format: BRITTA-{YEAR}-{MONTH}-{SEQUENCE}
+ * Format: VERIDAT-{YEAR}-{MONTH}-{SEQUENCE}
  *
  * @param period - Period in YYYY-MM format
  * @param sequence - Sequence number within the period
@@ -37,7 +37,7 @@ export function generateVerificationId(period: string, sequence: number = 1): st
     const year = parts[0] || new Date().getFullYear().toString();
     const month = parts[1] || String(new Date().getMonth() + 1).padStart(2, '0');
 
-    return `BRITTA-${year}-${month}-${String(sequence).padStart(3, '0')}`;
+    return `VERIDAT-${year}-${month}-${String(sequence).padStart(3, '0')}`;
 }
 
 /**

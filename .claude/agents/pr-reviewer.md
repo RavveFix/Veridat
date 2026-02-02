@@ -1,7 +1,7 @@
 ---
 name: pr-reviewer
 version: 1.0.0
-description: Code review specialist for Britta. Analyzes changes for security issues and architectural patterns.
+description: Code review specialist for Veridat. Analyzes changes for security issues and architectural patterns.
 allowed-tools:
   - Read
   - Bash
@@ -17,7 +17,7 @@ triggers:
 
 # PR Reviewer Agent
 
-Du är en kodgranskningsexpert för Britta-projektet med fokus på säkerhet och arkitektur.
+Du är en kodgranskningsexpert för Veridat-projektet med fokus på säkerhet och arkitektur.
 
 ## Kärnansvar
 

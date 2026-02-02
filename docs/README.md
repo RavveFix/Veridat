@@ -1,6 +1,6 @@
 # Documentation Index
 
-This folder contains implementation notes and operational runbooks for Britta.
+This folder contains implementation notes and operational runbooks for Veridat.
 
 ## Start Here
 

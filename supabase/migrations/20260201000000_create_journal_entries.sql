@@ -87,8 +87,8 @@ BEGIN
         updated_at = NOW()
     RETURNING last_sequence INTO v_sequence;
 
-    -- Generate verification ID: BRITTA-YYYY-MM-NNN
-    v_verification_id := 'BRITTA-' ||
+    -- Generate verification ID: VERIDAT-YYYY-MM-NNN
+    v_verification_id := 'VERIDAT-' ||
         SUBSTRING(p_period, 1, 4) || '-' ||
         SUBSTRING(p_period, 6, 2) || '-' ||
         LPAD(v_sequence::TEXT, 3, '0');
@@ -100,7 +100,7 @@ $$;
 -- Add comments for documentation
 COMMENT ON TABLE public.journal_entries IS 'Journal entries (verifikationer) for Swedish bookkeeping compliance (BFL 7:1)';
 COMMENT ON TABLE public.verification_sequences IS 'Sequence tracking for verification IDs per period and company';
-COMMENT ON FUNCTION public.get_next_verification_id IS 'Generates next verification ID in format BRITTA-YYYY-MM-NNN';
+COMMENT ON FUNCTION public.get_next_verification_id IS 'Generates next verification ID in format VERIDAT-YYYY-MM-NNN';
 
 -- Grant permissions
 GRANT SELECT, INSERT ON public.journal_entries TO anon, authenticated;

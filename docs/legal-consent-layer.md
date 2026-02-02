@@ -2,7 +2,7 @@
 
 ## Overview
 
-Britta AI implements a comprehensive legal consent system to ensure GDPR compliance and transparency about AI usage. Users must explicitly accept terms and provide their full name before accessing the application.
+Veridat implements a comprehensive legal consent system to ensure GDPR compliance and transparency about AI usage. Users must explicitly accept terms and provide their full name before accessing the application.
 
 ## Architecture
 
@@ -243,7 +243,7 @@ supabase secrets set RESEND_API_KEY=re_xxxxx
 ```
 
 **From Address:**
-Currently using Resend's test domain: `Britta AI <onboarding@resend.dev>`
+Currently using Resend's test domain: `Veridat <onboarding@resend.dev>`
 
 **Production Recommendation:**
 For production, verify your own domain in Resend:
@@ -262,7 +262,7 @@ For production, verify your own domain in Resend:
 6. User receives email confirmation within seconds
 
 **Email Template Features:**
-- Branded with Britta AI gradient design
+- Branded with Veridat gradient design
 - Includes full consent summary (name, email, date, version)
 - Links to terms and privacy policy
 - GDPR rights information

@@ -1,5 +1,5 @@
 ---
-description: Check status of all Britta development services
+description: Check status of all Veridat development services
 allowed-tools: Bash
 ---
 
@@ -21,7 +21,7 @@ Checks the status of all local development services.
 PROJECT_DIR="/Users/ravonstrawder/Desktop/Britta"
 cd "$PROJECT_DIR"
 
-echo "📊 Britta Development Environment Status"
+echo "📊 Veridat Development Environment Status"
 echo "=========================================="
 echo ""
 
@@ -95,7 +95,7 @@ echo ""
 ## Output Example
 
 ```
-📊 Britta Development Environment Status
+📊 Veridat Development Environment Status
 ==========================================
 
 🐍 Python API (port 8080)

@@ -1,6 +1,6 @@
-# Supabase Setup Guide for Britta
+# Supabase Setup Guide for Veridat
 
-Denna guide hjälper dig att sätta upp Supabase Edge Functions för Britta.
+Denna guide hjälper dig att sätta upp Supabase Edge Functions för Veridat.
 
 ## Steg 1: Installera Supabase CLI
 
@@ -17,7 +17,7 @@ npm install -g supabase
 ## Steg 3: Länka lokalt projekt till Supabase
 
 ```bash
-cd /Users/ravonstrawder/Desktop/Britta
+cd /Users/ravonstrawder/Desktop/Veridat
 supabase login
 supabase link --project-ref your-project-ref-here
 ```

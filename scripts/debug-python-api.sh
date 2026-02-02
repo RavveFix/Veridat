@@ -17,13 +17,13 @@ fi
 
 echo ""
 echo "2️⃣ Checking Railway deployment..."
-echo "   Visit: https://railway.app/project/britta"
+echo "   Visit: https://railway.app/project/veridat"
 echo "   Or run: railway status"
 echo ""
 
 # Step 2: Get the actual production URL
 echo "3️⃣ Python API URL should be something like:"
-echo "   https://britta-production.up.railway.app"
+echo "   https://veridat-production.up.railway.app"
 echo "   https://python-api-production.up.railway.app"
 echo ""
 echo "   To get your actual URL, run:"

@@ -1,4 +1,4 @@
-# Page Flow - Britta Application
+# Page Flow - Veridat Application
 
 **Genomförd:** 2025-11-26
 **Syfte:** Dokumentera användarflödet och teknisk implementation för varje sida
@@ -62,7 +62,7 @@
 `/index.html`
 
 ### Description
-Statisk marknadsföringssida som introducerar Britta till nya användare.
+Statisk marknadsföringssida som introducerar Veridat till nya användare.
 
 ### Technical Details
 
@@ -73,7 +73,7 @@ Statisk marknadsföringssida som introducerar Britta till nya användare.
 
 **Key Elements:**
 1. **Header**
-   - Logo: "Britta"
+   - Logo: "Veridat"
    - CTA button → `/login.html`
 
 2. **Hero Section**
@@ -108,7 +108,7 @@ document.querySelectorAll('.feature-card').forEach(card => {
 
 **Navigation:**
 - **"Logga in"** (header) → `/login.html`
-- **"Öppna Britta"** (hero CTA) → `/app/` (kräver auth, redirectar till login om ej inloggad)
+- **"Öppna Veridat"** (hero CTA) → `/app/` (kräver auth, redirectar till login om ej inloggad)
 
 ---
 

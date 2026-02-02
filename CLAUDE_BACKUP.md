@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Britta is an AI-powered Swedish bookkeeping assistant for small businesses. It's a Progressive Web App (PWA) that helps users with accounting tasks, invoice creation, and tax document analysis using Google Gemini AI and Fortnox integration.
+Veridat is an AI-powered Swedish bookkeeping assistant for small businesses. It's a Progressive Web App (PWA) that helps users with accounting tasks, invoice creation, and tax document analysis using Google Gemini AI and Fortnox integration.
 
 **Tech Stack:**
 - Frontend: Vite + TypeScript (vanilla, class-based components)
@@ -208,7 +208,7 @@ const corsHeaders = {
 - Fails open (allows request) if rate limiting service errors
 
 ### Gemini System Instructions
-The AI persona "Britta" is configured in `GeminiService.ts` with:
+The AI persona "Veridat" is configured in `GeminiService.ts` with:
 - Swedish bookkeeping expertise (BAS account plan)
 - PDF/image tax document analysis capabilities
 - Proactive advice on tax deadlines and bookkeeping entries

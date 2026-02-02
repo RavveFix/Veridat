@@ -1,7 +1,6 @@
 #!/bin/bash
-# Pre-deployment validation for Britta
+# Pre-deployment validation for Veridat
 # Validates everything before production deployment
-
 set -e
 
 PROJECT_DIR="/Users/ravonstrawder/Desktop/Britta"

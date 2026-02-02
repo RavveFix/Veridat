@@ -1,4 +1,4 @@
-# File Inventory - Britta Project
+# File Inventory - Veridat Project
 
 **Genomförd:** 2025-11-26
 **Status:** Komplett inventering av alla filer i projektet

@@ -1,11 +1,11 @@
-# Britta Project Structure
+# Veridat Project Structure
 
 Reorganized according to recommended architecture.
 
 ##  Directory Structure
 
 ```
-Britta/
+Veridat/
 ├── landing/                    # Landing page
 │   └── index.html
 │

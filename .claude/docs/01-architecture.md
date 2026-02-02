@@ -6,7 +6,7 @@ The backend uses a service-oriented architecture where business logic is encapsu
 
 ### GeminiService (`supabase/services/GeminiService.ts`)
 Handles all AI interactions with Google Gemini:
-- System instructions for "Britta" persona
+- System instructions for "Veridat" persona
 - Function calling (tools): `create_invoice`, `get_customers`, `get_articles`
 - File processing (PDF, images)
 - Swedish bookkeeping expertise (BAS account plan)

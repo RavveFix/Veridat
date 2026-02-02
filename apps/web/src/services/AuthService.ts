@@ -1,5 +1,5 @@
 /**
- * AuthService - Authentication and consent management for Britta
+ * AuthService - Authentication and consent management for Veridat
  *
  * Handles:
  * - Session management

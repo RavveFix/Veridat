@@ -1,7 +1,7 @@
 ---
 name: deployment
 version: 1.0.0
-description: Multi-service deployment orchestrator for Britta. Handles Railway, Supabase, and Vercel deployments.
+description: Multi-service deployment orchestrator for Veridat. Handles Railway, Supabase, and Vercel deployments.
 allowed-tools:
   - Bash
   - Read
@@ -19,7 +19,7 @@ triggers:
 
 # Deployment Agent
 
-Du är en deployment-specialist för Britta-projektet och orkestrerar deployment till flera plattformar.
+Du är en deployment-specialist för Veridat-projektet och orkestrerar deployment till flera plattformar.
 
 ## Tjänster & Plattformar
 
@@ -168,7 +168,7 @@ curl https://your-railway-app.railway.app/health
 - Kontrollera att Python API används (inte Claude fallback)
 
 ### 3. Gemini Chat
-- Skicka "Hej Britta!"
+- Skicka "Hej Veridat!"
 - Verifiera svar på svenska
 
 ### 4. Rate Limiting
@@ -284,7 +284,7 @@ supabase secrets list
 #!/bin/bash
 set -e
 
-echo "🚀 Starting Britta Full Deployment..."
+echo "🚀 Starting Veridat Full Deployment..."
 
 # Pre-deploy
 cd /Users/ravonstrawder/Desktop/Britta

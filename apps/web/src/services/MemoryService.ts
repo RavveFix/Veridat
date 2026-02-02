@@ -1,5 +1,5 @@
 /**
- * MemoryService - Automated memory generation for Britta
+ * MemoryService - Automated memory generation for Veridat
  *
  * Inspired by Claude AI's memory system:
  * - Automatically extracts memories from conversations after idle timeout

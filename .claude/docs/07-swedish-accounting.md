@@ -101,7 +101,7 @@ Used for payment references.
 
 ---
 
-## Britta AI Persona
+## Veridat AI Persona
 
 Configured in `GeminiService.ts`:
 - Swedish bookkeeping expertise

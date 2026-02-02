@@ -14,7 +14,7 @@
 
     /* Accents */
     --accent-primary: #00F0FF;
-    /* Britta Blue Palette */
+    /* Veridat Blue Palette */
     --accent-secondary: #3B82F6;
     --accent-tertiary: #0EA5E9;
     --accent-black: #000000;
@@ -902,30 +902,14 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.875rem 1rem;
-    border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    background: rgba(255, 255, 255, 0.02);
+    padding: 0.6rem 0.85rem;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: transparent;
     cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
-}
-
-.conversation-item::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: 14px;
-    padding: 1px;
-    background: linear-gradient(135deg, transparent, transparent);
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
 }
 
 .conversation-item:hover {
@@ -941,16 +925,8 @@ body {
 }
 
 .conversation-item.is-active {
-    background: linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(59, 130, 246, 0.06));
-    border-color: rgba(0, 240, 255, 0.25);
-    box-shadow:
-        0 4px 20px rgba(0, 240, 255, 0.08),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-.conversation-item.is-active::before {
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-    opacity: 0.5;
+    background: rgba(0, 240, 255, 0.06);
+    border-color: rgba(0, 240, 255, 0.15);
 }
 
 .conversation-item.is-active:hover {
@@ -966,19 +942,23 @@ body {
 
 .conversation-item-title {
     font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--text-primary);
-    line-height: 1.4;
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    line-height: 1.3;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     transition: color 0.2s ease;
 }
 
-.conversation-item:hover .conversation-item-title,
+.conversation-item:hover .conversation-item-title {
+    color: var(--text-primary);
+}
+
 .conversation-item.is-active .conversation-item-title {
     color: #fff;
+    font-weight: 600;
 }
 
 .conversation-item-preview {
@@ -1023,8 +1003,8 @@ body {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 44px;
+    min-height: 44px;
     position: relative;
     z-index: 1;
 }
@@ -1264,8 +1244,8 @@ body {
     gap: 1rem;
 }
 
-/* Britta Orb Identity */
-/* Britta Orb Identity - "Crystal Tech" (Sharp Radar Focus) */
+/* Veridat Orb Identity */
+/* Veridat Orb Identity - "Crystal Tech" (Sharp Radar Focus) */
 .britta-orb {
     width: 32px;
     height: 32px;
@@ -4833,7 +4813,7 @@ h1 {
 
 .sidebar-toggle:hover {
     background: rgba(0, 240, 255, 0.1); /* Subtle blue glow background */
-    color: var(--accent-primary); /* Britta blue icon */
+    color: var(--accent-primary); /* Veridat blue icon */
     transform: translateY(-1px);
 }
 

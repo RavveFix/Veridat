@@ -1,5 +1,5 @@
 /**
- * LoggerService - Centralized logging for Britta
+ * LoggerService - Centralized logging for Veridat
  *
  * Features:
  * - Environment-aware (verbose in dev, minimal in prod)
@@ -25,7 +25,7 @@ class LoggerServiceClass {
 
     constructor() {
         this.isDev = import.meta.env.DEV;
-        this.prefix = '[Britta]';
+        this.prefix = '[Veridat]';
     }
 
     /**

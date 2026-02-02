@@ -157,5 +157,5 @@ $$;
 GRANT EXECUTE ON FUNCTION public.get_or_create_conversation(UUID, TEXT) TO authenticated;
 
 -- Comment on tables
-COMMENT ON TABLE public.conversations IS 'User conversations with Britta AI assistant';
+COMMENT ON TABLE public.conversations IS 'User conversations with Veridat AI assistant';
 COMMENT ON TABLE public.messages IS 'Messages within conversations (user and assistant messages)';

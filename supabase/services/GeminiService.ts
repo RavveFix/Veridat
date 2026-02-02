@@ -81,7 +81,7 @@ export function extractGoogleRateLimitInfo(error: unknown): GoogleRateLimitError
     return result;
 }
 
-export const SYSTEM_INSTRUCTION = `Du är Britta, en autonom AI-agent och expert på svensk bokföring.
+export const SYSTEM_INSTRUCTION = `Du är Veridat, en autonom AI-agent och expert på svensk bokföring.
 Du hjälper användaren att hantera bokföring och fakturering i Fortnox via API.
 Du kan läsa och analysera uppladdade dokument (PDF, bilder) som fakturor, kvitton och skattekonton.
 
@@ -264,7 +264,7 @@ Känna igen förfrågningar som:
 
 ### Efter bokföring:
 Förklara verifikatet tydligt:
-"✅ Verifikat BRITTA-2026-02-001 skapat!
+"✅ Verifikat VERIDAT-2026-02-001 skapat!
 
 **Försäljning 100 kr inkl moms (25%)**
 - Bank: +100 kr (debet)

@@ -20,7 +20,7 @@ API_PORT=8080
 
 ## Steg för att fixa:
 
-1. Gå till: https://railway.app/project/britta
+1. Gå till: https://railway.app/project/veridat
 2. Klicka på Python API service
 3. Gå till "Variables" tab
 4. Lägg till/uppdatera:

@@ -1,5 +1,5 @@
 /**
- * CompanyService - Company management for Britta
+ * CompanyService - Company management for Veridat
  *
  * Handles:
  * - Company CRUD operations

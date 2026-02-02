@@ -1,6 +1,6 @@
 # Releasing
 
-Britta follows **Semantic Versioning** and uses **Git tags** as the source of truth for releases.
+Veridat follows **Semantic Versioning** and uses **Git tags** as the source of truth for releases.
 
 ## Branches & Tags
 

@@ -1,4 +1,4 @@
-# Dependencies Analysis - Britta Project
+# Dependencies Analysis - Veridat Project
 
 **Genomförd:** 2025-11-26
 **Syfte:** Analysera alla dependencies, hitta dubbletter, och identifiera oanvända paket

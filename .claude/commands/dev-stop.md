@@ -1,5 +1,5 @@
 ---
-description: Stop all Britta development services gracefully
+description: Stop all Veridat development services gracefully
 allowed-tools: Bash
 ---
 
@@ -27,7 +27,7 @@ Gracefully stops all local development services.
 PROJECT_DIR="/Users/ravonstrawder/Desktop/Britta"
 cd "$PROJECT_DIR"
 
-echo "🛑 Stopping Britta Development Environment..."
+echo "🛑 Stopping Veridat Development Environment..."
 echo ""
 
 # Stop Frontend (Vite)

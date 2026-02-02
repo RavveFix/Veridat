@@ -1,5 +1,5 @@
 #!/bin/bash
-# Post-bash logging hook for Britta
+# Post-bash logging hook for Veridat
 # Logs commands and tracks errors for debugging
 
 PROJECT_DIR="/Users/ravonstrawder/Desktop/Britta"

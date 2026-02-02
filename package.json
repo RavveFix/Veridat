@@ -1,7 +1,7 @@
 {
-  "name": "britta-bokforing",
+  "name": "veridat-bokforing",
   "version": "1.0.0",
-  "description": "Britta - AI Bokföringsexpert för svenska småföretagare",
+  "description": "Veridat - AI Bokföringsexpert för svenska småföretagare",
   "type": "module",
   "scripts": {
     "dev": "vite --config apps/web/vite.config.ts",
@@ -13,10 +13,7 @@
     "test:watch": "vitest --config apps/web/vitest.config.ts",
     "check:edge": "deno check supabase/functions/*/index.ts",
     "supabase:start": "supabase start",
-    "supabase:stop": "supabase stop",
-    "supabase:serve": "supabase functions serve gemini-chat",
-    "supabase:deploy": "supabase functions deploy gemini-chat",
-    "supabase:secrets": "echo 'Run: supabase secrets set GEMINI_API_KEY=your_key_here'"
+    "supabase:stop": "supabase stop"
   },
   "keywords": [
     "bokföring",

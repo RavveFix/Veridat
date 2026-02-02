@@ -297,10 +297,10 @@ export const MemoryIndicator: FunctionComponent = () => {
             </button>
 
             {isOpen && (
-                <div class="memory-panel" role="dialog" aria-label="Britta kommer ihåg">
+                <div class="memory-panel" role="dialog" aria-label="Veridat kommer ihåg">
                     <div class="memory-panel-header">
                         <div>
-                            <div class="memory-panel-title">Britta kommer ihåg</div>
+                            <div class="memory-panel-title">Veridat kommer ihåg</div>
                             <div class="memory-panel-subtitle">Minnen kopplade till detta bolag</div>
                         </div>
                         <button
@@ -324,7 +324,7 @@ export const MemoryIndicator: FunctionComponent = () => {
                             <div class="memory-loading">Laddar minnen...</div>
                         )}
                         {!isLoading && memories.length === 0 && (
-                            <div class="memory-empty">Inga minnen ännu. Lägg till något Britta ska komma ihåg.</div>
+                            <div class="memory-empty">Inga minnen ännu. Lägg till något Veridat ska komma ihåg.</div>
                         )}
                         {memories.map((memory) => (
                             <div key={memory.id} class="memory-item">
@@ -361,7 +361,7 @@ export const MemoryIndicator: FunctionComponent = () => {
                                 class="memory-add-input"
                                 rows={3}
                                 value={newMemory}
-                                placeholder="Skriv ett minne du vill att Britta ska använda..."
+                                placeholder="Skriv ett minne du vill att Veridat ska använda..."
                                 onInput={(event) => setNewMemory((event.target as HTMLTextAreaElement).value)}
                             />
                             <div class="memory-add-actions">

@@ -1,4 +1,4 @@
-# Britta Roadmap
+# Veridat Roadmap
 
 Updated: 2025-12-12  
 Detailed engineering backlog lives in `.claude/IMPROVEMENTS.md`. This file is a **high‑level product/engineering roadmap**.

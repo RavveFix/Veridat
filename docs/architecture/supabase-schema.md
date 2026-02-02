@@ -1,4 +1,4 @@
-# Supabase Schema (Britta)
+# Supabase Schema (Veridat)
 
 This document consolidates the **current Supabase/Postgres schema** in this repo **plus the missing tables required to cover all platform data points**.  
 Source of truth for implemented parts is `supabase/migrations/*`. Proposed additions are clearly marked.

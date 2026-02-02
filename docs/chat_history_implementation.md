@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Britta chat system implements full **database persistence** for conversations. This ensures that:
+The Veridat chat system implements full **database persistence** for conversations. This ensures that:
 1.  **Context Memory**: The AI remembers previous messages within a conversation.
 2.  **Persistence**: Chat history is saved to Supabase and persists across browser refreshes.
 3.  **Multi-Device Sync**: Users can access their conversation history from any device.

@@ -1,6 +1,6 @@
 # CSS Layout Architecture
 
-This document explains the critical CSS patterns used in the Britta chat
+This document explains the critical CSS patterns used in the Veridat chat
 interface layout.
 
 ## Overview

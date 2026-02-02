@@ -1,7 +1,7 @@
 /**
  * Unit tests for Markdown Parser
  *
- * Britta's first unit test! 🎉
+ * Veridat's first unit test! 🎉
  * Tests the markdown parsing utilities used for AI responses.
  */
 

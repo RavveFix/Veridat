@@ -1,6 +1,6 @@
 # Application Page Flow
 
-This document outlines the navigation flow of the Britta application.
+This document outlines the navigation flow of the Veridat application.
 
 ## Overview
 
@@ -10,7 +10,7 @@ The application follows a simple multi-page architecture:
     *   **Purpose**: Marketing and introduction.
     *   **Actions**:
         *   "Logga in" -> Navigates to `/login`
-        *   "Öppna Britta" -> Navigates to `/app/` (Direct access if already logged in)
+        *   "Öppna Veridat" -> Navigates to `/app/` (Direct access if already logged in)
 
 2.  **Login Page** (`/login`)
     *   **Purpose**: User authentication (Magic Link via Supabase).

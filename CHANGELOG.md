@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the Britta project will be documented in this file.
+All notable changes to the Veridat project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
@@ -194,8 +194,8 @@ and this project adheres to
 
 ## Links
 
-- **Repository**: [GitHub](https://github.com/RavveFix/Britta)
-- **Issues**: [GitHub Issues](https://github.com/RavveFix/Britta/issues)
+- **Repository**: [GitHub](https://github.com/RavveFix/Veridat)
+- **Issues**: [GitHub Issues](https://github.com/RavveFix/Veridat/issues)
 - **Documentation**: See CLAUDE.md for technical details
 - **Deployment**: Railway (Python API), Supabase (Edge Functions), Vercel
   (Frontend)

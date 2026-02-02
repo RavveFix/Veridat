@@ -980,9 +980,9 @@ export class ExcelWorkspace {
                         });
                     }
 
-                    console.log('[Britta] Sales items:', salesItems);
-                    console.log('[Britta] Cost items:', costItems);
-                    console.log('[Britta] Summary:', summary);
+                    console.log('[Veridat] Sales items:', salesItems);
+                    console.log('[Veridat] Cost items:', costItems);
+                    console.log('[Veridat] Summary:', summary);
 
                     const totalOutgoing = outgoing25 + outgoing12 + outgoing6;
                     const netVat = totalOutgoing - incoming;

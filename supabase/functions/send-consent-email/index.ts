@@ -39,7 +39,7 @@ function generateConsentEmailHTML(params: {
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
-  <title>Bekräftelse - Britta AI</title>
+  <title>Bekräftelse - Veridat</title>
   <style>
     body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5; color: #333; }
     .container { max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
@@ -55,7 +55,7 @@ function generateConsentEmailHTML(params: {
 <body>
   <div class="container">
     <div class="header">
-      <h1>🤖 Britta AI</h1>
+      <h1>🤖 Veridat</h1>
       <p>Bekräftelse av godkännande</p>
     </div>
     <div class="content">
@@ -69,12 +69,12 @@ function generateConsentEmailHTML(params: {
         <div class="summary-item"><span>Version:</span><span>${termsVersion}</span></div>
       </div>
       <div style="text-align: center; margin: 30px 0;">
-        <a href="https://britta-ai.se/terms.html" class="button">Användarvillkor</a>
-        <a href="https://britta-ai.se/privacy.html" class="button">Integritetspolicy</a>
+        <a href="https://veridat.se/terms.html" class="button">Användarvillkor</a>
+        <a href="https://veridat.se/privacy.html" class="button">Integritetspolicy</a>
       </div>
     </div>
     <div class="footer">
-      <p>© ${new Date().getFullYear()} Britta AI</p>
+      <p>© ${new Date().getFullYear()} Veridat</p>
     </div>
   </div>
 </body>
@@ -195,9 +195,9 @@ Deno.serve(async (req: Request) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'Britta AI <onboarding@resend.dev>', // Use your verified domain or Resend's test domain
+        from: 'Veridat <onboarding@resend.dev>', // Use your verified domain or Resend's test domain
         to: [email],
-        subject: 'Bekräftelse av godkännande - Britta AI',
+        subject: 'Bekräftelse av godkännande - Veridat',
         html: emailHtml
       })
     });

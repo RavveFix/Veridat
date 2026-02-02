@@ -1,5 +1,5 @@
 import { FunctionComponent } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useState, useMemo } from 'preact/hooks';
 import { supabase } from '../../lib/supabase';
 import { FetchErrorFallback } from '../ErrorBoundary';
 
@@ -34,8 +34,11 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
     // Force re-render when deletion state changes (since currentlyDeleting is module-level)
-    const [, forceUpdate] = useState({});
-    const triggerUpdate = () => forceUpdate({});
+    const [, setRenderKey] = useState(0);
+    const triggerUpdate = () => {
+        console.log('[DELETE] Triggering re-render, currentlyDeleting:', currentlyDeleting);
+        setRenderKey(k => k + 1);
+    };
 
     // Track active company - updates live when company changes
     const [activeCompanyId, setActiveCompanyId] = useState<string | null>(companyId);
@@ -209,22 +212,11 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
         return 'Tidigare';
     };
 
-    const formatMeta = (dateString: string, group: GroupLabel): string => {
-        const date = new Date(dateString);
-        if (Number.isNaN(date.getTime())) return '';
-
-        if (group === 'Idag' || group === 'Igår') {
-            return date.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-        }
-
-        return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
-    };
-
-    const groupedConversations = conversations.reduce<Record<GroupLabel, Conversation[]>>((acc, conv) => {
+    const groupedConversations = useMemo(() => conversations.reduce<Record<GroupLabel, Conversation[]>>((acc, conv) => {
         const group = getGroupLabel(conv.updated_at);
         acc[group].push(conv);
         return acc;
-    }, { Idag: [], Igår: [], Tidigare: [] });
+    }, { Idag: [], Igår: [], Tidigare: [] }), [conversations]);
 
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
@@ -243,8 +235,11 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
         // Double-click protection: check both UI state and pending set
         if (currentlyDeleting === id || pendingDeletions.has(id)) {
+            console.log('[DELETE] Already deleting, skipping:', id);
             return;
         }
+
+        console.log('[DELETE] Starting delete for:', id);
 
         // Mark as pending BEFORE any async work
         pendingDeletions.add(id);
@@ -258,6 +253,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
             const updated = prev.filter(c => c.id !== id);
             const cacheKey = activeCompanyId || 'all';
             conversationCache.set(cacheKey, updated);
+            console.log('[DELETE] Optimistically removed, remaining:', updated.length);
             return updated;
         });
 
@@ -275,9 +271,15 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
             if (error) throw error;
 
+            console.log('[DELETE] API success for:', id);
             showToast('Konversationen raderades', 'success');
+            
+            // Clear loading state IMMEDIATELY on success
+            pendingDeletions.delete(id);
+            currentlyDeleting = null;
+            triggerUpdate();
         } catch (error) {
-            console.error('Error deleting conversation:', error);
+            console.error('[DELETE] Error:', error);
             showToast('Kunde inte ta bort konversationen', 'error');
 
             // Rollback: restore previous state on error - reset ALL state immediately
@@ -288,18 +290,6 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
             const cacheKey = activeCompanyId || 'all';
             conversationCache.set(cacheKey, previousConversations);
             fetchConversations(true); // Force refresh to sync with server
-        } finally {
-            // Delay cleanup to ensure Realtime callback has time to fire and be filtered
-            // Only cleanup if not already done in catch block
-            setTimeout(() => {
-                if (pendingDeletions.has(id)) {
-                    pendingDeletions.delete(id);
-                }
-                if (currentlyDeleting === id) {
-                    currentlyDeleting = null;
-                    triggerUpdate();
-                }
-            }, 500);
         }
     };
 
@@ -331,7 +321,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                 </svg>
                 <h3>Inga konversationer ännu</h3>
-                <p>Starta en ny konversation för att börja chatta med Britta.</p>
+                <p>Starta en ny konversation för att börja chatta med Veridat.</p>
                 <button
                     class="empty-state-btn"
                     onClick={() => window.dispatchEvent(new CustomEvent('create-new-chat'))}
@@ -375,14 +365,6 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
                                             <div class="conversation-item-title">
                                                 {conv.title || 'Ny konversation'}
                                             </div>
-                                            {conv.last_message_preview && (
-                                                <div class="conversation-item-preview">
-                                                    {conv.last_message_preview}
-                                                </div>
-                                            )}
-                                            <div class="conversation-item-meta">
-                                                {formatMeta(conv.updated_at, label)}
-                                            </div>
                                         </div>
 
                                         <button
@@ -390,6 +372,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
                                             onClick={(e) => handleDeleteClick(e, conv.id)}
                                             disabled={isDeleting}
                                             title="Ta bort konversation"
+                                            aria-label="Ta bort konversation"
                                         >
                                             {isDeleting ? (
                                                 <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; border-top-color: #ff4d4d; animation: spin 1s ease-in-out infinite;"></div>

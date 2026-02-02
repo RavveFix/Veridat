@@ -1,4 +1,4 @@
-# Britta Test Suite
+# Veridat Test Suite
 
 ## Directory Structure
 

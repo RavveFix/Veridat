@@ -1,7 +1,7 @@
 /**
  * Swedish BAS Chart of Accounts (Kontoplan)
  *
- * Standard accounts for Swedish bookkeeping used by Britta.
+ * Standard accounts for Swedish bookkeeping used by Veridat.
  * Based on BAS 2024 with focus on EV charging/CPO operations.
  *
  * Account ranges:
@@ -20,7 +20,7 @@ export interface BASAccount {
     description?: string;
 }
 
-// BAS accounts used by Britta
+// BAS accounts used by Veridat
 export const BAS_ACCOUNTS = {
     // Revenue accounts (3xxx)
     SALES_25: {
