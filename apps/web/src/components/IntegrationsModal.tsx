@@ -9,6 +9,7 @@ import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import type { Integration, IntegrationStatus } from '../types/integrations';
 import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
+import { ModalWrapper } from './ModalWrapper';
 
 interface IntegrationsModalProps {
     onClose: () => void;
@@ -314,80 +315,7 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
     }
 
     return (
-        <div
-            className="modal-overlay"
-            style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'var(--overlay-bg)',
-                backdropFilter: 'blur(5px)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 1000,
-                animation: 'fadeIn 0.3s ease-out'
-            }}
-            onClick={(e) => {
-                if (e.target === e.currentTarget) {
-                    onClose();
-                }
-            }}
-        >
-            <div
-                className="modal-content glass-panel"
-                style={{
-                    background: 'var(--glass-bg)',
-                    border: '1px solid var(--glass-border)',
-                    borderRadius: '16px',
-                    padding: '2rem',
-                    width: '100%',
-                    maxWidth: '500px',
-                    maxHeight: '85vh',
-                    overflowY: 'auto',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-                    position: 'relative'
-                }}
-            >
-                <button
-                    onClick={onClose}
-                    style={{
-                        position: 'absolute',
-                        top: '1rem',
-                        right: '1rem',
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--text-secondary)',
-                        cursor: 'pointer',
-                        fontSize: '1.5rem',
-                        padding: '0.5rem',
-                        lineHeight: 1
-                    }}
-                >
-                    &times;
-                </button>
-
-                <h2 style={{
-                    marginTop: 0,
-                    marginBottom: '0.5rem',
-                    background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    fontSize: '1.8rem'
-                }}>
-                    Integreringar
-                </h2>
-
-                <p style={{
-                    color: 'var(--text-secondary)',
-                    marginBottom: '1.5rem',
-                    fontSize: '0.9rem'
-                }}>
-                    Anslut Veridat till dina bokforingssystem.
-                </p>
-
+        <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokforingssystem.">
                 {error && (
                     <div style={{
                         padding: '0.8rem',
@@ -555,7 +483,6 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                         All kommunikation sker sakert via Fortnox officiella API.
                     </p>
                 </div>
-            </div>
-        </div>
+        </ModalWrapper>
     );
 }

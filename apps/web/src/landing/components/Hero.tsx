@@ -20,7 +20,7 @@ export function Hero() {
                 <div class="fade-in-up">
                     <div style="display: flex; justify-content: center; margin-bottom: 2rem;">
                          {/* Interactive Orb with hover effect */}
-                         <div class="britta-orb large thinking interactive-orb"></div>
+                         <div class="veridat-orb large thinking interactive-orb"></div>
                          <style>{`
                             .interactive-orb { transition: transform 0.3s ease, filter 0.3s ease; cursor: pointer; }
                             .interactive-orb:hover { transform: scale(1.1); filter: brightness(1.2); }

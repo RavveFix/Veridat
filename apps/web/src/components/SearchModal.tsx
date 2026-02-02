@@ -29,6 +29,7 @@ export const SearchModal: FunctionComponent<SearchModalProps> = ({ isOpen, onClo
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<SearchResult[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [searchError, setSearchError] = useState<string | null>(null);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
     const resultsRef = useRef<HTMLDivElement>(null);
@@ -67,6 +68,7 @@ export const SearchModal: FunctionComponent<SearchModalProps> = ({ isOpen, onClo
         if (!searchQuery) return;
 
         setIsLoading(true);
+        setSearchError(null);
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
@@ -94,9 +96,10 @@ export const SearchModal: FunctionComponent<SearchModalProps> = ({ isOpen, onClo
             }
 
             setResults(Array.isArray(data.results) ? data.results : []);
-        } catch (searchError) {
-            logger.warn('Conversation search failed', searchError);
+        } catch (err) {
+            logger.warn('Conversation search failed', err);
             setResults([]);
+            setSearchError('Sökningen misslyckades. Försök igen.');
         } finally {
             setIsLoading(false);
         }
@@ -190,7 +193,21 @@ export const SearchModal: FunctionComponent<SearchModalProps> = ({ isOpen, onClo
                     </button>
                 </div>
 
-                {(results.length > 0 || (query.length >= 2 && !isLoading)) && (
+                {searchError && (
+                    <div class="search-modal__error" style={{
+                        padding: '0.75rem 1rem',
+                        margin: '0 0.5rem',
+                        borderRadius: '8px',
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        color: '#ef4444',
+                        fontSize: '0.85rem',
+                        border: '1px solid rgba(239, 68, 68, 0.2)'
+                    }}>
+                        {searchError}
+                    </div>
+                )}
+
+                {!searchError && (results.length > 0 || (query.length >= 2 && !isLoading)) && (
                     <div class="search-modal__results" ref={resultsRef}>
                         {results.length > 0 ? (
                             <>

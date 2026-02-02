@@ -328,7 +328,7 @@ async function generateSmartTitleIfNeeded(
     supabaseAdmin: ReturnType<typeof createClient>,
     conversationId: string,
     userMessage: string,
-    _aiResponse: string
+    aiResponse: string
 ): Promise<void> {
     console.log('[TITLE] generateSmartTitleIfNeeded called', { conversationId, userMessage: userMessage?.substring(0, 50) });
 
@@ -354,20 +354,21 @@ async function generateSmartTitleIfNeeded(
             return;
         }
 
-        // Generate simple title from first 50 chars of user message
-        const simpleTitle = userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : '');
-        console.log('[TITLE] Updating title to:', simpleTitle, { conversationId });
+        // Use AI to generate a smart title (falls back to truncation on error)
+        const apiKey = Deno.env.get('GEMINI_API_KEY');
+        const generatedTitle = await generateConversationTitle(userMessage, aiResponse, apiKey);
+        console.log('[TITLE] AI generated title:', generatedTitle, { conversationId });
 
         // Use supabaseAdmin directly (service role) to bypass any RLS issues
         const { error: updateError } = await supabaseAdmin
             .from('conversations')
-            .update({ title: simpleTitle, updated_at: new Date().toISOString() })
+            .update({ title: generatedTitle, updated_at: new Date().toISOString() })
             .eq('id', conversationId);
 
         if (updateError) {
             console.log('[TITLE] Update failed', { conversationId, error: updateError.message });
         } else {
-            console.log('[TITLE] Title updated successfully!', { conversationId, title: simpleTitle });
+            console.log('[TITLE] Title updated successfully!', { conversationId, title: generatedTitle });
         }
     } catch (error) {
         console.log('[TITLE] Exception caught', { conversationId, error: String(error) });

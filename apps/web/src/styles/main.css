@@ -1246,7 +1246,7 @@ body {
 
 /* Veridat Orb Identity */
 /* Veridat Orb Identity - "Crystal Tech" (Sharp Radar Focus) */
-.britta-orb {
+.veridat-orb {
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -1272,7 +1272,7 @@ body {
     flex-shrink: 0;
 }
 
-.britta-orb.large {
+.veridat-orb.large {
     width: 96px;
     height: 96px;
     margin-bottom: 2rem;
@@ -1284,13 +1284,13 @@ body {
         0 0 12px var(--orb-mid);
 }
 
-.britta-orb.thinking {
+.veridat-orb.thinking {
     z-index: 0;
     /* Minimal physical breathing, no heavy glow pulse */
     animation: orb-pulse 2s ease-in-out infinite alternate;
 }
 
-.britta-orb.thinking::before {
+.veridat-orb.thinking::before {
     content: '';
     position: absolute;
     inset: -2px;
@@ -1300,7 +1300,7 @@ body {
     opacity: 0.8; /* Slightly more visible track */
 }
 
-.britta-orb.thinking::after {
+.veridat-orb.thinking::after {
     content: '';
     position: absolute;
     inset: -2px;
@@ -1427,7 +1427,7 @@ body {
     /* Hide old if present */
 }
 
-.logo-icon.britta-orb {
+.logo-icon.veridat-orb {
     display: block !important;
 }
 
@@ -4247,10 +4247,10 @@ h1 {
         animation: none;
         opacity: 0.8;
     }
-    .britta-orb.thinking {
+    .veridat-orb.thinking {
         animation: none;
     }
-    .britta-orb.thinking::after {
+    .veridat-orb.thinking::after {
         animation: none;
     }
 }
@@ -4401,7 +4401,7 @@ h1 {
 }
 
 /* Flying Orb Animation */
-.britta-orb.flying-to-sidebar {
+.veridat-orb.flying-to-sidebar {
     position: fixed !important;
     z-index: 9999;
     box-shadow: 0 8px 16px rgba(15, 23, 42, 0.16);

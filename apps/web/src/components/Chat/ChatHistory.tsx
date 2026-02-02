@@ -1,5 +1,5 @@
 import { FunctionComponent } from 'preact';
-import { useEffect, useState, useRef } from 'preact/hooks';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'preact/hooks';
 import { supabase } from '../../lib/supabase';
 import type { Database } from '../../types/supabase';
 import { FetchErrorFallback } from '../ErrorBoundary';
@@ -375,15 +375,20 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         window.dispatchEvent(new CustomEvent('chat-retry'));
     };
 
-    const allMessages = [...messages, ...optimisticMessages];
+    const allMessages = useMemo(() => [...messages, ...optimisticMessages], [messages, optimisticMessages]);
 
-    // Scroll handler for scroll-to-bottom button visibility
-    const handleScroll = () => {
-        if (!containerRef.current) return;
-        const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-        const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-        setShowScrollButton(!isNearBottom);
-    };
+    // Scroll handler for scroll-to-bottom button visibility (debounced)
+    const scrollTimerRef = useRef<number | null>(null);
+    const handleScroll = useCallback(() => {
+        if (scrollTimerRef.current) return;
+        scrollTimerRef.current = window.requestAnimationFrame(() => {
+            scrollTimerRef.current = null;
+            if (!containerRef.current) return;
+            const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+            const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+            setShowScrollButton(!isNearBottom);
+        });
+    }, []);
 
     const scrollToBottom = () => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

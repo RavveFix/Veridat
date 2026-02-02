@@ -328,15 +328,6 @@ export class ChatController {
             }
         });
 
-        // VAT reports are now shown inline in chat via AIResponseRenderer
-        // Side panel is no longer needed for VAT reports
-        // window.addEventListener('open-vat-report', (e: Event) => {
-        //     const customEvent = e as CustomEvent<{ data: VATReportData; fileUrl?: string }>;
-        //     const { data, fileUrl } = customEvent.detail;
-        //     if (data && this.excelWorkspace) {
-        //         this.excelWorkspace.openVATReport(data, fileUrl, true);
-        //     }
-        // });
     }
 
     private async handleFormSubmit(e: SubmitEvent): Promise<void> {

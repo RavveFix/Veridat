@@ -19,7 +19,7 @@ class SidebarControllerService {
     private isOverlay = false;
 
     private readonly COLLAPSE_BREAKPOINT = 1024;
-    private readonly STORAGE_KEY = 'britta-sidebar-collapsed';
+    private readonly STORAGE_KEY = 'veridat-sidebar-collapsed';
 
     init(): void {
         this.sidebar = document.querySelector('.sidebar');

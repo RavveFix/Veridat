@@ -1,19 +1,15 @@
 import { FunctionComponent } from 'preact';
-import type { VATReportData, ValidationResult, VATSummary, SalesTransaction, CostTransaction, ZeroVATWarning, JournalEntry } from '../types/vat';
-import { BAS_ACCOUNT_INFO } from '../types/vat';
+import type { VATReportData } from '../types/vat';
 import { generateExcelFile, copyReportToClipboard } from '../utils/excelExport';
 import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { BorderBeam } from '@/registry/magicui/border-beam';
-
-// Fortnox sync status types
-interface FortnoxSyncStatus {
-    status: 'not_synced' | 'pending' | 'in_progress' | 'success' | 'failed' | null;
-    fortnoxDocumentNumber: string | null;
-    fortnoxVoucherSeries: string | null;
-    syncedAt: string | null;
-    errorMessage?: string;
-}
+import { ValidationBadges } from './vat/ValidationBadges';
+import { VATDetails } from './vat/VATDetails';
+import { TransactionsList } from './vat/TransactionsList';
+import { JournalEntriesList } from './vat/JournalEntriesList';
+import { WarningsPanel } from './vat/WarningsPanel';
+import { FortnoxSyncStatusPanel, type FortnoxSyncStatus } from './vat/FortnoxSyncStatusPanel';
 
 type TabId = 'summary' | 'transactions' | 'journal';
 
@@ -45,6 +41,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
     });
     const [fortnoxLoading, setFortnoxLoading] = useState(false);
     const [fortnoxError, setFortnoxError] = useState<string | null>(null);
+    const [fortnoxStatusLoading, setFortnoxStatusLoading] = useState(false);
 
     // Listen for tab change events from ExcelWorkspace
     useEffect(() => {
@@ -67,6 +64,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
     }, [reportId]);
 
     const fetchFortnoxSyncStatus = async (vatReportId: string) => {
+        setFortnoxStatusLoading(true);
         try {
             const { data: session } = await supabase.auth.getSession();
             if (!session?.session?.access_token) return;
@@ -94,6 +92,9 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
             }
         } catch (error) {
             console.error('Failed to fetch Fortnox sync status:', error);
+            setFortnoxError('Kunde inte hämta Fortnox-status');
+        } finally {
+            setFortnoxStatusLoading(false);
         }
     };
 
@@ -259,12 +260,19 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
 
                 {/* Fortnox Export Status */}
                 {reportId && (
-                    <FortnoxSyncStatusPanel
-                        status={fortnoxStatus}
-                        loading={fortnoxLoading}
-                        error={fortnoxError}
-                        onExport={handleFortnoxExport}
-                    />
+                    fortnoxStatusLoading ? (
+                        <div class="fortnox-sync-panel not_synced" style={{ textAlign: 'center', padding: '1rem' }}>
+                            <div class="modal-spinner" style={{ margin: '0 auto 0.5rem', width: '20px', height: '20px' }} role="status" aria-label="Laddar Fortnox-status" />
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Hämtar Fortnox-status...</span>
+                        </div>
+                    ) : (
+                        <FortnoxSyncStatusPanel
+                            status={fortnoxStatus}
+                            loading={fortnoxLoading}
+                            error={fortnoxError}
+                            onExport={handleFortnoxExport}
+                        />
+                    )
                 )}
             </div>
 
@@ -330,342 +338,3 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
     );
 };
 
-/**
- * Validation badges component
- */
-const ValidationBadges: FunctionComponent<{ validation: ValidationResult }> = ({ validation }) => {
-    if (!validation) return <div class="validation-badges"></div>;
-
-    return (
-        <div class="validation-badges">
-            {validation.is_valid && <span class="badge success">✓ Validerad</span>}
-            {validation.errors && validation.errors.length > 0 && (
-                <span class="badge error">{validation.errors.length} fel</span>
-            )}
-            {validation.warnings && validation.warnings.length > 0 && (
-                <span class="badge warning">{validation.warnings.length} varningar</span>
-            )}
-        </div>
-    );
-};
-
-/**
- * VAT details component
- */
-const VATDetails: FunctionComponent<{ vat: VATSummary }> = ({ vat }) => {
-    return (
-        <div class="vat-details">
-            <div class="vat-row">
-                <span>Utgående moms 25%:</span>
-                <span>{(vat.outgoing_25 ?? 0).toFixed(2)} SEK</span>
-            </div>
-            {(vat.outgoing_12 ?? 0) > 0 && (
-                <div class="vat-row">
-                    <span>Utgående moms 12%:</span>
-                    <span>{vat.outgoing_12!.toFixed(2)} SEK</span>
-                </div>
-            )}
-            {(vat.outgoing_6 ?? 0) > 0 && (
-                <div class="vat-row">
-                    <span>Utgående moms 6%:</span>
-                    <span>{vat.outgoing_6!.toFixed(2)} SEK</span>
-                </div>
-            )}
-            <div class="vat-row">
-                <span>Ingående moms:</span>
-                <span>{(vat.incoming ?? 0).toFixed(2)} SEK</span>
-            </div>
-            <div class="vat-row vat-total">
-                <span>Att {vat.net >= 0 ? 'betala' : 'återfå'}:</span>
-                <span class="vat-net-amount">{Math.abs(vat.net).toFixed(2)} SEK</span>
-            </div>
-        </div>
-    );
-};
-
-/**
- * Transactions list component
- */
-const TransactionsList: FunctionComponent<{
-    transactions: SalesTransaction[] | CostTransaction[]
-}> = ({ transactions }) => {
-    if (!transactions || transactions.length === 0) {
-        return <div class="no-transactions">Inga transaktioner</div>;
-    }
-
-    return (
-        <>
-            {transactions.map((t, index) => (
-                <div key={index} class="transaction-row">
-                    <span class="transaction-desc">{t.description}</span>
-                    <span class="transaction-amount">
-                        {t.net.toFixed(2)} SEK ({t.rate}% moms)
-                    </span>
-                </div>
-            ))}
-        </>
-    );
-};
-
-/**
- * Journal entries list with BAS account tooltips
- */
-const JournalEntriesList: FunctionComponent<{
-    entries: JournalEntry[]
-}> = ({ entries }) => {
-    if (!entries || entries.length === 0) {
-        return <div class="no-transactions">Inga bokföringsförslag</div>;
-    }
-
-    return (
-        <div class="journal-entries">
-            <div class="journal-header">
-                <span>Konto</span>
-                <span>Namn</span>
-                <span>Debet</span>
-                <span>Kredit</span>
-            </div>
-            {entries.map((entry, index) => (
-                <div key={index} class="journal-row">
-                    <span
-                        class="account-with-tooltip"
-                        title={BAS_ACCOUNT_INFO[entry.account] || entry.name}
-                    >
-                        {entry.account}
-                        {BAS_ACCOUNT_INFO[entry.account] && <span class="tooltip-icon">i</span>}
-                    </span>
-                    <span class="journal-name">{entry.name}</span>
-                    <span class="journal-debit">
-                        {entry.debit > 0 ? entry.debit.toFixed(2) : '-'}
-                    </span>
-                    <span class="journal-credit">
-                        {entry.credit > 0 ? entry.credit.toFixed(2) : '-'}
-                    </span>
-                </div>
-            ))}
-        </div>
-    );
-};
-
-/**
- * Warnings panel component
- */
-const WarningsPanel: FunctionComponent<{ validation: ValidationResult }> = ({ validation }) => {
-    const zeroVatWarnings = validation?.zero_vat_warnings || [];
-    const hasWarnings = (validation?.warnings?.length || 0) > 0 || zeroVatWarnings.length > 0;
-    const hasErrors = (validation?.errors?.length || 0) > 0;
-
-    if (!hasWarnings && !hasErrors) return null;
-
-    // Group zero VAT warnings by level
-    const grouped = {
-        error: zeroVatWarnings.filter(w => w.level === 'error'),
-        warning: zeroVatWarnings.filter(w => w.level === 'warning'),
-        info: zeroVatWarnings.filter(w => w.level === 'info')
-    };
-
-    return (
-        <div class="warnings-panel">
-            <h4>Granskningsresultat</h4>
-
-            {/* Validation errors */}
-            {hasErrors && (
-                <div class="warning-section error">
-                    <h5>Fel ({validation.errors.length})</h5>
-                    {validation.errors.map((err, i) => (
-                        <div key={i} class="warning-item error">
-                            <p>{typeof err === 'string' ? err : JSON.stringify(err)}</p>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* Zero VAT warnings */}
-            {grouped.warning.length > 0 && (
-                <div class="warning-section warning">
-                    <h5>Varningar ({grouped.warning.length})</h5>
-                    {grouped.warning.map((w, i) => (
-                        <WarningItem key={i} warning={w} />
-                    ))}
-                </div>
-            )}
-
-            {/* Zero VAT info */}
-            {grouped.info.length > 0 && (
-                <div class="warning-section info">
-                    <h5>Information ({grouped.info.length})</h5>
-                    {grouped.info.map((w, i) => (
-                        <WarningItem key={i} warning={w} />
-                    ))}
-                </div>
-            )}
-
-            {/* General warnings */}
-            {(validation?.warnings?.length || 0) > 0 && (
-                <div class="warning-section warning">
-                    <h5>Beräkningsvarningar ({validation.warnings.length})</h5>
-                    {validation.warnings.map((warn, i) => (
-                        <div key={i} class="warning-item warning">
-                            <p>{typeof warn === 'string' ? warn : JSON.stringify(warn)}</p>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
-/**
- * Individual warning item component
- */
-const WarningItem: FunctionComponent<{ warning: ZeroVATWarning }> = ({ warning }) => (
-    <div class={`warning-item ${warning.level}`}>
-        <span class="warning-code">{warning.code}</span>
-        <p>{warning.message}</p>
-        {warning.suggestion && (
-            <p class="suggestion">{warning.suggestion}</p>
-        )}
-        {warning.transaction_id && (
-            <span class="transaction-ref">ID: {warning.transaction_id}</span>
-        )}
-    </div>
-);
-
-/**
- * Fortnox sync status panel component
- * Shows export status and provides export button
- */
-const FortnoxSyncStatusPanel: FunctionComponent<{
-    status: FortnoxSyncStatus;
-    loading: boolean;
-    error: string | null;
-    onExport: () => void;
-}> = ({ status, loading, error, onExport }) => {
-    const formatDate = (dateStr: string | null) => {
-        if (!dateStr) return '';
-        const date = new Date(dateStr);
-        return date.toLocaleDateString('sv-SE', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-    };
-
-    const getStatusIcon = () => {
-        switch (status.status) {
-            case 'success':
-                return (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2">
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                    </svg>
-                );
-            case 'failed':
-                return (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="15" y1="9" x2="9" y2="15"></line>
-                        <line x1="9" y1="9" x2="15" y2="15"></line>
-                    </svg>
-                );
-            case 'pending':
-            case 'in_progress':
-                return (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" class="spin">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                );
-            default:
-                return (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                    </svg>
-                );
-        }
-    };
-
-    const getStatusText = () => {
-        switch (status.status) {
-            case 'success':
-                return `Exporterad som ${status.fortnoxVoucherSeries}-${status.fortnoxDocumentNumber}`;
-            case 'failed':
-                return 'Export misslyckades';
-            case 'pending':
-                return 'Väntar på export...';
-            case 'in_progress':
-                return 'Exporterar...';
-            default:
-                return 'Ej exporterad till Fortnox';
-        }
-    };
-
-    return (
-        <div class={`fortnox-sync-panel ${status.status || 'not_synced'}`}>
-            <div class="fortnox-header">
-                <div class="fortnox-logo">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <rect width="24" height="24" rx="4" fill="#1B365D"/>
-                        <text x="12" y="16" text-anchor="middle" fill="white" font-size="10" font-weight="bold">FX</text>
-                    </svg>
-                    <span>Fortnox Integration</span>
-                </div>
-                <div class="fortnox-status">
-                    {getStatusIcon()}
-                    <span class="status-text">{getStatusText()}</span>
-                </div>
-            </div>
-
-            {status.status === 'success' && status.syncedAt && (
-                <div class="fortnox-details">
-                    <span class="sync-date">Exporterad {formatDate(status.syncedAt)}</span>
-                    <a
-                        href={`https://apps.fortnox.se/vouchers/${status.fortnoxVoucherSeries}/${status.fortnoxDocumentNumber}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="fortnox-link"
-                    >
-                        Öppna i Fortnox →
-                    </a>
-                </div>
-            )}
-
-            {error && (
-                <div class="fortnox-error">
-                    <span>{error}</span>
-                </div>
-            )}
-
-            {(status.status === null || status.status === 'not_synced' || status.status === 'failed') && (
-                <button
-                    class="btn-fortnox"
-                    onClick={onExport}
-                    disabled={loading}
-                >
-                    {loading ? (
-                        <>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <path d="M12 2a10 10 0 0 1 10 10"></path>
-                            </svg>
-                            Exporterar...
-                        </>
-                    ) : (
-                        <>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                <polyline points="17 8 12 3 7 8"></polyline>
-                                <line x1="12" y1="3" x2="12" y2="15"></line>
-                            </svg>
-                            {status.status === 'failed' ? 'Försök igen' : 'Exportera till Fortnox'}
-                        </>
-                    )}
-                </button>
-            )}
-        </div>
-    );
-};

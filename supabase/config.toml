@@ -26,7 +26,7 @@ enabled = true
 
 [auth]
 enabled = true
-site_url = "http://localhost:3000"
+site_url = "http://localhost:5173"
 additional_redirect_urls = []
 jwt_expiry = 3600
 enable_signup = true

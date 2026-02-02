@@ -410,6 +410,8 @@
 
 .journal-entries {
     font-size: 0.85rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .journal-header {
