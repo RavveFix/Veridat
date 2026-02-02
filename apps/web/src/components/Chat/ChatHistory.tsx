@@ -39,6 +39,8 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     const currentChannelRef = useRef<any>(null);
     const fetchVersionRef = useRef(0);
     const fetchTimeoutRef = useRef<number | null>(null);
+    const previousConversationIdRef = useRef<string | null>(null);
+    const pendingOptimisticRef = useRef(false);
     // Streaming debounce refs
     const streamingBufferRef = useRef<string>('');
     const debounceTimerRef = useRef<number | null>(null);
@@ -47,19 +49,28 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
 
     useEffect(() => {
         // Reset transient state when switching conversations or starting a new chat
+        const previousConversationId = previousConversationIdRef.current;
+        const isCreatingConversation = !previousConversationId && !!conversationId && pendingOptimisticRef.current;
+        previousConversationIdRef.current = conversationId ?? null;
+
         if (debounceTimerRef.current) {
             clearTimeout(debounceTimerRef.current);
             debounceTimerRef.current = null;
         }
         streamingBufferRef.current = '';
         setStreamingMessage(null);
-        setOptimisticMessages([]);
-        setIsThinking(false);
+
+        if (!isCreatingConversation) {
+            setOptimisticMessages([]);
+            setIsThinking(false);
+            pendingOptimisticRef.current = false;
+        }
+
         setThinkingTimeout(false);
         setErrorMessage(null);
         setFetchError(null);
         setMessages([]);
-        setIsInitialLoad(true);
+        setIsInitialLoad(!isCreatingConversation);
     }, [conversationId]);
 
     useEffect(() => {
@@ -215,6 +226,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                     setStreamingMessage(null); // Clear streaming content now that DB message exists
                 }
                 setOptimisticMessages([]);
+                pendingOptimisticRef.current = false;
             })
             .subscribe();
 
@@ -268,6 +280,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             }
             streamingBufferRef.current = '';
             setStreamingMessage(null);
+            pendingOptimisticRef.current = true;
             setOptimisticMessages(prev => [...prev, tempMessage]);
             setIsThinking(true);
             setErrorMessage(null);
@@ -352,6 +365,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     useEffect(() => {
         if (messages.length > 0) {
             setOptimisticMessages([]);
+            pendingOptimisticRef.current = false;
             setThinkingTimeout(false);
             // Note: rateLimitInfo is NOT cleared here - it should persist until user dismisses the banner
 
@@ -419,6 +433,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         streamingBufferRef.current = '';
         setStreamingMessage(null);
         setOptimisticMessages([]);
+        pendingOptimisticRef.current = false;
         window.dispatchEvent(new CustomEvent('chat-retry'));
     };
 

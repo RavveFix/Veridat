@@ -403,6 +403,7 @@ export class ChatController {
         let fileUrl: string | null = null;
         let vatReportResponse: VATReportResponse | null = null;
         let conversationId = companyManager.getConversationId();
+        let didDispatchOptimistic = false;
 
         // Validate Excel early to avoid creating empty conversations on invalid files
         if (fileToSend && fileService.isExcel(fileToSend) && this.excelWorkspace) {
@@ -425,6 +426,10 @@ export class ChatController {
             conversationId = newId ?? undefined;
 
             if (conversationId) {
+                // Dispatch optimistic message before remounting chat to preserve thinking state
+                chatService.dispatchOptimisticMessage(message, fileToSend?.name);
+                didDispatchOptimistic = true;
+
                 conversationController.transitionFromWelcome();
                 companyManager.setConversationId(conversationId);
                 conversationController.mountConversationList();
@@ -493,7 +498,9 @@ export class ChatController {
         restoreButton();
 
         // Optimistic UI Update
-        chatService.dispatchOptimisticMessage(message, fileToSend?.name, fileUrl ?? undefined);
+        if (!didDispatchOptimistic) {
+            chatService.dispatchOptimisticMessage(message, fileToSend?.name, fileUrl ?? undefined);
+        }
 
         // Clear input and file
         uiController.clearInput();
