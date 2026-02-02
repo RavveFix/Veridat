@@ -375,6 +375,7 @@ async function generateSmartTitleIfNeeded(
     }
 }
 interface RequestBody {
+    action?: 'generate_title' | null;
     message: string;
     fileData?: FileData;
     fileDataPages?: Array<FileData & { pageNumber?: number }>;
@@ -386,6 +387,7 @@ interface RequestBody {
     fileName?: string | null;
     vatReportContext?: VATReportContext | null;
     model?: string | null;
+    titleContext?: string | null;
 }
 
 // Proper type for VAT report context instead of 'any'
@@ -414,7 +416,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        let { message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext, model }: RequestBody = await req.json();
+        let { action, message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext, model, titleContext }: RequestBody = await req.json();
         
         // Log which model is requested
         if (model) {
@@ -537,6 +539,72 @@ Deno.serve(async (req: Request) => {
             if (conversation.company_id) {
                 resolvedCompanyId = String(conversation.company_id);
             }
+        }
+
+        if (action === 'generate_title') {
+            if (!conversationId) {
+                return new Response(
+                    JSON.stringify({ error: 'conversation_id_required' }),
+                    {
+                        status: 400,
+                        headers: { ...responseHeaders, "Content-Type": "application/json" },
+                    }
+                );
+            }
+
+            const { data: conv, error: titleFetchError } = await supabaseAdmin
+                .from('conversations')
+                .select('title')
+                .eq('id', conversationId)
+                .eq('user_id', userId)
+                .single();
+
+            if (titleFetchError || !conv) {
+                logger.error('Failed to fetch conversation for title generation', { conversationId, error: titleFetchError?.message });
+                return new Response(
+                    JSON.stringify({ error: 'conversation_not_found' }),
+                    {
+                        status: 404,
+                        headers: { ...responseHeaders, "Content-Type": "application/json" },
+                    }
+                );
+            }
+
+            const currentTitle = conv.title?.trim();
+            if (currentTitle && currentTitle !== 'Ny konversation') {
+                return new Response(JSON.stringify({
+                    title: currentTitle,
+                    updated: false
+                }), {
+                    headers: { ...responseHeaders, "Content-Type": "application/json" }
+                });
+            }
+
+            const safeContext = typeof titleContext === 'string' ? titleContext : '';
+            const generatedTitle = await generateConversationTitle(message, safeContext, Deno.env.get('GEMINI_API_KEY'));
+
+            const { error: updateError } = await supabaseAdmin
+                .from('conversations')
+                .update({ title: generatedTitle, updated_at: new Date().toISOString() })
+                .eq('id', conversationId)
+                .eq('user_id', userId);
+
+            if (updateError) {
+                logger.error('Title update failed', { conversationId, error: updateError.message });
+                return new Response(JSON.stringify({
+                    title: generatedTitle,
+                    updated: false
+                }), {
+                    headers: { ...responseHeaders, "Content-Type": "application/json" }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                title: generatedTitle,
+                updated: true
+            }), {
+                headers: { ...responseHeaders, "Content-Type": "application/json" }
+            });
         }
 
         let _userMessageSaved = false;

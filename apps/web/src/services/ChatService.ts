@@ -393,6 +393,47 @@ class ChatServiceClass {
     }
 
     /**
+     * Generate a short AI title for a conversation (Gemini-backed)
+     */
+    async generateConversationTitle(
+        conversationId: string,
+        message: string,
+        titleContext?: string | null
+    ): Promise<string | null> {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return null;
+
+            const company = companyManager.getCurrent();
+            const response = await fetch(`${this.supabaseUrl}/functions/v1/gemini-chat`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                    action: 'generate_title',
+                    message,
+                    titleContext: titleContext || null,
+                    conversationId,
+                    companyId: company.id
+                })
+            });
+
+            const data = await response.json().catch(() => ({})) as { title?: string; error?: string };
+            if (!response.ok) {
+                logger.warn('Failed to generate conversation title', { status: response.status, error: data.error });
+                return null;
+            }
+
+            return typeof data.title === 'string' ? data.title : null;
+        } catch (error) {
+            logger.warn('Title generation request failed', error);
+            return null;
+        }
+    }
+
+    /**
      * Analyze Excel file with Edge Function (with Claude fallback)
      */
     async analyzeExcel(file: File): Promise<AnalysisResult> {

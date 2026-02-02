@@ -486,6 +486,19 @@ export class ChatController {
 
                 // Schedule automatic memory generation after idle timeout
                 memoryService.scheduleGeneration(conversationId);
+
+                const titleBits: string[] = [];
+                if (vatReportResponse.data.period) {
+                    titleBits.push(`Momsrapport för ${vatReportResponse.data.period}`);
+                }
+                if (vatReportResponse.data.company?.name) {
+                    titleBits.push(`Bolag: ${vatReportResponse.data.company.name}`);
+                }
+                if (fileToSend?.name) {
+                    titleBits.push(`Fil: ${fileToSend.name}`);
+                }
+                const titleContext = titleBits.join('. ');
+                void chatService.generateConversationTitle(conversationId, message, titleContext);
             }
         } else {
             // Get VAT report context if available
