@@ -578,13 +578,6 @@ export class ChatController {
                     }
                 }
 
-                // Dispatch usedMemories for transparency (if any were used)
-                if (response?.usedMemories && response.usedMemories.length > 0) {
-                    console.log('🧠 [ChatController] Dispatching usedMemories:', response.usedMemories.length);
-                    window.dispatchEvent(new CustomEvent('chat-used-memories', {
-                        detail: { memories: response.usedMemories }
-                    }));
-                }
                 chatService.dispatchRefresh();
 
                 // Schedule automatic memory generation after idle timeout

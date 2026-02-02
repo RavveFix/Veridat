@@ -5,7 +5,6 @@ import { parseAIResponse, markdownToHtml, containsCodeBlock, containsMarkdownTab
 import { ArtifactCard, CodeArtifact } from './ArtifactCard';
 import { VATSummaryCard } from './VATSummaryCard';
 import { JournalEntryCard, type JournalEntry, type JournalValidation, type JournalTransaction } from './JournalEntryCard';
-import { MemoryUsageNotice, type UsedMemory } from './MemoryUsageNotice';
 import type { VATReportData } from '../../types/vat';
 
 interface AIResponseRendererProps {
@@ -22,8 +21,6 @@ interface AIResponseRendererProps {
     } | null;
     fileName?: string | null;
     fileUrl?: string | null;
-    /** Memories used by Veridat to generate this response - for transparency */
-    usedMemories?: UsedMemory[];
 }
 
 /**
@@ -40,7 +37,6 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     metadata,
     fileName,
     fileUrl,
-    usedMemories,
 }) => {
     // Memoize expensive parsing operations
     const hasStructuredContent = useMemo(
@@ -63,10 +59,6 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
         const vatData = metadata.data;
         return (
             <div class="ai-response">
-                {/* Memory usage transparency notice */}
-                {usedMemories && usedMemories.length > 0 && (
-                    <MemoryUsageNotice memories={usedMemories} />
-                )}
                 {/* Compact inline summary card - full report opens in side panel */}
                 <VATSummaryCard
                     period={vatData.period || 'Period okänd'}
@@ -83,9 +75,6 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     if (metadata?.type === 'journal_entry' && metadata.entries && metadata.validation && metadata.transaction) {
         return (
             <div class="ai-response">
-                {usedMemories && usedMemories.length > 0 && (
-                    <MemoryUsageNotice memories={usedMemories} />
-                )}
                 <JournalEntryCard
                     verificationId={metadata.verification_id || 'N/A'}
                     entries={metadata.entries}
@@ -100,10 +89,6 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     if (hasStructuredContent && parsedBlocks) {
         return (
             <div class="ai-response">
-                {/* Memory usage transparency notice */}
-                {usedMemories && usedMemories.length > 0 && (
-                    <MemoryUsageNotice memories={usedMemories} />
-                )}
                 {parsedBlocks.map((block, index) => {
                     if (block.type === 'code') {
                         return (
@@ -157,10 +142,6 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     if (fileName && fileUrl && fileName.endsWith('.xlsx')) {
         return (
             <div class="ai-response">
-                {/* Memory usage transparency notice */}
-                {usedMemories && usedMemories.length > 0 && (
-                    <MemoryUsageNotice memories={usedMemories} />
-                )}
                 <div
                     class="response-text"
                     dangerouslySetInnerHTML={{ __html: markdownToHtml(content) }}
@@ -194,10 +175,6 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
 
     return (
         <div class="ai-response-container" style={{ position: 'relative' }}>
-            {/* Memory usage transparency notice */}
-            {usedMemories && usedMemories.length > 0 && (
-                <MemoryUsageNotice memories={usedMemories} />
-            )}
             <div
                 class="ai-response response-text"
                 dangerouslySetInnerHTML={{ __html: htmlContent || markdownToHtml(content) }}

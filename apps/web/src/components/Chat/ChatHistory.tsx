@@ -8,7 +8,6 @@ import { AIResponseRenderer, UserMessageRenderer } from './AIResponseRenderer';
 import { StreamingText } from './StreamingText';
 import { UpgradeModal } from '../UpgradeModal';
 import { ThinkingAnimation } from './ThinkingAnimation';
-import { MemoryUsageNotice, type UsedMemory } from './MemoryUsageNotice';
 
 type Message = Database['public']['Tables']['messages']['Row'];
 
@@ -35,7 +34,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     const [showUpgradeModal, setShowUpgradeModal] = useState(false);
     const [showScrollButton, setShowScrollButton] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
-    const [streamingUsedMemories, setStreamingUsedMemories] = useState<UsedMemory[]>([]);
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const currentChannelRef = useRef<any>(null);
@@ -55,7 +53,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         }
         streamingBufferRef.current = '';
         setStreamingMessage(null);
-        setStreamingUsedMemories([]);
         setOptimisticMessages([]);
         setIsThinking(false);
         setThinkingTimeout(false);
@@ -319,7 +316,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                 // New response - reset buffer, memories, and update immediately
                 streamingBufferRef.current = e.detail.chunk;
                 setStreamingMessage(e.detail.chunk);
-                setStreamingUsedMemories([]); // Clear previous memories
             } else {
                 // Append to buffer
                 streamingBufferRef.current += e.detail.chunk;
@@ -335,21 +331,11 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             }
         };
 
-        // Handle used memories for transparency
-        const handleUsedMemories = (e: CustomEvent<{ memories: UsedMemory[] }>) => {
-            console.log('🧠 [ChatHistory] Received usedMemories:', e.detail.memories?.length);
-            if (e.detail.memories && Array.isArray(e.detail.memories)) {
-                setStreamingUsedMemories(e.detail.memories);
-            }
-        };
-
         window.addEventListener('chat-rate-limit', handleRateLimit as EventListener);
         window.addEventListener('chat-streaming-chunk', handleStreamingChunk as EventListener);
-        window.addEventListener('chat-used-memories', handleUsedMemories as EventListener);
         return () => {
             window.removeEventListener('chat-rate-limit', handleRateLimit as EventListener);
             window.removeEventListener('chat-streaming-chunk', handleStreamingChunk as EventListener);
-            window.removeEventListener('chat-used-memories', handleUsedMemories as EventListener);
         };
     }, []);
 
@@ -433,7 +419,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         }
         streamingBufferRef.current = '';
         setStreamingMessage(null);
-        setStreamingUsedMemories([]);
         setOptimisticMessages([]);
         window.dispatchEvent(new CustomEvent('chat-retry'));
     };
@@ -531,7 +516,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                                         metadata={msg.metadata as { type?: string; data?: VATReportData; file_url?: string } | null}
                                         fileName={msg.file_name}
                                         fileUrl={msg.file_url}
-                                        usedMemories={(msg.metadata as { usedMemories?: UsedMemory[] } | null)?.usedMemories}
                                     />
                                 )}
                             </div>
@@ -545,10 +529,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
 
                     {streamingMessage ? (
                         <div class="bubble thinking-bubble">
-                            {/* Memory usage transparency notice */}
-                            {streamingUsedMemories.length > 0 && (
-                                <MemoryUsageNotice memories={streamingUsedMemories} />
-                            )}
                             <StreamingText content={streamingMessage} />
                         </div>
                     ) : thinkingTimeout ? (
