@@ -31,4 +31,4 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.get_next_verification_id IS 'Generates next verification ID in format VERIDAT-YYYY-MM-NNN';
+COMMENT ON FUNCTION public.get_next_verification_id(TEXT, UUID) IS 'Generates next verification ID in format VERIDAT-YYYY-MM-NNN';
