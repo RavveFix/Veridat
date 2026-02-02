@@ -169,9 +169,10 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                 }
             }));
         } finally {
-            if (fetchId !== fetchVersionRef.current) return;
-            clearFetchTimeout();
-            setIsInitialLoad(false);
+            if (fetchId === fetchVersionRef.current) {
+                clearFetchTimeout();
+                setIsInitialLoad(false);
+            }
         }
     };
 

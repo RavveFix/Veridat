@@ -43,7 +43,11 @@ export class FortnoxSidebar {
     // --- Public API ---
 
     toggle(): void {
-        this.isOpen ? this.close() : this.open();
+        if (this.isOpen) {
+            this.close();
+        } else {
+            this.open();
+        }
     }
 
     open(): void {
@@ -211,10 +215,12 @@ export class FortnoxSidebar {
                     + this.renderDetail('Org.nr', data.OrganisationNumber as string || '—');
                 break;
             case 'account':
-                const accountName = BAS_ACCOUNTS[entity.id] || 'Okänt konto';
-                details = this.renderDetail('Kontonr', entity.id)
-                    + this.renderDetail('Namn', accountName);
-                break;
+                {
+                    const accountName = BAS_ACCOUNTS[entity.id] || 'Okänt konto';
+                    details = this.renderDetail('Kontonr', entity.id)
+                        + this.renderDetail('Namn', accountName);
+                    break;
+                }
             case 'voucher':
                 details = this.renderDetail('Verifikat', entity.id);
                 break;
