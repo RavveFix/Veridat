@@ -5,6 +5,10 @@
             "destination": "/login.html"
         },
         {
+            "source": "/admin",
+            "destination": "/admin.html"
+        },
+        {
             "source": "/app/chat/:path*",
             "destination": "/app/index.html"
         },
