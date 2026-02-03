@@ -589,9 +589,9 @@ function shouldSkipHistorySearch(message: string): boolean {
     if (explicitHistory) return false;
 
     const hasYear = /\b20\d{2}\b/.test(normalized);
-    const accountingTerms = /(årsredovisning|bokslut|momsrapport|momsredovisning|balansräkning|resultaträkning|sie|bas|räkenskapsår|period|omsättning|nettoomsättning|resultat|verifikation|bokföring)/.test(normalized);
+    const accountingTerms = /(årsredovisning|bokslut|momsrapport|momsredovisning|balansräkning|resultaträkning|sie|bas|räkenskapsår|period|omsättning|nettoomsättning|resultat|verifikation|bokföring|faktura|leverantörsfaktura|konto|kontera|bokföra|kvitto)/.test(normalized);
     const companyTerms = /\bbolag(et)?|företag(et)?\b/.test(normalized);
-    const accountingFocus = hasYear && (accountingTerms || companyTerms);
+    const accountingFocus = accountingTerms || (hasYear && companyTerms);
 
     if (accountingFocus) {
         return true;
@@ -960,6 +960,7 @@ Deno.serve(async (req: Request) => {
 
     try {
         let { action, message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext, model, titleContext }: RequestBody = await req.json();
+        const hasFileAttachment = Boolean(fileData || fileDataPages || documentText || fileUrl || fileName);
         
         // Log which model is requested
         if (model) {
@@ -1179,7 +1180,7 @@ Deno.serve(async (req: Request) => {
             }
         }
 
-        const historyIntent = detectHistoryIntent(message);
+        const historyIntent = hasFileAttachment ? { search: false, recent: false } : detectHistoryIntent(message);
         if ((historyIntent.search || historyIntent.recent) && conversationId) {
             try {
                 const safeLimit = 5;
@@ -1417,7 +1418,7 @@ ANVÄNDARFRÅGA:
         const primaryImage = fileData?.mimeType?.startsWith('image/') ? fileData : undefined;
         const imagePages = (fileDataPages || []).filter((p) => p?.mimeType?.startsWith('image/') && !!p.data);
         const geminiFileData = primaryImage || (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
-        const disableTools = shouldSkipHistorySearch(message);
+        const disableTools = shouldSkipHistorySearch(message) || hasFileAttachment;
 
         // Handle Gemini Streaming
         if (provider === 'gemini') {
