@@ -14,6 +14,10 @@ interface VATSummaryCardProps {
     fullData: VATReportData;
     /** Optional file URL for downloads */
     fileUrl?: string;
+    /** Optional storage path for secure access */
+    filePath?: string;
+    /** Optional storage bucket */
+    fileBucket?: string;
 }
 
 /**
@@ -32,6 +36,8 @@ export const VATSummaryCard: FunctionComponent<VATSummaryCardProps> = ({
     totalIncome,
     fullData,
     fileUrl,
+    filePath,
+    fileBucket,
 }) => {
     const [isHovered, setIsHovered] = useState(false);
     const isRefund = netVat < 0;
@@ -44,7 +50,9 @@ export const VATSummaryCard: FunctionComponent<VATSummaryCardProps> = ({
             detail: {
                 type: 'vat_report',
                 data: fullData,
-                fileUrl
+                fileUrl,
+                filePath,
+                fileBucket
             }
         }));
     };

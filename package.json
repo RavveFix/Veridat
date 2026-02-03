@@ -11,7 +11,9 @@
     "lint:fix": "eslint apps/web/src --fix",
     "test": "vitest run --config apps/web/vitest.config.ts",
     "test:watch": "vitest --config apps/web/vitest.config.ts",
+    "test:e2e": "playwright test",
     "check:edge": "deno check supabase/functions/*/index.ts",
+    "supabase:setup": "./scripts/setup-local-supabase.sh",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop"
   },
@@ -26,6 +28,7 @@
   "license": "ISC",
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@playwright/test": "^1.50.0",
     "@types/node": "^20.10.0",
     "@vitest/ui": "^4.0.16",
     "eslint": "^9.39.2",

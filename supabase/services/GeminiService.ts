@@ -104,6 +104,12 @@ Nämn aldrig att du "söker" eller "letar" - presentera informationen naturligt.
 - **create_invoice**: Skapar ett fakturautkast i Fortnox. Kräver kundnummer och artiklar.
 - **get_customers**: Hämtar en lista på kunder från Fortnox. Returnerar namn och kundnummer.
 - **get_articles**: Hämtar en lista på artiklar från Fortnox. Returnerar beskrivning, artikelnummer och pris.
+- **get_suppliers**: Hämtar en lista på leverantörer från Fortnox. Returnerar namn och leverantörsnummer.
+- **get_vouchers**: Hämtar verifikationer från Fortnox. Kan filtreras per räkenskapsår och serie.
+- **create_supplier**: Skapar en ny leverantör i Fortnox med namn, organisationsnummer och kontaktuppgifter.
+- **create_supplier_invoice**: Skapar en leverantörsfaktura i Fortnox med kontering och momsbehandling.
+- **export_journal_to_fortnox**: Exporterar ett lokalt verifikat till Fortnox som en verifikation.
+- **book_supplier_invoice**: Bokför en befintlig leverantörsfaktura i Fortnox.
 
 ## Arbetsflöde för Fakturering:
 1. Om användaren vill skapa en faktura men inte anger kundnummer eller artikelnummer:
@@ -112,6 +118,19 @@ Nämn aldrig att du "söker" eller "letar" - presentera informationen naturligt.
 2. När du har all information (Kundnr, Artikelnr, Antal):
    - Anropa **create_invoice** med korrekt data.
 3. Bekräfta för användaren att fakturautkastet är skapat.
+
+## Arbetsflöde för Leverantörsfakturor:
+1. Om användaren nämner en leverantörsfaktura eller kostnad från en leverantör:
+   - Använd **get_suppliers** för att kontrollera om leverantören redan finns.
+   - Om leverantören inte finns, fråga om du ska skapa den med **create_supplier**.
+2. När du har leverantörsnummer, fakturadetaljer (belopp, datum, moms):
+   - Anropa **create_supplier_invoice** med korrekt data och kontering.
+3. Bekräfta för användaren med sammanfattning av bokföring och belopp.
+
+## Arbetsflöde för Fortnox-export:
+1. När användaren vill exportera ett verifikat till Fortnox:
+   - Använd **export_journal_to_fortnox** med verifikat-ID:t.
+2. Bekräfta exportstatus och verifikatnummer i Fortnox.
 
 ## Datahantering:
 - När du får data från **get_customers**, notera särskilt "CustomerNumber" och "Name".
@@ -384,6 +403,119 @@ const tools: Tool[] = [
                     },
                     required: ["type", "gross_amount", "vat_rate", "description"]
                 }
+            },
+            {
+                name: "get_suppliers",
+                description: "Hämtar lista på leverantörer från Fortnox. Används för att slå upp leverantörsnummer och kontrollera om en leverantör redan finns.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {},
+                }
+            },
+            {
+                name: "get_vouchers",
+                description: "Hämtar verifikationer från Fortnox. Används för att visa bokförda transaktioner.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        financial_year: {
+                            type: SchemaType.NUMBER,
+                            description: "Räkenskapsår (t.ex. 2026). Om inte angivet, hämtas innevarande år."
+                        },
+                        series: {
+                            type: SchemaType.STRING,
+                            description: "Verifikatserie (t.ex. 'A'). Om inte angivet, hämtas alla serier."
+                        }
+                    }
+                }
+            },
+            {
+                name: "create_supplier",
+                description: "Skapar en ny leverantör i Fortnox. Använd när en leverantör saknas och användaren vill lägga till den.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        name: {
+                            type: SchemaType.STRING,
+                            description: "Leverantörens företagsnamn (t.ex. 'Ellevio AB')"
+                        },
+                        org_number: {
+                            type: SchemaType.STRING,
+                            description: "Organisationsnummer (t.ex. '556037-7326')"
+                        },
+                        email: {
+                            type: SchemaType.STRING,
+                            description: "E-postadress till leverantören (valfritt)"
+                        }
+                    },
+                    required: ["name"]
+                }
+            },
+            {
+                name: "create_supplier_invoice",
+                description: "Skapar en leverantörsfaktura i Fortnox. Använd när användaren vill registrera och bokföra en leverantörsfaktura.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        supplier_number: {
+                            type: SchemaType.STRING,
+                            description: "Leverantörsnummer i Fortnox"
+                        },
+                        invoice_number: {
+                            type: SchemaType.STRING,
+                            description: "Fakturanummer från leverantören"
+                        },
+                        total_amount: {
+                            type: SchemaType.NUMBER,
+                            description: "Totalbelopp inklusive moms"
+                        },
+                        vat_rate: {
+                            type: SchemaType.NUMBER,
+                            description: "Momssats (25, 12, 6 eller 0)"
+                        },
+                        account: {
+                            type: SchemaType.NUMBER,
+                            description: "BAS-kontot för kostnaden (t.ex. 5410 för el, 6540 för IT)"
+                        },
+                        description: {
+                            type: SchemaType.STRING,
+                            description: "Beskrivning av inköpet"
+                        },
+                        due_date: {
+                            type: SchemaType.STRING,
+                            description: "Förfallodatum (YYYY-MM-DD)"
+                        }
+                    },
+                    required: ["supplier_number", "total_amount", "vat_rate", "account", "description"]
+                }
+            },
+            {
+                name: "export_journal_to_fortnox",
+                description: "Exporterar ett lokalt verifikat till Fortnox som en verifikation. Använd verifikations-ID från en tidigare create_journal_entry.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        journal_entry_id: {
+                            type: SchemaType.STRING,
+                            description: "Verifikations-ID (t.ex. 'VERIDAT-2026-02-001')"
+                        }
+                    },
+                    required: ["journal_entry_id"]
+                }
+            },
+            {
+                name: "book_supplier_invoice",
+                description: "Bokför en befintlig leverantörsfaktura i Fortnox. Gör fakturan definitiv.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        invoice_number: {
+                            type: SchemaType.STRING,
+                            description: "Fakturanummer att bokföra"
+                        }
+                    },
+                    required: ["invoice_number"]
+                }
             }
         ]
     }
@@ -427,12 +559,52 @@ export type CreateJournalEntryArgs = {
     [key: string]: unknown;
 };
 
+export type GetVouchersArgs = {
+    financial_year?: number;
+    series?: string;
+    [key: string]: unknown;
+};
+
+export type CreateSupplierArgs = {
+    name: string;
+    org_number?: string;
+    email?: string;
+    [key: string]: unknown;
+};
+
+export type CreateSupplierInvoiceArgs = {
+    supplier_number: string;
+    invoice_number?: string;
+    total_amount: number;
+    vat_rate: number;
+    account: number;
+    description: string;
+    due_date?: string;
+    [key: string]: unknown;
+};
+
+export type ExportJournalToFortnoxArgs = {
+    journal_entry_id: string;
+    [key: string]: unknown;
+};
+
+export type BookSupplierInvoiceArgs = {
+    invoice_number: string;
+    [key: string]: unknown;
+};
+
 export type ToolCall =
     | { tool: 'conversation_search'; args: ConversationSearchArgs }
     | { tool: 'recent_chats'; args: RecentChatsArgs }
     | { tool: 'create_invoice'; args: CreateInvoiceArgs }
     | { tool: 'get_customers'; args: Record<string, never> }
-    | { tool: 'get_articles'; args: Record<string, never> };
+    | { tool: 'get_articles'; args: Record<string, never> }
+    | { tool: 'get_suppliers'; args: Record<string, never> }
+    | { tool: 'get_vouchers'; args: GetVouchersArgs }
+    | { tool: 'create_supplier'; args: CreateSupplierArgs }
+    | { tool: 'create_supplier_invoice'; args: CreateSupplierInvoiceArgs }
+    | { tool: 'export_journal_to_fortnox'; args: ExportJournalToFortnoxArgs }
+    | { tool: 'book_supplier_invoice'; args: BookSupplierInvoiceArgs };
 
 export interface GeminiResponse {
     text?: string;
@@ -487,7 +659,8 @@ export const sendMessageToGemini = async (
     fileData?: FileData,
     history?: Array<{ role: string, content: string }>,
     apiKey?: string,
-    modelOverride?: string
+    modelOverride?: string,
+    options?: { disableTools?: boolean }
 ): Promise<GeminiResponse> => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -505,7 +678,7 @@ export const sendMessageToGemini = async (
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
-            tools: tools,
+            tools: options?.disableTools ? undefined : tools,
         });
 
         // Build conversation contents from history
@@ -577,12 +750,24 @@ export const sendMessageToGemini = async (
                 };
             }
 
-            // Fortnox tools
-            if (functionCall.name === 'get_customers' || functionCall.name === 'get_articles') {
+            // Fortnox read-only tools (no args)
+            if (functionCall.name === 'get_customers' || functionCall.name === 'get_articles' || functionCall.name === 'get_suppliers') {
                 return {
                     toolCall: {
                         tool: functionCall.name,
                         args: {}
+                    }
+                };
+            }
+
+            // Fortnox tools with args (pass through)
+            if (functionCall.name === 'get_vouchers' || functionCall.name === 'create_supplier' ||
+                functionCall.name === 'create_supplier_invoice' || functionCall.name === 'export_journal_to_fortnox' ||
+                functionCall.name === 'book_supplier_invoice') {
+                return {
+                    toolCall: {
+                        tool: functionCall.name as ToolCall['tool'],
+                        args: (functionCall.args || {}) as any
                     }
                 };
             }
@@ -627,7 +812,8 @@ export const sendMessageStreamToGemini = async (
     fileData?: FileData,
     history?: Array<{ role: string, content: string }>,
     apiKey?: string,
-    modelOverride?: string
+    modelOverride?: string,
+    options?: { disableTools?: boolean }
 ) => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -641,7 +827,7 @@ export const sendMessageStreamToGemini = async (
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
-            tools: tools,
+            tools: options?.disableTools ? undefined : tools,
         });
 
         const contents = [];

@@ -5,11 +5,14 @@ import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 import { createLogger } from "../../services/LoggerService.ts";
 import { createOptionsResponse, getCorsHeaders } from "../../services/CorsService.ts";
 import { extractGoogleRateLimitInfo } from "../../services/GeminiService.ts";
+import { RateLimiterService } from "../../services/RateLimiterService.ts";
+import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
 
 const logger = createLogger("memory-generator");
 
 // Delay before Gemini API call to avoid concurrent requests with main chat
 const GEMINI_API_DELAY_MS = 2500; // 2.5 seconds
+const RATE_LIMIT_ENDPOINT = "memory-generator";
 
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -30,7 +33,11 @@ const ALLOWED_TIERS = new Set([
 ]);
 
 const MEMORY_SYSTEM_INSTRUCTION = `Du är en svensk AI-assistent som sammanfattar konversationer och extraherar relevanta minnen.
-Svara alltid med ett ENDAST giltigt JSON-objekt utan extra text eller markdown.`;
+Svara alltid med ett ENDAST giltigt JSON-objekt utan extra text eller markdown.
+JSON måste vara strikt (endast dubbla citattecken, inga trailing commas).`;
+
+const MEMORY_REPAIR_INSTRUCTION = `Du är en strikt JSON-reparatör.
+Returnera ENDAST giltig JSON utan extra text eller markdown.`;
 
 const MEMORY_PROMPT_HEADER = `Analysera konversationen och extrahera:
 
@@ -73,6 +80,22 @@ VIKTIGT:
 - Ange ttl_days endast om minnet är kortlivat (t.ex. top_of_mind ~30 dagar, history ~180 dagar)
 `;
 
+const MEMORY_REPAIR_PROMPT_HEADER = `Reparera texten till giltig JSON enligt exakt schema:
+{
+  "summary": "...",
+  "memories": [
+    {
+      "category": "work_context|preferences|history|top_of_mind",
+      "content": "...",
+      "tier": "profile|project|episodic|fact",
+      "importance": 0.0-1.0,
+      "ttl_days": 30
+    }
+  ]
+}
+
+Text att reparera:`;
+
 const MAX_MESSAGES = 60;
 const MAX_MESSAGE_CHARS = 900;
 const MAX_MEMORIES = 8;
@@ -112,6 +135,75 @@ function extractJson(text: string): string | null {
     const end = text.lastIndexOf("}");
     if (start === -1 || end === -1 || end <= start) return null;
     return text.slice(start, end + 1);
+}
+
+function stripCodeFences(text: string): string {
+    let trimmed = text.trim();
+    if (trimmed.startsWith("```")) {
+        trimmed = trimmed.replace(/^```(?:json)?/i, "").trim();
+        if (trimmed.endsWith("```")) {
+            trimmed = trimmed.slice(0, -3).trim();
+        }
+    }
+    return trimmed;
+}
+
+function repairJsonText(text: string): string {
+    let repaired = text.trim();
+    repaired = repaired.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    // Remove trailing commas
+    repaired = repaired.replace(/,\s*([}\]])/g, "$1");
+    // Insert missing commas between object blocks (common LLM slip)
+    repaired = repaired.replace(/}\s*{/g, "},{");
+    return repaired;
+}
+
+function parseMemoryResponse(text: string): MemoryResponse | null {
+    const candidates: string[] = [];
+    const stripped = stripCodeFences(text);
+    candidates.push(stripped);
+
+    const extracted = extractJson(stripped);
+    if (extracted && extracted !== stripped) {
+        candidates.push(extracted);
+    }
+
+    const repaired = repairJsonText(extracted ?? stripped);
+    if (repaired !== (extracted ?? stripped)) {
+        candidates.push(repaired);
+    }
+
+    for (const candidate of candidates) {
+        try {
+            return JSON.parse(candidate) as MemoryResponse;
+        } catch {
+            continue;
+        }
+    }
+
+    return null;
+}
+
+async function repairMemoryResponse(
+    model: { generateContent: (request: unknown) => Promise<{ response: { text: () => string } }> },
+    rawText: string
+): Promise<string | null> {
+    const snippet = rawText.length > 4000 ? `${rawText.slice(0, 4000)}…` : rawText;
+    const repairPrompt = `${MEMORY_REPAIR_PROMPT_HEADER}\n${snippet}`;
+
+    try {
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: repairPrompt }] }],
+            generationConfig: {
+                temperature: 0,
+                maxOutputTokens: 1024,
+                responseMimeType: "application/json"
+            }
+        });
+        return result.response.text();
+    } catch {
+        return null;
+    }
 }
 
 function normalizeContent(content: string): string {
@@ -227,6 +319,14 @@ Deno.serve(async (req: Request) => {
             });
         }
 
+        const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+        if (!authHeader) {
+            return new Response(JSON.stringify({ error: "Unauthorized" }), {
+                status: 401,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
         const { conversation_id } = await req.json() as { conversation_id?: string };
         if (!conversation_id) {
             return new Response(JSON.stringify({ error: "conversation_id is required" }), {
@@ -236,6 +336,38 @@ Deno.serve(async (req: Request) => {
         }
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const token = authHeader.replace(/^Bearer\s+/i, "");
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+        if (userError || !user) {
+            return new Response(JSON.stringify({ error: "Unauthorized" }), {
+                status: 401,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        const plan = await getUserPlan(supabase, user.id);
+        const rateLimiter = new RateLimiterService(supabase, getRateLimitConfigForPlan(plan));
+        const rateLimit = await rateLimiter.checkAndIncrement(user.id, RATE_LIMIT_ENDPOINT);
+
+        if (!rateLimit.allowed) {
+            return new Response(
+                JSON.stringify({
+                    error: "rate_limit_exceeded",
+                    message: rateLimit.message,
+                    remaining: rateLimit.remaining,
+                    resetAt: rateLimit.resetAt.toISOString()
+                }),
+                {
+                    status: 429,
+                    headers: {
+                        ...corsHeaders,
+                        "Content-Type": "application/json",
+                        "X-RateLimit-Remaining": String(rateLimit.remaining),
+                        "X-RateLimit-Reset": rateLimit.resetAt.toISOString()
+                    }
+                }
+            );
+        }
 
         const { data: conversation, error: conversationError } = await supabase
             .from("conversations")
@@ -247,6 +379,13 @@ Deno.serve(async (req: Request) => {
         if (!conversation) {
             return new Response(JSON.stringify({ error: "Conversation not found" }), {
                 status: 404,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+
+        if (conversation.user_id !== user.id) {
+            return new Response(JSON.stringify({ error: "Forbidden" }), {
+                status: 403,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
         }
@@ -291,22 +430,42 @@ Deno.serve(async (req: Request) => {
             model: modelName,
             systemInstruction: MEMORY_SYSTEM_INSTRUCTION
         });
+        const repairModel = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: MEMORY_REPAIR_INSTRUCTION
+        });
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             generationConfig: {
-                temperature: 0.2,
-                maxOutputTokens: 1024
+                temperature: 0,
+                maxOutputTokens: 1024,
+                responseMimeType: "application/json"
             }
         });
 
         const responseText = result.response.text();
-        const jsonText = extractJson(responseText);
-        if (!jsonText) {
-            throw new Error("Failed to parse memory response");
+        let parsed = parseMemoryResponse(responseText);
+
+        if (!parsed) {
+            const repairedText = await repairMemoryResponse(repairModel, responseText);
+            if (repairedText) {
+                parsed = parseMemoryResponse(repairedText);
+            }
         }
 
-        const parsed = JSON.parse(jsonText) as MemoryResponse;
+        if (!parsed) {
+            logger.warn("Memory response parse failed", { responseLength: responseText.length });
+            return new Response(JSON.stringify({
+                success: false,
+                summary_updated: false,
+                memories_added: 0,
+                error: "parse_failed"
+            }), {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
         const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
         const memories = Array.isArray(parsed.memories) ? parsed.memories : [];
 

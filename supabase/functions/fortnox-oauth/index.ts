@@ -32,6 +32,60 @@ const FORTNOX_SCOPES = [
     'companyinformation'
 ].join(' ');
 
+type OAuthStatePayload = {
+    userId: string;
+    timestamp: number;
+    nonce: string;
+};
+
+function toBase64Url(value: ArrayBuffer): string {
+    const bytes = new Uint8Array(value);
+    let binary = '';
+    bytes.forEach((b) => {
+        binary += String.fromCharCode(b);
+    });
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function signState(payload: string, secret: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(secret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+    );
+    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+    return toBase64Url(signature);
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    let result = 0;
+    for (let i = 0; i < a.length; i += 1) {
+        result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+    return result === 0;
+}
+
+async function buildSignedState(payload: OAuthStatePayload, secret: string): Promise<string> {
+    const payloadEncoded = btoa(JSON.stringify(payload));
+    const signature = await signState(payloadEncoded, secret);
+    return `${payloadEncoded}.${signature}`;
+}
+
+async function verifySignedState(state: string, secret: string): Promise<OAuthStatePayload | null> {
+    const [payloadEncoded, signature] = state.split('.');
+    if (!payloadEncoded || !signature) return null;
+    const expectedSignature = await signState(payloadEncoded, secret);
+    if (!timingSafeEqual(signature, expectedSignature)) {
+        return null;
+    }
+    const decoded = JSON.parse(atob(payloadEncoded)) as OAuthStatePayload;
+    return decoded;
+}
+
 interface OAuthInitiateRequest {
     action: 'initiate';
 }
@@ -139,12 +193,13 @@ Deno.serve(async (req: Request) => {
 /**
  * Initiates the OAuth flow by returning the Fortnox authorization URL
  */
-function handleInitiate(userId: string, supabaseUrl: string, corsHeaders: Record<string, string>) {
+async function handleInitiate(userId: string, supabaseUrl: string, corsHeaders: Record<string, string>) {
     const clientId = Deno.env.get('FORTNOX_CLIENT_ID');
+    const stateSecret = Deno.env.get('FORTNOX_OAUTH_STATE_SECRET');
 
-    if (!clientId) {
+    if (!clientId || !stateSecret) {
         return new Response(
-            JSON.stringify({ error: 'Fortnox client ID not configured' }),
+            JSON.stringify({ error: 'Fortnox OAuth configuration missing' }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }
@@ -153,11 +208,13 @@ function handleInitiate(userId: string, supabaseUrl: string, corsHeaders: Record
     const redirectUri = `${supabaseUrl}/functions/v1/fortnox-oauth`;
 
     // Create state parameter with user ID for security and to identify user on callback
-    const state = btoa(JSON.stringify({
+    const statePayload: OAuthStatePayload = {
         userId,
         timestamp: Date.now(),
         nonce: crypto.randomUUID()
-    }));
+    };
+
+    const state = await buildSignedState(statePayload, stateSecret);
 
     // Build authorization URL
     const authUrl = new URL(FORTNOX_AUTH_URL);
@@ -203,8 +260,19 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
     }
 
     try {
-        // Decode and validate state
-        const stateData = JSON.parse(atob(state));
+        const stateSecret = Deno.env.get('FORTNOX_OAUTH_STATE_SECRET');
+        if (!stateSecret) {
+            logger.error('Fortnox OAuth state secret missing');
+            return Response.redirect(`${appUrl}?fortnox_error=state_secret_missing`, 302);
+        }
+
+        // Decode and validate signed state
+        const stateData = await verifySignedState(state, stateSecret);
+        if (!stateData) {
+            logger.error('Invalid OAuth state signature');
+            return Response.redirect(`${appUrl}?fortnox_error=invalid_state`, 302);
+        }
+
         const { userId, timestamp } = stateData;
 
         // Check state is not too old (10 minutes max)

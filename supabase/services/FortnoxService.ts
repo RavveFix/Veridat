@@ -15,7 +15,10 @@ import type {
     FortnoxSupplierInvoiceListResponse,
     FortnoxSupplier,
     FortnoxSupplierResponse,
-    FortnoxSupplierListResponse
+    FortnoxSupplierListResponse,
+    FortnoxAccountListResponse,
+    FortnoxFinancialYearListResponse,
+    FortnoxCompanyInfoResponse,
 } from '../functions/fortnox/types.ts';
 
 export interface FortnoxConfig {
@@ -39,11 +42,13 @@ export class FortnoxService {
     private baseUrl: string = 'https://api.fortnox.se/3';
     private authUrl: string = 'https://apps.fortnox.se/oauth-v1/token';
     private supabase: SupabaseClient;
+    private userId: string;
 
-    constructor(config: FortnoxConfig, supabaseClient: SupabaseClient) {
+    constructor(config: FortnoxConfig, supabaseClient: SupabaseClient, userId: string) {
         this.clientId = config.clientId;
         this.clientSecret = config.clientSecret;
         this.supabase = supabaseClient;
+        this.userId = userId;
     }
 
     /**
@@ -55,6 +60,7 @@ export class FortnoxService {
         const { data, error } = await this.supabase
             .from('fortnox_tokens')
             .select('*')
+            .eq('user_id', this.userId)
             .limit(1)
             .single();
 
@@ -357,5 +363,79 @@ export class FortnoxService {
 
         // Create new supplier
         return await this.createSupplier(supplierData);
+    }
+
+    // ========================================================================
+    // SIE EXPORT METHODS
+    // ========================================================================
+
+    /**
+     * Export SIE file from Fortnox
+     * @param sieType SIE type: 1=Årssaldon, 2=Periodsaldon, 3=Objektsaldon, 4=Transaktioner
+     * @param financialYear Optional financial year
+     */
+    async exportSIE(sieType: number, financialYear?: number): Promise<{ content: string; filename: string }> {
+        if (sieType < 1 || sieType > 4) {
+            throw new Error('Invalid SIE type. Must be 1-4.');
+        }
+
+        let endpoint = `/sie/${sieType}`;
+        if (financialYear) {
+            endpoint += `?financialyear=${financialYear}`;
+        }
+
+        // SIE endpoint returns raw text, not JSON - use raw fetch
+        const token = await this.getAccessToken();
+        const url = `${this.baseUrl}${endpoint}`;
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Fortnox SIE Export Error: ${response.status} ${errorText}`);
+        }
+
+        const content = await response.text();
+        const typeLabels: Record<number, string> = {
+            1: 'Arssaldon',
+            2: 'Periodsaldon',
+            3: 'Objektsaldon',
+            4: 'Transaktioner',
+        };
+        const filename = `SIE${sieType}_${typeLabels[sieType]}_${financialYear || 'current'}.se`;
+
+        return { content, filename };
+    }
+
+    // ========================================================================
+    // ACCOUNT & FINANCIAL YEAR METHODS (Fas B)
+    // ========================================================================
+
+    /**
+     * Get all accounts with balances for a financial year
+     */
+    async getAccounts(financialYear?: number): Promise<FortnoxAccountListResponse> {
+        let endpoint = '/accounts';
+        if (financialYear) {
+            endpoint += `?financialyear=${financialYear}`;
+        }
+        return await this.request<FortnoxAccountListResponse>(endpoint);
+    }
+
+    /**
+     * Get all financial years
+     */
+    async getFinancialYears(): Promise<FortnoxFinancialYearListResponse> {
+        return await this.request<FortnoxFinancialYearListResponse>('/financialyears');
+    }
+
+    /**
+     * Get company information
+     */
+    async getCompanyInfo(): Promise<FortnoxCompanyInfoResponse> {
+        return await this.request<FortnoxCompanyInfoResponse>('/companyinformation');
     }
 }

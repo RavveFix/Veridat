@@ -21,6 +21,7 @@ import { FortnoxSidebar } from '../components/FortnoxSidebar';
 // Services
 import { logger } from '../services/LoggerService';
 import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
+import { copilotService } from '../services/CopilotService';
 import { authService } from '../services/AuthService';
 import { companyManager } from '../services/CompanyService';
 import { uiController } from '../services/UIService';
@@ -522,6 +523,7 @@ export class AppController {
         fortnoxContextService.checkConnection().then((status: FortnoxConnectionStatus) => {
             if (status === 'connected') {
                 fortnoxContextService.preloadData();
+                copilotService.start();
             }
             // Hide toggle button if not connected
             if (toggleBtn && status === 'disconnected') {
@@ -534,6 +536,12 @@ export class AppController {
             const status = (e as CustomEvent).detail;
             if (toggleBtn) {
                 toggleBtn.style.display = status === 'connected' ? '' : 'none';
+            }
+            // Start/stop copilot based on connection
+            if (status === 'connected') {
+                copilotService.start();
+            } else {
+                copilotService.stop();
             }
         }) as EventListener);
     }

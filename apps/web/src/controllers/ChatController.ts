@@ -309,8 +309,8 @@ export class ChatController {
 
     private setupVATReportHandler(): void {
         window.addEventListener('vat-report-ready', async (e: Event) => {
-            const customEvent = e as CustomEvent<{ data: VATReportData; fileUrl?: string }>;
-            const { data, fileUrl } = customEvent.detail;
+            const customEvent = e as CustomEvent<{ data: VATReportData; fileUrl?: string; filePath?: string; fileBucket?: string }>;
+            const { data, fileUrl, filePath, fileBucket } = customEvent.detail;
 
             if (this.vatReportSaveInProgress) {
                 logger.debug('VAT report save already in progress, skipping');
@@ -336,6 +336,9 @@ export class ChatController {
                     metadata: JSON.parse(JSON.stringify({
                         type: 'vat_report',
                         data: data,
+                        file_url: fileUrl || null,
+                        file_path: filePath || null,
+                        file_bucket: fileBucket || null,
                         analyzed_at: new Date().toISOString()
                     }))
                 });
@@ -355,14 +358,29 @@ export class ChatController {
     private setupExcelEventListeners(): void {
         // Listen for open-excel events from ChatHistory
         window.addEventListener('open-excel', ((e: Event) => {
-            const { url, name } = (e as CustomEvent<{ url?: string; name?: string }>).detail ?? {};
-            if (url && name && this.excelWorkspace) {
+            const { url, name, path, bucket } = (e as CustomEvent<{ url?: string; name?: string; path?: string; bucket?: string }>).detail ?? {};
+            if (!name || !this.excelWorkspace) {
+                return;
+            }
+
+            void (async () => {
+                const resolvedUrl = await fileService.resolveFileUrl({
+                    url: url || null,
+                    path: path || null,
+                    bucket: bucket || null
+                });
+
+                if (!resolvedUrl) {
+                    logger.warn('Could not resolve Excel file URL');
+                    return;
+                }
+
                 // Use the new Claude-inspired artifact UI
-                this.excelWorkspace.openExcelArtifact(url, name, () => {
+                this.excelWorkspace?.openExcelArtifact(resolvedUrl, name, () => {
                     // TODO: Re-analyze the file if user clicks "Analysera moms"
                     console.log('Re-analysis requested for:', name);
                 });
-            }
+            })();
         }) as EventListener);
 
     }
@@ -403,6 +421,8 @@ export class ChatController {
 
         const fileToSend = this.currentFile;
         let fileUrl: string | null = null;
+        let filePath: string | null = null;
+        let fileBucket: string | null = null;
         let vatReportResponse: VATReportResponse | null = null;
         let conversationId = companyManager.getConversationId();
         let didDispatchOptimistic = false;
@@ -472,12 +492,17 @@ export class ChatController {
             // Upload file to storage after analysis
             try {
                 const currentCompanyId = companyManager.getCurrentId();
-                fileUrl = await fileService.uploadToStorage(fileToSend, 'chat-files', currentCompanyId);
+                const uploadResult = await fileService.uploadToStorage(fileToSend, 'chat-files', currentCompanyId);
+                fileUrl = uploadResult.url;
+                filePath = uploadResult.path;
+                fileBucket = uploadResult.bucket;
                 if (vatReportResponse) {
                     // Store VAT report per company to isolate data
                     localStorage.setItem(`latest_vat_report_${currentCompanyId}`, JSON.stringify({
                         ...vatReportResponse,
                         fileUrl,
+                        filePath,
+                        fileBucket,
                         filename: fileToSend.name,
                         analyzedAt: new Date().toISOString()
                     }));
@@ -491,7 +516,10 @@ export class ChatController {
         if (fileToSend && !fileService.isExcel(fileToSend)) {
             try {
                 const currentCompanyId = companyManager.getCurrentId();
-                fileUrl = await fileService.uploadToStorage(fileToSend, 'chat-files', currentCompanyId);
+                const uploadResult = await fileService.uploadToStorage(fileToSend, 'chat-files', currentCompanyId);
+                fileUrl = uploadResult.url;
+                filePath = uploadResult.path;
+                fileBucket = uploadResult.bucket;
             } catch (uploadError) {
                 logger.warn('File upload failed (non-critical)', uploadError);
             }
@@ -512,7 +540,7 @@ export class ChatController {
         // Show AI response based on file type
         if (vatReportResponse && vatReportResponse.type === 'vat_report' && this.excelWorkspace) {
             // Open VAT report in side panel automatically
-            this.excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined, true);
+            this.excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined, filePath || undefined, fileBucket || undefined, true);
 
             if (conversationId) {
                 await supabase.from('messages').insert({
@@ -525,6 +553,8 @@ export class ChatController {
                         type: 'vat_report',
                         data: vatReportResponse.data,
                         file_url: fileUrl || null,
+                        file_path: filePath || null,
+                        file_bucket: fileBucket || null,
                         analyzed_at: new Date().toISOString()
                     }))
                 });

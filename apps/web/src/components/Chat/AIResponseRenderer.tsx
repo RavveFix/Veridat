@@ -13,6 +13,8 @@ interface AIResponseRendererProps {
         type?: string;
         data?: VATReportData;
         file_url?: string;
+        file_path?: string;
+        file_bucket?: string;
         // Journal entry metadata
         verification_id?: string;
         entries?: JournalEntry[];
@@ -55,6 +57,8 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     );
     // Check if this is a VAT report response - show compact inline card
     // Full report is displayed in the side panel
+    const effectiveFileUrl = fileUrl || metadata?.file_url || null;
+
     if (metadata?.type === 'vat_report' && metadata.data) {
         const vatData = metadata.data;
         return (
@@ -65,7 +69,9 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
                     netVat={vatData.vat?.net ?? 0}
                     totalIncome={vatData.summary?.total_income}
                     fullData={vatData}
-                    fileUrl={metadata.file_url}
+                    fileUrl={effectiveFileUrl || undefined}
+                    filePath={metadata.file_path}
+                    fileBucket={metadata.file_bucket}
                 />
             </div>
         );
@@ -139,7 +145,7 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     }
 
     // Check if there's an attached file (Excel)
-    if (fileName && fileUrl && fileName.endsWith('.xlsx')) {
+    if (fileName && fileName.endsWith('.xlsx') && (effectiveFileUrl || metadata?.file_path)) {
         return (
             <div class="ai-response">
                 <div
@@ -160,7 +166,12 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
                             primary: true,
                             onClick: () => {
                                 window.dispatchEvent(new CustomEvent('open-excel', {
-                                    detail: { url: fileUrl, name: fileName }
+                                    detail: {
+                                        url: effectiveFileUrl || undefined,
+                                        name: fileName,
+                                        path: metadata?.file_path,
+                                        bucket: metadata?.file_bucket
+                                    }
                                 }));
                             },
                         },

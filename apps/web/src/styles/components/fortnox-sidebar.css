@@ -399,6 +399,57 @@
     border-top-color: rgba(0, 0, 0, 0.06);
 }
 
+/* --- Copilot Notifications --- */
+
+.fortnox-copilot-section {
+    flex-shrink: 0;
+    padding: 16px 20px;
+}
+
+.fortnox-notification {
+    position: relative;
+}
+
+.copilot-unread {
+    background: rgba(59, 130, 246, 0.06);
+    border-radius: 8px;
+}
+
+.copilot-unread .fortnox-notification-title {
+    font-weight: 600;
+}
+
+.copilot-dismiss-btn {
+    position: absolute;
+    top: 10px;
+    right: 6px;
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.fortnox-notification:hover .copilot-dismiss-btn {
+    opacity: 1;
+}
+
+.copilot-dismiss-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+}
+
+[data-theme="light"] .copilot-unread {
+    background: rgba(59, 130, 246, 0.05);
+}
+
+[data-theme="light"] .copilot-dismiss-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
 /* --- Mobile: Bottom Sheet --- */
 
 @media (max-width: 768px) {

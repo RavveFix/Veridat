@@ -9,6 +9,7 @@
 
 import { fortnoxContextService, type FortnoxEntity, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
 import { skillDetectionService } from '../services/SkillDetectionService';
+import { CopilotNotificationsRenderer } from './CopilotNotifications';
 import { logger } from '../services/LoggerService';
 
 // BAS account name lookup for common accounts
@@ -28,6 +29,7 @@ export class FortnoxSidebar {
     private container: HTMLElement | null = null;
     private isOpen = false;
     private toggleBtn: HTMLButtonElement | null = null;
+    private copilotRenderer = new CopilotNotificationsRenderer();
 
     init(containerId: string): void {
         this.container = document.getElementById(containerId);
@@ -38,6 +40,7 @@ export class FortnoxSidebar {
 
         this.render();
         this.bindEvents();
+        this.initCopilot();
     }
 
     // --- Public API ---
@@ -92,6 +95,13 @@ export class FortnoxSidebar {
         badge.textContent = status === 'connected' ? 'Ansluten' : status === 'checking' ? '...' : 'Ej ansluten';
     }
 
+    // --- Copilot ---
+
+    private initCopilot(): void {
+        const copilotContainer = this.container?.querySelector('.fortnox-copilot-container') as HTMLElement;
+        this.copilotRenderer.init(copilotContainer, this.toggleBtn);
+    }
+
     // --- Rendering ---
 
     private render(): void {
@@ -112,6 +122,10 @@ export class FortnoxSidebar {
                 </button>
             </div>
             <div class="fortnox-sidebar-body"></div>
+            <div class="fortnox-sidebar-section fortnox-copilot-section">
+                <div class="fortnox-sidebar-section-label">Copilot</div>
+                <div class="fortnox-copilot-container"></div>
+            </div>
         `;
 
         // Initial empty state
@@ -166,21 +180,6 @@ export class FortnoxSidebar {
                 <div class="fortnox-sidebar-section-label">Snabbåtgärder</div>
                 <div class="fortnox-quick-actions">
                     ${this.renderQuickActions(entity)}
-                </div>
-            </div>
-            <div class="fortnox-sidebar-section fortnox-copilot-section">
-                <div class="fortnox-sidebar-section-label">Copilot</div>
-                <div class="fortnox-notification">
-                    <div class="fortnox-notification-icon info">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"/>
-                            <path d="M12 16v-4M12 8h.01"/>
-                        </svg>
-                    </div>
-                    <div class="fortnox-notification-text">
-                        <div class="fortnox-notification-title">Copilot kommer snart</div>
-                        <div class="fortnox-notification-desc">Proaktiva förslag och påminnelser.</div>
-                    </div>
                 </div>
             </div>
         `;

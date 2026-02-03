@@ -119,6 +119,81 @@ export type Database = {
         }
         Relationships: []
       }
+      accounting_memories: {
+        Row: {
+          id: string
+          user_id: string
+          company_id: string
+          entity_type: string
+          entity_key: string | null
+          label: string
+          payload: Json
+          source_type: string
+          source_id: string | null
+          source_reliability: number
+          confidence: number
+          confirmation_count: number
+          rejection_count: number
+          review_status: string
+          fiscal_year: string | null
+          period_start: string | null
+          period_end: string | null
+          valid_from: string | null
+          valid_to: string | null
+          last_used_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          company_id: string
+          entity_type: string
+          entity_key?: string | null
+          label?: string
+          payload?: Json
+          source_type: string
+          source_id?: string | null
+          source_reliability?: number
+          confidence?: number
+          confirmation_count?: number
+          rejection_count?: number
+          review_status?: string
+          fiscal_year?: string | null
+          period_start?: string | null
+          period_end?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+          last_used_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          company_id?: string
+          entity_type?: string
+          entity_key?: string | null
+          label?: string
+          payload?: Json
+          source_type?: string
+          source_id?: string | null
+          source_reliability?: number
+          confidence?: number
+          confirmation_count?: number
+          rejection_count?: number
+          review_status?: string
+          fiscal_year?: string | null
+          period_start?: string | null
+          period_end?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+          last_used_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       files: {
         Row: {
           company_id: string | null

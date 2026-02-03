@@ -3,8 +3,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
+import { RateLimiterService } from "../../services/RateLimiterService.ts";
+import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
 
 const logger = createLogger('send-consent-email');
+const RATE_LIMIT_ENDPOINT = 'send-consent-email';
 
 function escapeHtml(value: string): string {
   return value
@@ -125,6 +128,30 @@ Deno.serve(async (req: Request) => {
       return new Response(
         JSON.stringify({ error: 'Email saknas för användaren' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const plan = await getUserPlan(supabaseAdmin, userId);
+    const rateLimiter = new RateLimiterService(supabaseAdmin, getRateLimitConfigForPlan(plan));
+    const rateLimit = await rateLimiter.checkAndIncrement(userId, RATE_LIMIT_ENDPOINT);
+
+    if (!rateLimit.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: 'rate_limit_exceeded',
+          message: rateLimit.message,
+          remaining: rateLimit.remaining,
+          resetAt: rateLimit.resetAt.toISOString()
+        }),
+        {
+          status: 429,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+            'X-RateLimit-Remaining': String(rateLimit.remaining),
+            'X-RateLimit-Reset': rateLimit.resetAt.toISOString()
+          }
+        }
       );
     }
 

@@ -42,6 +42,8 @@ export interface PatternMatch {
     confidence_score: number;
     avg_amount: number;
     usage_count: number;
+    confirmation_count: number;
+    rejection_count: number;
 }
 
 export interface TransactionToMatch {
@@ -66,6 +68,10 @@ export interface PatternSuggestion {
 
 export class ExpensePatternService {
     constructor(private supabase: SupabaseClient) {}
+
+    private static readonly MIN_SUGGESTION_CONFIRMATIONS = 2;
+    private static readonly TRUSTED_CONFIRMATIONS = 4;
+    private static readonly AUTO_APPLY_CONFIRMATIONS = 6;
 
     // =========================================================================
     // FIND PATTERNS
@@ -101,15 +107,32 @@ export class ExpensePatternService {
                 return [];
             }
 
+            const minConfirmations = ExpensePatternService.MIN_SUGGESTION_CONFIRMATIONS;
+            const trustedConfirmations = ExpensePatternService.TRUSTED_CONFIRMATIONS;
+            const autoApplyConfirmations = ExpensePatternService.AUTO_APPLY_CONFIRMATIONS;
+
+            const eligibleMatches = (data as PatternMatch[]).filter((match) => {
+                const confirmations = typeof match.confirmation_count === 'number' ? match.confirmation_count : 0;
+                return confirmations >= minConfirmations;
+            });
+
+            if (eligibleMatches.length === 0) {
+                return [];
+            }
+
             // Convert database results to PatternSuggestion objects
-            return data.map((match: PatternMatch) => {
+            return eligibleMatches.map((match: PatternMatch) => {
+                const confirmations = typeof match.confirmation_count === 'number' ? match.confirmation_count : 0;
+                const isTrusted = confirmations >= trustedConfirmations;
+                const autoApply = confirmations >= autoApplyConfirmations;
+                const confidenceBoost = isTrusted ? 5 : 0;
                 const suggestion: PatternSuggestion = {
                     transaction_id: transaction.id || null,
                     supplier_name: transaction.supplier_name,
                     pattern: match,
                     anomaly_warning: this.detectAnomaly(transaction, match),
-                    suggested_message: this.buildSuggestionMessage(transaction, match),
-                    auto_apply: match.confidence_score >= 0.8
+                    suggested_message: this.buildSuggestionMessage(transaction, match, confidenceBoost, confirmations),
+                    auto_apply: autoApply
                 };
                 return suggestion;
             });
@@ -317,10 +340,14 @@ export class ExpensePatternService {
      */
     private buildSuggestionMessage(
         transaction: TransactionToMatch,
-        pattern: PatternMatch
+        pattern: PatternMatch,
+        confidenceBoost: number = 0,
+        confirmations: number = 0
     ): string {
-        const confidence = Math.round(pattern.confidence_score * 100);
-        return `Förra gången kategoriserades "${pattern.supplier_name}" som ${pattern.bas_account} (${pattern.bas_account_name}). Använd samma? (${confidence}% säkerhet)`;
+        const baseConfidence = Math.round(pattern.confidence_score * 100);
+        const confidence = Math.min(100, baseConfidence + confidenceBoost);
+        const confirmationLabel = confirmations > 0 ? ` Bekräftat ${confirmations} gånger.` : '';
+        return `Förra gången kategoriserades "${pattern.supplier_name}" som ${pattern.bas_account} (${pattern.bas_account_name}). Använd samma? (${confidence}% säkerhet).${confirmationLabel}`;
     }
 
     /**

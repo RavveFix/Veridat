@@ -32,6 +32,18 @@ export interface Base64Result {
 
 export type Base64ResultWithPage = Base64Result & { pageNumber: number };
 
+export interface FileUploadResult {
+    url: string;
+    path: string;
+    bucket: string;
+}
+
+export interface FileReference {
+    url?: string | null;
+    path?: string | null;
+    bucket?: string | null;
+}
+
 export interface PdfExtractionResult {
     documentText: string;
     pageImages: Base64ResultWithPage[];
@@ -42,6 +54,7 @@ export interface PdfExtractionResult {
 // File size limits
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_EXCEL_SIZE = 5 * 1024 * 1024; // 5MB for Excel
+const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour
 
 // Supported MIME types
 const MIME_TYPES = {
@@ -65,6 +78,55 @@ class FileServiceClass {
             originalLength,
             paddedLength: padded.length
         };
+    }
+
+    private extractStoragePath(fileUrl: string): { bucket: string; path: string } | null {
+        try {
+            const parsed = new URL(fileUrl);
+            const match = parsed.pathname.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/]+)\/(.+)$/);
+            if (!match) return null;
+            const bucket = match[1];
+            const path = decodeURIComponent(match[2] || '');
+            if (!bucket || !path) return null;
+            return { bucket, path };
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Create a signed URL for a storage object.
+     */
+    async createSignedUrl(bucket: string, path: string, expiresInSeconds = SIGNED_URL_TTL_SECONDS): Promise<string> {
+        const { data, error } = await supabase.storage
+            .from(bucket)
+            .createSignedUrl(path, expiresInSeconds);
+
+        if (error || !data?.signedUrl) {
+            throw error || new Error('Could not create signed URL');
+        }
+
+        return data.signedUrl;
+    }
+
+    /**
+     * Resolve a usable file URL. If a storage path is available, return a fresh signed URL.
+     * If only a URL is provided, attempt to parse it as a Supabase Storage URL and re-sign it.
+     */
+    async resolveFileUrl(reference: FileReference, expiresInSeconds = SIGNED_URL_TTL_SECONDS): Promise<string | null> {
+        if (reference.path && reference.bucket) {
+            return this.createSignedUrl(reference.bucket, reference.path, expiresInSeconds);
+        }
+
+        if (reference.url) {
+            const parsed = this.extractStoragePath(reference.url);
+            if (parsed) {
+                return this.createSignedUrl(parsed.bucket, parsed.path, expiresInSeconds);
+            }
+            return reference.url;
+        }
+
+        return null;
     }
 
     /**
@@ -340,7 +402,7 @@ class FileServiceClass {
      * @param bucket - Storage bucket name (default: 'chat-files')
      * @param companyId - Optional company ID to associate with the file
      */
-    async uploadToStorage(file: File, bucket = 'chat-files', companyId?: string): Promise<string> {
+    async uploadToStorage(file: File, bucket = 'chat-files', companyId?: string): Promise<FileUploadResult> {
         logger.startTimer('file-upload');
 
         try {
@@ -367,10 +429,8 @@ class FileServiceClass {
                 throw error;
             }
 
-            // Get public URL
-            const { data: { publicUrl } } = supabase.storage
-                .from(bucket)
-                .getPublicUrl(data.path);
+            // Create signed URL for secure access
+            const signedUrl = await this.createSignedUrl(bucket, data.path);
 
             logger.endTimer('file-upload');
             logger.info('File uploaded to storage', {
@@ -379,7 +439,11 @@ class FileServiceClass {
                 companyId: companyId || 'default'
             });
 
-            return publicUrl;
+            return {
+                url: signedUrl,
+                path: data.path,
+                bucket
+            };
         } catch (error) {
             logger.endTimer('file-upload');
             logger.error('File upload failed', error);

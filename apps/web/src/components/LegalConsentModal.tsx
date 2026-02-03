@@ -83,6 +83,13 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
     const versionsSince = isReconsent ? getVersionsSince(previousTermsVersion) : [];
     const majorChanges = versionsSince.flatMap((v) => getVersionChanges(v)).filter(Boolean);
 
+    const consentTitle = isReconsent
+        ? `Uppdaterade villkor (v${CURRENT_TERMS_VERSION})`
+        : `Godkänn villkor (v${CURRENT_TERMS_VERSION})`;
+    const consentDescription = isReconsent
+        ? 'Vi har uppdaterat våra användarvillkor. Granska ändringarna och godkänn för att fortsätta.'
+        : 'Godkänn våra användarvillkor för att fortsätta använda Veridat.';
+
     const handleAccept = async () => {
         if (!isValid) {
             return;
@@ -270,7 +277,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                             <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
                             <path d="M12 6v6l4 2"/>
                         </svg>
-                        Uppdaterade villkor (v{CURRENT_TERMS_VERSION})
+                        {consentTitle}
                     </div>
                     <p style={{
                         margin: 0,
@@ -278,7 +285,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                         color: 'rgba(255, 255, 255, 0.75)',
                         lineHeight: '1.5'
                     }}>
-                        Vi har uppdaterat våra användarvillkor. Granska ändringarna och godkänn för att fortsätta.
+                        {consentDescription}
                     </p>
 
                     {majorChanges.length > 0 && (
@@ -321,6 +328,33 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                         }}>
                             {fullName}
                         </div>
+                    </div>
+                )}
+
+                {!fullName && (
+                    <div style={{ marginBottom: '1.5rem' }}>
+                        <label style={{
+                            display: 'block',
+                            marginBottom: '0.5rem',
+                            fontSize: '0.85rem',
+                            color: 'rgba(255, 255, 255, 0.7)'
+                        }}>
+                            Fullständigt namn
+                        </label>
+                        <input
+                            type="text"
+                            value={fullName}
+                            onInput={(e) => setFullName((e.target as HTMLInputElement).value)}
+                            placeholder="T.ex. Anna Andersson"
+                            class="input-glass"
+                            style={{
+                                width: '100%',
+                                padding: '0.75rem 0.9rem',
+                                borderRadius: '10px',
+                                fontSize: '0.95rem',
+                                color: '#fff'
+                            }}
+                        />
                     </div>
                 )}
 

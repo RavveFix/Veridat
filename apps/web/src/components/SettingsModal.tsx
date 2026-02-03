@@ -6,6 +6,7 @@ import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
 import { ModalWrapper } from './ModalWrapper';
 import { UsageDisplay } from './settings/UsageDisplay';
 import { ChangelogPanel } from './settings/ChangelogPanel';
+import { AccountingMemoryPanel } from './settings/AccountingMemoryPanel';
 
 interface SettingsModalProps {
     onClose: () => void;
@@ -227,6 +228,35 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                             planLimits={planLimits}
                             formatResetAt={formatResetAt}
                         />
+
+                        {user && (plan === 'pro' || plan === 'trial') ? (
+                            <AccountingMemoryPanel userId={user.id} plan={plan} />
+                        ) : (
+                            <section style={{ marginBottom: '2rem' }}>
+                                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.35rem', color: 'var(--text-primary)' }}>
+                                    Redovisningsminne (Pro)
+                                </h3>
+                                <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                    Få en översikt av AI-minnet per bolag, godkänn viktiga siffror och säkra redovisningskvaliteten.
+                                </p>
+                                <a
+                                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20för%20att%20få%20redovisningsminne.%0A%0AMvh"
+                                    style={{
+                                        display: 'inline-block',
+                                        marginTop: '0.9rem',
+                                        padding: '0.7rem 1rem',
+                                        borderRadius: '999px',
+                                        textDecoration: 'none',
+                                        fontWeight: 600,
+                                        fontSize: '0.9rem',
+                                        color: '#fff',
+                                        background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))'
+                                    }}
+                                >
+                                    Uppgradera till Pro
+                                </a>
+                            </section>
+                        )}
 
                         <section style={{ marginBottom: '2rem' }}>
                             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Profil</h3>

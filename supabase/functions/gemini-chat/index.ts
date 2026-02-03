@@ -1,7 +1,7 @@
 // Supabase Edge Function for Gemini Chat
 /// <reference path="../types/deno.d.ts" />
 
-import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, GeminiRateLimitError, type FileData, type ConversationSearchArgs, type RecentChatsArgs, type CreateJournalEntryArgs } from "../../services/GeminiService.ts";
+import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, GeminiRateLimitError, type FileData, type ConversationSearchArgs, type RecentChatsArgs, type CreateJournalEntryArgs, type GetVouchersArgs, type CreateSupplierArgs, type CreateSupplierInvoiceArgs, type ExportJournalToFortnoxArgs, type BookSupplierInvoiceArgs } from "../../services/GeminiService.ts";
 import { sendMessageToOpenAI } from "../../services/OpenAIService.ts";
 import { createSalesJournalEntries, createCostJournalEntries, validateJournalBalance, generateVerificationId } from "../../services/JournalService.ts";
 import { roundToOre } from "../../services/SwedishRounding.ts";
@@ -82,6 +82,31 @@ type UserMemoryRow = {
     expires_at?: string | null;
 };
 
+type AccountingMemoryPayload = {
+    summary?: string;
+    [key: string]: unknown;
+};
+
+type AccountingMemoryRow = {
+    id: string;
+    entity_type: string;
+    entity_key?: string | null;
+    label?: string | null;
+    payload?: AccountingMemoryPayload | null;
+    source_type: string;
+    source_reliability?: number | null;
+    confidence?: number | null;
+    review_status?: string | null;
+    fiscal_year?: string | null;
+    period_start?: string | null;
+    period_end?: string | null;
+    valid_from?: string | null;
+    valid_to?: string | null;
+    last_used_at?: string | null;
+    updated_at?: string | null;
+    created_at?: string | null;
+};
+
 // For transparency: track which memories were used in the response
 type UsedMemory = {
     id: string;
@@ -155,6 +180,182 @@ const MEMORY_STOP_WORDS = new Set([
 const MAX_MEMORY_CONTEXT = 10;
 const MAX_STABLE_MEMORIES = 4;
 const MAX_CONTEXTUAL_MEMORIES = 6;
+
+const ACCOUNTING_CONTEXT_MAX = 6;
+const ACCOUNTING_RELIABILITY_THRESHOLD = 0.6;
+const ACCOUNTING_ALLOWED_STATUSES = new Set(["auto", "confirmed"]);
+const ACCOUNTING_CONTEXT_ENTITY_TYPES = new Set([
+    "company_profile",
+    "account_policy",
+    "supplier_profile",
+    "tax_profile",
+    "period_summary",
+    "annual_report",
+    "journal_summary",
+    "rule",
+    "other"
+]);
+const ACCOUNTING_PERIOD_BOUND_TYPES = new Set([
+    "period_summary",
+    "annual_report",
+    "journal_summary"
+]);
+const ACCOUNTING_HIGH_RELIABILITY_SOURCES = new Set([
+    "ledger",
+    "annual_report"
+]);
+
+const ACCOUNTING_TYPE_LABELS: Record<string, string> = {
+    company_profile: "Bolagsprofil",
+    account_policy: "Kontoplan & policy",
+    supplier_profile: "Leverantörer",
+    tax_profile: "Skatt & moms",
+    period_summary: "Periodsammanfattning",
+    annual_report: "Årsredovisning",
+    journal_summary: "Bokföring",
+    rule: "Regler",
+    other: "Övrigt"
+};
+
+function extractYearHint(message: string): string | null {
+    const match = message.match(/\b(20\d{2})\b/);
+    return match ? match[1] : null;
+}
+
+function parseDate(value?: string | null): Date | null {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed;
+}
+
+function isAccountingMemoryActive(memory: AccountingMemoryRow, now: Date): boolean {
+    const validFrom = parseDate(memory.valid_from);
+    const validTo = parseDate(memory.valid_to);
+    if (validFrom && validFrom.getTime() > now.getTime()) return false;
+    if (validTo && validTo.getTime() < now.getTime()) return false;
+    return true;
+}
+
+function isAccountingMemoryPeriodMatch(memory: AccountingMemoryRow, yearHint: string | null): boolean {
+    const isPeriodBound = ACCOUNTING_PERIOD_BOUND_TYPES.has(memory.entity_type);
+    if (!isPeriodBound) return true;
+    if (!memory.fiscal_year) return false;
+    if (!yearHint) return false;
+    return memory.fiscal_year.includes(yearHint);
+}
+
+function isAccountingMemoryReliable(memory: AccountingMemoryRow): boolean {
+    const status = memory.review_status || "auto";
+    if (!ACCOUNTING_ALLOWED_STATUSES.has(status)) return false;
+
+    const reliability = typeof memory.source_reliability === "number" ? memory.source_reliability : 0.0;
+    if (reliability < ACCOUNTING_RELIABILITY_THRESHOLD) return false;
+
+    if (ACCOUNTING_PERIOD_BOUND_TYPES.has(memory.entity_type)) {
+        if (!ACCOUNTING_HIGH_RELIABILITY_SOURCES.has(memory.source_type)) return false;
+    }
+
+    return true;
+}
+
+function selectAccountingMemoriesForContext(
+    memories: AccountingMemoryRow[],
+    message: string
+): AccountingMemoryRow[] {
+    if (!memories.length) return [];
+
+    const yearHint = extractYearHint(message);
+    const now = new Date();
+
+    const filtered = memories.filter((memory) => {
+        if (!ACCOUNTING_CONTEXT_ENTITY_TYPES.has(memory.entity_type)) return false;
+        if (!isAccountingMemoryReliable(memory)) return false;
+        if (!isAccountingMemoryActive(memory, now)) return false;
+        if (!isAccountingMemoryPeriodMatch(memory, yearHint)) return false;
+        return true;
+    });
+
+    if (filtered.length === 0) return [];
+
+    const priorityOrder = [
+        "company_profile",
+        "account_policy",
+        "tax_profile",
+        "supplier_profile",
+        "period_summary",
+        "annual_report",
+        "journal_summary",
+        "rule",
+        "other"
+    ];
+
+    const toTime = (memory: AccountingMemoryRow): number => {
+        const timestamp = memory.last_used_at || memory.updated_at || memory.created_at || null;
+        if (!timestamp) return 0;
+        const parsed = new Date(timestamp);
+        return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+    };
+
+    const selected: AccountingMemoryRow[] = [];
+
+    for (const type of priorityOrder) {
+        const group = filtered
+            .filter((memory) => memory.entity_type === type)
+            .sort((a, b) => toTime(b) - toTime(a));
+        for (const memory of group) {
+            if (selected.length >= ACCOUNTING_CONTEXT_MAX) break;
+            selected.push(memory);
+        }
+        if (selected.length >= ACCOUNTING_CONTEXT_MAX) break;
+    }
+
+    return selected;
+}
+
+function formatAccountingMemoriesForContext(memories: AccountingMemoryRow[]): string | null {
+    if (!memories.length) return null;
+
+    const sections: Record<string, string[]> = {};
+
+    for (const memory of memories) {
+        const rawLabel = memory.label?.trim() || "";
+        const payload = memory.payload || {};
+        const payloadSummary = typeof payload.summary === "string" ? payload.summary.trim() : "";
+        const fallback = payloadSummary || (Object.keys(payload).length > 0 ? JSON.stringify(payload) : "");
+        const content = rawLabel || fallback;
+        if (!content) continue;
+
+        const suffixParts: string[] = [];
+        if (ACCOUNTING_PERIOD_BOUND_TYPES.has(memory.entity_type) && memory.fiscal_year) {
+            suffixParts.push(`År ${memory.fiscal_year}`);
+        }
+        const sourceLabel = memory.source_type ? `Källa: ${memory.source_type}` : "";
+        if (sourceLabel) suffixParts.push(sourceLabel);
+
+        const suffix = suffixParts.length > 0 ? ` (${suffixParts.join(", ")})` : "";
+        const line = `${truncateText(content, 220)}${suffix}`;
+
+        const sectionKey = ACCOUNTING_TYPE_LABELS[memory.entity_type] || "Övrigt";
+        if (!sections[sectionKey]) {
+            sections[sectionKey] = [];
+        }
+        sections[sectionKey].push(line);
+    }
+
+    const sectionText = Object.entries(sections)
+        .map(([title, items]) => `${title}:\n- ${items.join("\n- ")}`)
+        .join("\n\n");
+
+    if (!sectionText) return null;
+
+    return [
+        "SYSTEM CONTEXT: Redovisningsminne (verifierade uppgifter, periodstyrt).",
+        "<accountingMemories>",
+        sectionText,
+        "</accountingMemories>"
+    ].join("\n");
+}
 
 function normalizeTokens(text: string): string[] {
     return text
@@ -367,6 +568,10 @@ function extractSnippet(content: string, query: string, contextLength = 90): str
 
 function detectHistoryIntent(message: string): { search: boolean; recent: boolean } {
     const normalized = message.toLowerCase();
+    const explicitHistory = /(tidigare konversation|förra chatten|förra gången|pratade vi|diskuterade vi|sade du|sa du)/.test(normalized);
+    if (shouldSkipHistorySearch(message)) {
+        return { search: false, recent: false };
+    }
     const mentionsRecent = /(förra veckan|förra månaden|förra kvartalet|senast|sist|tidigare|förut)/.test(normalized);
     const mentionsTalk = /(pratade|diskuterade|nämnde|sade|sa)/.test(normalized);
     const mentionsWe = /\bvi\b/.test(normalized);
@@ -376,6 +581,23 @@ function detectHistoryIntent(message: string): { search: boolean; recent: boolea
     const recent = mentionsRecent && (mentionsWe || mentionsTalk);
 
     return { search, recent };
+}
+
+function shouldSkipHistorySearch(message: string): boolean {
+    const normalized = message.toLowerCase();
+    const explicitHistory = /(tidigare konversation|förra chatten|förra gången|pratade vi|diskuterade vi|sade du|sa du)/.test(normalized);
+    if (explicitHistory) return false;
+
+    const hasYear = /\b20\d{2}\b/.test(normalized);
+    const accountingTerms = /(årsredovisning|bokslut|momsrapport|momsredovisning|balansräkning|resultaträkning|sie|bas|räkenskapsår|period|omsättning|nettoomsättning|resultat|verifikation|bokföring)/.test(normalized);
+    const companyTerms = /\bbolag(et)?|företag(et)?\b/.test(normalized);
+    const accountingFocus = hasYear && (accountingTerms || companyTerms);
+
+    if (accountingFocus) {
+        return true;
+    }
+
+    return false;
 }
 
 function extractMemoryRequest(message: string): string | null {
@@ -610,6 +832,117 @@ interface VATReportContext {
     validation?: { is_valid: boolean; errors: string[]; warnings: string[] };
 }
 
+
+/**
+ * Execute a Fortnox tool call server-side (used by streaming path).
+ * Returns the response text, or null if the tool is unrecognized.
+ */
+async function executeFortnoxTool(
+    toolName: string,
+    toolArgs: Record<string, unknown>,
+    supabaseAdmin: any,
+    userId: string,
+    companyId: string | null,
+    authHeader: string
+): Promise<string | null> {
+    const supabaseUrl = getEnv(['SUPABASE_URL', 'SB_URL']);
+    const supabaseServiceKey = getEnv(['SUPABASE_SERVICE_ROLE_KEY', 'SB_SERVICE_ROLE_KEY']);
+    if (!supabaseUrl || !supabaseServiceKey) return null;
+
+    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+        global: { headers: { Authorization: authHeader } }
+    });
+    const fortnoxConfig = {
+        clientId: Deno.env.get('FORTNOX_CLIENT_ID') ?? '',
+        clientSecret: Deno.env.get('FORTNOX_CLIENT_SECRET') ?? '',
+        redirectUri: '',
+    };
+    const fortnoxService = new FortnoxService(fortnoxConfig, supabaseClient, userId);
+    const auditService = new AuditService(supabaseAdmin);
+
+    try {
+        switch (toolName) {
+            case 'get_customers': {
+                const result = await fortnoxService.getCustomers();
+                return `Här är dina kunder: ${(result as any).Customers.map((c: any) => c.Name).join(', ')}`;
+            }
+            case 'get_articles': {
+                const result = await fortnoxService.getArticles();
+                return `Här är dina artiklar: ${(result as any).Articles.map((a: any) => a.Description).join(', ')}`;
+            }
+            case 'get_suppliers': {
+                const result = await fortnoxService.getSuppliers();
+                const suppliers = (result as any).Suppliers || [];
+                return suppliers.length > 0
+                    ? `Här är dina leverantörer:\n${suppliers.map((s: any) => `- ${s.Name} (nr ${s.SupplierNumber})`).join('\n')}`
+                    : 'Inga leverantörer hittades i Fortnox.';
+            }
+            case 'get_vouchers': {
+                const vArgs = toolArgs as GetVouchersArgs;
+                const result = await fortnoxService.getVouchers(vArgs.financial_year, vArgs.series);
+                const vouchers = (result as any).Vouchers || [];
+                return vouchers.length > 0
+                    ? `Hittade ${vouchers.length} verifikationer:\n${vouchers.slice(0, 10).map((v: any) => `- ${v.VoucherSeries}${v.VoucherNumber}: ${v.Description || '—'} (${v.TransactionDate})`).join('\n')}`
+                    : 'Inga verifikationer hittades.';
+            }
+            case 'create_supplier': {
+                const csArgs = toolArgs as CreateSupplierArgs;
+                const result = await fortnoxService.createSupplier({
+                    Name: csArgs.name,
+                    OrganisationNumber: csArgs.org_number || undefined,
+                    Email: csArgs.email || undefined,
+                } as any);
+                const supplier = (result as any).Supplier || result;
+                void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'create', resourceType: 'supplier', resourceId: supplier.SupplierNumber || '', newState: supplier });
+                return `Leverantör skapad!\n- Namn: ${supplier.Name || csArgs.name}\n- Nr: ${supplier.SupplierNumber || 'tilldelas'}`;
+            }
+            case 'create_supplier_invoice': {
+                const siArgs = toolArgs as CreateSupplierInvoiceArgs;
+                const vatMul = 1 + (siArgs.vat_rate / 100);
+                const net = Math.round((siArgs.total_amount / vatMul) * 100) / 100;
+                const vat = Math.round((siArgs.total_amount - net) * 100) / 100;
+                const result = await fortnoxService.createSupplierInvoice({
+                    SupplierNumber: siArgs.supplier_number,
+                    InvoiceNumber: siArgs.invoice_number || undefined,
+                    InvoiceDate: new Date().toISOString().slice(0, 10),
+                    DueDate: siArgs.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                    Total: siArgs.total_amount, VAT: vat, VATType: 'NORMAL', AccountingMethod: 'ACCRUAL',
+                    SupplierInvoiceRows: [
+                        { Account: siArgs.account, Debit: net, Credit: 0 },
+                        { Account: 2640, Debit: vat, Credit: 0 },
+                        { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
+                    ],
+                } as any);
+                void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'create', resourceType: 'supplier_invoice', newState: result });
+                return `Leverantörsfaktura skapad!\n- Belopp: ${siArgs.total_amount} kr (${net} + ${vat} moms)\n- Konto: ${siArgs.account}\n- Förfallodatum: ${siArgs.due_date || '30 dagar'}`;
+            }
+            case 'export_journal_to_fortnox': {
+                const ejArgs = toolArgs as ExportJournalToFortnoxArgs;
+                const { data: je } = await supabaseAdmin.from('journal_entries').select('*').eq('verification_id', ejArgs.journal_entry_id).maybeSingle();
+                if (!je) return `Kunde inte hitta verifikat ${ejArgs.journal_entry_id}.`;
+                const entries = typeof je.entries === 'string' ? JSON.parse(je.entries) : je.entries;
+                const rows = entries.map((e: any) => ({ Account: e.account, Debit: e.debit || 0, Credit: e.credit || 0, Description: e.accountName || je.description }));
+                const result = await fortnoxService.createVoucher({ Description: `${je.description} (${ejArgs.journal_entry_id})`, TransactionDate: new Date().toISOString().slice(0, 10), VoucherSeries: 'A', VoucherRows: rows } as any);
+                const v = (result as any).Voucher || result;
+                void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'export', resourceType: 'voucher', resourceId: ejArgs.journal_entry_id, newState: v });
+                return `Exporterat till Fortnox! Verifikat: ${v.VoucherSeries || 'A'}-${v.VoucherNumber || '?'}`;
+            }
+            case 'book_supplier_invoice': {
+                const bArgs = toolArgs as BookSupplierInvoiceArgs;
+                await fortnoxService.bookSupplierInvoice(bArgs.invoice_number);
+                void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'update', resourceType: 'supplier_invoice', resourceId: bArgs.invoice_number });
+                return `Leverantörsfaktura ${bArgs.invoice_number} är nu bokförd.`;
+            }
+            case 'create_invoice':
+                return null; // Handled by client
+            default:
+                return null;
+        }
+    } catch (err) {
+        logger.error(`Fortnox tool ${toolName} failed`, err);
+        return `Ett fel uppstod vid ${toolName}: ${err instanceof Error ? err.message : 'okänt fel'}`;
+    }
+}
 
 Deno.serve(async (req: Request) => {
     const corsHeaders = getCorsHeaders();
@@ -1030,6 +1363,38 @@ ANVÄNDARFRÅGA:
             }
 
             try {
+                const { data: accountingMemories, error: accountingMemoriesError } = await supabaseAdmin
+                    .from('accounting_memories')
+                    .select('id, entity_type, entity_key, label, payload, source_type, source_reliability, confidence, review_status, fiscal_year, period_start, period_end, valid_from, valid_to, last_used_at, updated_at, created_at')
+                    .eq('user_id', userId)
+                    .eq('company_id', resolvedCompanyId)
+                    .order('updated_at', { ascending: false })
+                    .limit(200);
+
+                if (accountingMemoriesError) {
+                    logger.warn('Failed to load accounting memories', { userId, companyId: resolvedCompanyId });
+                } else if (accountingMemories && accountingMemories.length > 0) {
+                    const memoryRows = accountingMemories as AccountingMemoryRow[];
+                    const selectedMemories = selectAccountingMemoriesForContext(memoryRows, message);
+                    const accountingContext = formatAccountingMemoriesForContext(selectedMemories);
+
+                    if (accountingContext) {
+                        contextBlocks.push(accountingContext);
+                    }
+
+                    const accountingIds = selectedMemories.map((memory) => memory.id);
+                    if (accountingIds.length > 0) {
+                        await supabaseAdmin
+                            .from('accounting_memories')
+                            .update({ last_used_at: new Date().toISOString() })
+                            .in('id', accountingIds);
+                    }
+                }
+            } catch (accountingError) {
+                logger.warn('Failed to load accounting memories', { userId, companyId: resolvedCompanyId });
+            }
+
+            try {
                 const memoryService = new CompanyMemoryService(supabaseAdmin);
                 const memory = await memoryService.get(userId, resolvedCompanyId);
                 const memoryContext = memory
@@ -1052,12 +1417,13 @@ ANVÄNDARFRÅGA:
         const primaryImage = fileData?.mimeType?.startsWith('image/') ? fileData : undefined;
         const imagePages = (fileDataPages || []).filter((p) => p?.mimeType?.startsWith('image/') && !!p.data);
         const geminiFileData = primaryImage || (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
+        const disableTools = shouldSkipHistorySearch(message);
 
         // Handle Gemini Streaming
         if (provider === 'gemini') {
             console.log('[STREAMING] Starting Gemini streaming... (model:', effectiveModel || 'default', ')');
             try {
-                const stream = await sendMessageStreamToGemini(finalMessage, geminiFileData, history, undefined, effectiveModel);
+                const stream = await sendMessageStreamToGemini(finalMessage, geminiFileData, history, undefined, effectiveModel, { disableTools });
                 console.log('[STREAMING] Stream created successfully');
                 const encoder = new TextEncoder();
                 let fullText = "";
@@ -1090,36 +1456,52 @@ ANVÄNDARFRÅGA:
                                 const toolArgs = toolCallDetected.args || {};
 
                                 try {
-                                    if (toolName === 'conversation_search') {
-                                        const searchQuery = (toolArgs as { query?: string }).query || '';
-                                        const searchResults = await searchConversationHistory(supabaseAdmin, userId, resolvedCompanyId, searchQuery, 5);
-
-                                        if (searchResults.length === 0) {
-                                            const noResultsPrompt = `Jag sökte igenom tidigare konversationer efter "${searchQuery}" men hittade inget relevant. Svara på användarens fråga så gott du kan utan tidigare kontext: "${message}"`;
-                                            const noResultsResponse = await sendMessageToGemini(noResultsPrompt, undefined, history, undefined, effectiveModel);
-                                            toolResponseText = noResultsResponse.text || `Jag hittade tyvärr inget i tidigare konversationer som matchar "${searchQuery}".`;
-                                        } else {
-                                            const contextLines = searchResults.map(r => `[${r.conversation_title || 'Konversation'}]: ${r.snippet}`);
-                                            const contextPrompt = `SÖKRESULTAT FRÅN TIDIGARE KONVERSATIONER:\n${contextLines.join('\n')}\n\nAnvänd denna kontext för att svara naturligt på användarens fråga: "${message}"`;
-                                            const followUp = await sendMessageToGemini(contextPrompt, undefined, history, undefined, effectiveModel);
-                                            toolResponseText = followUp.text || formatHistoryResponse(searchQuery, searchResults, []);
-                                        }
-                                    } else if (toolName === 'recent_chats') {
-                                        const limit = (toolArgs as { limit?: number }).limit || 5;
-                                        const recentConversations = await getRecentConversations(supabaseAdmin, userId, resolvedCompanyId, limit);
-
-                                        if (recentConversations.length === 0) {
-                                            toolResponseText = "Du har inga tidigare konversationer ännu.";
-                                        } else {
-                                            const contextLines = recentConversations.map(c => `- ${c.title || 'Konversation'}${c.summary ? ` - ${c.summary}` : ''}`);
-                                            const contextPrompt = `SENASTE KONVERSATIONER:\n${contextLines.join('\n')}\n\nGe en kort överblick baserat på dessa konversationer för att svara på: "${message}"`;
-                                            const followUp = await sendMessageToGemini(contextPrompt, undefined, history, undefined, effectiveModel);
-                                            toolResponseText = followUp.text || formatHistoryResponse(message, [], recentConversations);
-                                        }
+                                if (toolName === 'conversation_search') {
+                                    if (shouldSkipHistorySearch(message)) {
+                                        const directResponse = await sendMessageToGemini(finalMessage, geminiFileData, history, undefined, effectiveModel, { disableTools: true });
+                                        toolResponseText = directResponse.text || "Jag kan hjälpa dig att sammanfatta redovisningen, men jag behöver mer data.";
                                     } else {
-                                        // For other tools (Fortnox), send metadata for client handling
-                                        const sseToolData = `data: ${JSON.stringify({ toolCall: { tool: toolName, args: toolArgs } })}\n\n`;
-                                        controller.enqueue(encoder.encode(sseToolData));
+                                    const searchQuery = (toolArgs as { query?: string }).query || '';
+                                    const searchResults = await searchConversationHistory(supabaseAdmin, userId, resolvedCompanyId, searchQuery, 5);
+
+                                    if (searchResults.length === 0) {
+                                        const noResultsPrompt = `Jag sökte igenom tidigare konversationer efter "${searchQuery}" men hittade inget relevant. Svara på användarens fråga så gott du kan utan tidigare kontext: "${message}"`;
+                                        const noResultsResponse = await sendMessageToGemini(noResultsPrompt, undefined, history, undefined, effectiveModel);
+                                        toolResponseText = noResultsResponse.text || `Jag hittade tyvärr inget i tidigare konversationer som matchar "${searchQuery}".`;
+                                    } else {
+                                        const contextLines = searchResults.map(r => `[${r.conversation_title || 'Konversation'}]: ${r.snippet}`);
+                                        const contextPrompt = `SÖKRESULTAT FRÅN TIDIGARE KONVERSATIONER:\n${contextLines.join('\n')}\n\nAnvänd denna kontext för att svara naturligt på användarens fråga: "${message}"`;
+                                        const followUp = await sendMessageToGemini(contextPrompt, undefined, history, undefined, effectiveModel);
+                                        toolResponseText = followUp.text || formatHistoryResponse(searchQuery, searchResults, []);
+                                    }
+                                    }
+                                } else if (toolName === 'recent_chats') {
+                                    if (shouldSkipHistorySearch(message)) {
+                                        const directResponse = await sendMessageToGemini(finalMessage, geminiFileData, history, undefined, effectiveModel, { disableTools: true });
+                                        toolResponseText = directResponse.text || "Jag kan hjälpa dig att sammanfatta redovisningen, men jag behöver mer data.";
+                                    } else {
+                                    const limit = (toolArgs as { limit?: number }).limit || 5;
+                                    const recentConversations = await getRecentConversations(supabaseAdmin, userId, resolvedCompanyId, limit);
+
+                                    if (recentConversations.length === 0) {
+                                        toolResponseText = "Du har inga tidigare konversationer ännu.";
+                                    } else {
+                                        const contextLines = recentConversations.map(c => `- ${c.title || 'Konversation'}${c.summary ? ` - ${c.summary}` : ''}`);
+                                        const contextPrompt = `SENASTE KONVERSATIONER:\n${contextLines.join('\n')}\n\nGe en kort överblick baserat på dessa konversationer för att svara på: "${message}"`;
+                                        const followUp = await sendMessageToGemini(contextPrompt, undefined, history, undefined, effectiveModel);
+                                        toolResponseText = followUp.text || formatHistoryResponse(message, [], recentConversations);
+                                    }
+                                    }
+                                } else {
+                                        // Execute Fortnox tools server-side
+                                        const fortnoxToolResult = await executeFortnoxTool(toolName, toolArgs, supabaseAdmin, userId, resolvedCompanyId, req.headers.get('Authorization')!);
+                                        if (fortnoxToolResult) {
+                                            toolResponseText = fortnoxToolResult;
+                                        } else {
+                                            // Unknown tool - send metadata for client handling
+                                            const sseToolData = `data: ${JSON.stringify({ toolCall: { tool: toolName, args: toolArgs } })}\n\n`;
+                                            controller.enqueue(encoder.encode(sseToolData));
+                                        }
                                     }
 
                                     // Stream the tool response as text
@@ -1217,7 +1599,7 @@ ANVÄNDARFRÅGA:
         // OpenAI or Fallback
         const geminiResponse = await (provider === 'openai'
             ? sendMessageToOpenAI(finalMessage, primaryImage, imagePages, history)
-            : sendMessageToGemini(finalMessage, geminiFileData, history));
+            : sendMessageToGemini(finalMessage, geminiFileData, history, undefined, undefined, { disableTools }));
 
         // Handle Tool Calls (Non-streaming fallback)
         if (geminiResponse.toolCall) {
@@ -1233,7 +1615,7 @@ ANVÄNDARFRÅGA:
                 clientSecret: Deno.env.get('FORTNOX_CLIENT_SECRET') ?? '',
                 redirectUri: '',
             };
-            const fortnoxService = new FortnoxService(fortnoxConfig, supabaseClient);
+            const fortnoxService = new FortnoxService(fortnoxConfig, supabaseClient, userId);
 
             let toolResult: any;
             let responseText = "";
@@ -1241,6 +1623,11 @@ ANVÄNDARFRÅGA:
             try {
                 switch (tool) {
                     case 'conversation_search': {
+                        if (shouldSkipHistorySearch(message)) {
+                            const directResponse = await sendMessageToGemini(finalMessage, geminiFileData, history, undefined, undefined, { disableTools: true });
+                            responseText = directResponse.text || "Jag kan hjälpa dig att sammanfatta redovisningen, men jag behöver mer data.";
+                            break;
+                        }
                         const searchQuery = (args as { query: string }).query;
                         const searchResults = await searchConversationHistory(
                             supabaseAdmin,
@@ -1270,6 +1657,11 @@ ANVÄNDARFRÅGA:
                         break;
                     }
                     case 'recent_chats': {
+                        if (shouldSkipHistorySearch(message)) {
+                            const directResponse = await sendMessageToGemini(finalMessage, geminiFileData, history, undefined, undefined, { disableTools: true });
+                            responseText = directResponse.text || "Jag kan hjälpa dig att sammanfatta redovisningen, men jag behöver mer data.";
+                            break;
+                        }
                         const limit = (args as { limit?: number }).limit || 5;
                         const recentConversations = await getRecentConversations(
                             supabaseAdmin,
@@ -1306,6 +1698,132 @@ ANVÄNDARFRÅGA:
                         toolResult = await fortnoxService.getArticles();
                         responseText = `Här är dina artiklar: ${toolResult.Articles.map((a: any) => a.Description).join(', ')}`;
                         break;
+                    case 'get_suppliers':
+                        toolResult = await fortnoxService.getSuppliers();
+                        responseText = toolResult.Suppliers?.length > 0
+                            ? `Här är dina leverantörer:\n${toolResult.Suppliers.map((s: any) => `- ${s.Name} (nr ${s.SupplierNumber}${s.OrganisationNumber ? `, org: ${s.OrganisationNumber}` : ''})`).join('\n')}`
+                            : 'Inga leverantörer hittades i Fortnox.';
+                        break;
+                    case 'get_vouchers': {
+                        const vArgs = args as GetVouchersArgs;
+                        toolResult = await fortnoxService.getVouchers(vArgs.financial_year, vArgs.series);
+                        const vouchers = toolResult.Vouchers || [];
+                        responseText = vouchers.length > 0
+                            ? `Hittade ${vouchers.length} verifikationer:\n${vouchers.slice(0, 10).map((v: any) => `- ${v.VoucherSeries}${v.VoucherNumber}: ${v.Description || 'Ingen beskrivning'} (${v.TransactionDate})`).join('\n')}${vouchers.length > 10 ? `\n...och ${vouchers.length - 10} till` : ''}`
+                            : 'Inga verifikationer hittades.';
+                        break;
+                    }
+                    case 'create_supplier': {
+                        const csArgs = args as CreateSupplierArgs;
+                        toolResult = await fortnoxService.createSupplier({
+                            Name: csArgs.name,
+                            OrganisationNumber: csArgs.org_number || undefined,
+                            Email: csArgs.email || undefined,
+                        } as any);
+                        const supplier = toolResult.Supplier || toolResult;
+                        responseText = `Leverantör skapad i Fortnox!\n- Namn: ${supplier.Name || csArgs.name}\n- Leverantörsnr: ${supplier.SupplierNumber || 'tilldelas'}`;
+                        // Audit log
+                        void auditService.log({
+                            userId,
+                            companyId: resolvedCompanyId || undefined,
+                            actorType: 'ai',
+                            action: 'create',
+                            resourceType: 'supplier',
+                            resourceId: supplier.SupplierNumber || '',
+                            newState: supplier,
+                        });
+                        break;
+                    }
+                    case 'create_supplier_invoice': {
+                        const siArgs = args as CreateSupplierInvoiceArgs;
+                        const vatMultiplier = 1 + (siArgs.vat_rate / 100);
+                        const netAmount = Math.round((siArgs.total_amount / vatMultiplier) * 100) / 100;
+                        const vatAmount = Math.round((siArgs.total_amount - netAmount) * 100) / 100;
+
+                        toolResult = await fortnoxService.createSupplierInvoice({
+                            SupplierNumber: siArgs.supplier_number,
+                            InvoiceNumber: siArgs.invoice_number || undefined,
+                            InvoiceDate: new Date().toISOString().slice(0, 10),
+                            DueDate: siArgs.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                            Total: siArgs.total_amount,
+                            VAT: vatAmount,
+                            VATType: 'NORMAL',
+                            AccountingMethod: 'ACCRUAL',
+                            SupplierInvoiceRows: [
+                                { Account: siArgs.account, Debit: netAmount, Credit: 0 },
+                                { Account: 2640, Debit: vatAmount, Credit: 0 },
+                                { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
+                            ],
+                        } as any);
+                        responseText = `Leverantörsfaktura skapad i Fortnox!\n- Belopp: ${siArgs.total_amount} kr (${netAmount} + ${vatAmount} moms)\n- Konto: ${siArgs.account} (${siArgs.description})\n- Förfallodatum: ${siArgs.due_date || '30 dagar'}`;
+                        void auditService.log({
+                            userId,
+                            companyId: resolvedCompanyId || undefined,
+                            actorType: 'ai',
+                            action: 'create',
+                            resourceType: 'supplier_invoice',
+                            newState: toolResult,
+                        });
+                        break;
+                    }
+                    case 'export_journal_to_fortnox': {
+                        const ejArgs = args as ExportJournalToFortnoxArgs;
+                        // Fetch the journal entry from DB
+                        const { data: journalEntry, error: jeError } = await supabaseAdmin
+                            .from('journal_entries')
+                            .select('*')
+                            .eq('verification_id', ejArgs.journal_entry_id)
+                            .maybeSingle();
+
+                        if (jeError || !journalEntry) {
+                            responseText = `Kunde inte hitta verifikat ${ejArgs.journal_entry_id} i databasen.`;
+                            break;
+                        }
+
+                        const entries = typeof journalEntry.entries === 'string'
+                            ? JSON.parse(journalEntry.entries)
+                            : journalEntry.entries;
+
+                        const voucherRows = entries.map((e: any) => ({
+                            Account: e.account,
+                            Debit: e.debit || 0,
+                            Credit: e.credit || 0,
+                            Description: e.accountName || journalEntry.description,
+                        }));
+
+                        toolResult = await fortnoxService.createVoucher({
+                            Description: `${journalEntry.description} (${ejArgs.journal_entry_id})`,
+                            TransactionDate: new Date().toISOString().slice(0, 10),
+                            VoucherSeries: 'A',
+                            VoucherRows: voucherRows,
+                        } as any);
+                        const voucher = toolResult.Voucher || toolResult;
+                        responseText = `Verifikat exporterat till Fortnox!\n- Fortnox-verifikat: ${voucher.VoucherSeries || 'A'}-${voucher.VoucherNumber || '?'}\n- Ursprungligt ID: ${ejArgs.journal_entry_id}`;
+                        void auditService.log({
+                            userId,
+                            companyId: resolvedCompanyId || undefined,
+                            actorType: 'ai',
+                            action: 'export',
+                            resourceType: 'voucher',
+                            resourceId: ejArgs.journal_entry_id,
+                            newState: voucher,
+                        });
+                        break;
+                    }
+                    case 'book_supplier_invoice': {
+                        const bsiArgs = args as BookSupplierInvoiceArgs;
+                        toolResult = await fortnoxService.bookSupplierInvoice(bsiArgs.invoice_number);
+                        responseText = `Leverantörsfaktura ${bsiArgs.invoice_number} är nu bokförd i Fortnox.`;
+                        void auditService.log({
+                            userId,
+                            companyId: resolvedCompanyId || undefined,
+                            actorType: 'ai',
+                            action: 'update',
+                            resourceType: 'supplier_invoice',
+                            resourceId: bsiArgs.invoice_number,
+                        });
+                        break;
+                    }
                     case 'create_journal_entry': {
                         const journalArgs = args as CreateJournalEntryArgs;
                         const { type: txType, gross_amount, vat_rate, description: txDescription, is_roaming } = journalArgs;
@@ -1407,11 +1925,13 @@ ANVÄNDARFRÅGA:
                 }
             } catch (err) {
                 logger.error('Tool execution failed', err);
-                responseText = tool === 'conversation_search' || tool === 'recent_chats'
-                    ? "Jag kunde inte söka i tidigare konversationer just nu."
-                    : tool === 'create_journal_entry'
-                    ? "Ett fel uppstod när verifikatet skulle skapas. Försök igen."
-                    : "Ett fel uppstod när jag försökte nå Fortnox.";
+                if (tool === 'conversation_search' || tool === 'recent_chats') {
+                    responseText = "Jag kunde inte söka i tidigare konversationer just nu.";
+                } else if (tool === 'create_journal_entry') {
+                    responseText = "Ett fel uppstod när verifikatet skulle skapas. Försök igen.";
+                } else {
+                    responseText = `Ett fel uppstod när jag försökte nå Fortnox (${tool}). ${err instanceof Error ? err.message : 'Försök igen.'}`;
+                }
             }
 
             return new Response(JSON.stringify({

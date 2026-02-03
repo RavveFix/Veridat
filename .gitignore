@@ -25,6 +25,11 @@ Thumbs.db
 # Build
 dist/
 
+# Playwright
+playwright-report/
+test-results/
+.playwright/
+
 # Temp files
 *.temp
 .temp/
@@ -61,3 +66,5 @@ docs/*security*.md
 # Claude Code local context files
 **/CLAUDE.md
 .claude/plans/
+.vercel
+.env*.local

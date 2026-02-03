@@ -19,7 +19,7 @@ import { logger } from '../services/LoggerService';
  */
 export type ArtifactContent =
     | { type: 'excel'; workbook: XLSX.WorkBook; filename: string }
-    | { type: 'vat_report'; data: VATReportData; fileUrl?: string };
+    | { type: 'vat_report'; data: VATReportData; fileUrl?: string; filePath?: string; fileBucket?: string };
 
 /**
  * Panel state machine for tracking artifact display
@@ -62,10 +62,18 @@ export class ExcelWorkspace {
             type: string;
             data: VATReportData;
             fileUrl?: string;
+            filePath?: string;
+            fileBucket?: string;
         }>;
 
         if (event.detail?.type === 'vat_report' && event.detail.data) {
-            this.openVATReport(event.detail.data, event.detail.fileUrl, true);
+            this.openVATReport(
+                event.detail.data,
+                event.detail.fileUrl,
+                event.detail.filePath,
+                event.detail.fileBucket,
+                true
+            );
         }
     }
 
@@ -1154,15 +1162,17 @@ export class ExcelWorkspace {
      *
      * @param data - VAT report data to display
      * @param fileUrl - Optional URL to the original Excel file
+     * @param filePath - Optional storage path to the original Excel file
+     * @param fileBucket - Optional storage bucket for the Excel file
      * @param skipSave - Skip saving to messages (when opening from button)
      */
-    openVATReport(data: VATReportData, fileUrl?: string, skipSave = false): void {
+    openVATReport(data: VATReportData, fileUrl?: string, filePath?: string, fileBucket?: string, skipSave = false): void {
         try {
             // Unmount previous Preact component if exists
             this.vatReportUnmount?.();
 
             // Store content information
-            this.currentContent = { type: 'vat_report', data, fileUrl };
+            this.currentContent = { type: 'vat_report', data, fileUrl, filePath, fileBucket };
 
             // Update panel title
             this.elements.filenameDisplay.textContent = `Momsredovisning ${data.period}`;
@@ -1198,7 +1208,7 @@ export class ExcelWorkspace {
             // Only if not opening from a button (skipSave = false)
             if (!skipSave) {
                 window.dispatchEvent(new CustomEvent('vat-report-ready', {
-                    detail: { data, fileUrl }
+                    detail: { data, fileUrl, filePath, fileBucket }
                 }));
             }
 

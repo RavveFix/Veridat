@@ -188,3 +188,63 @@ export interface FortnoxSupplierListResponse extends FortnoxResponse<FortnoxSupp
         SupplierNumber: string;
     }>;
 }
+
+// ============================================================================
+// ACCOUNT TYPES (Konton)
+// ============================================================================
+
+export interface FortnoxAccount {
+    Number: number;
+    Description: string;
+    Active: boolean;
+    BalanceBroughtForward?: number;
+    BalanceCarriedForward?: number;
+    SRU?: number;
+    Year?: number;
+    VATCode?: string;
+}
+
+export interface FortnoxAccountListResponse extends FortnoxResponse<FortnoxAccount> {
+    Accounts: FortnoxAccount[];
+}
+
+export interface FortnoxAccountResponse extends FortnoxResponse<FortnoxAccount> {
+    Account: FortnoxAccount;
+}
+
+// ============================================================================
+// FINANCIAL YEAR TYPES (Räkenskapsår)
+// ============================================================================
+
+export interface FortnoxFinancialYear {
+    Id: number;
+    FromDate: string;
+    ToDate: string;
+    AccountCharts: string;
+    AccountingMethod: string;
+}
+
+export interface FortnoxFinancialYearListResponse extends FortnoxResponse<FortnoxFinancialYear> {
+    FinancialYears: FortnoxFinancialYear[];
+}
+
+// ============================================================================
+// COMPANY INFORMATION TYPES (Företagsinformation)
+// ============================================================================
+
+export interface FortnoxCompanyInfo {
+    CompanyName: string;
+    OrganizationNumber: string;
+    Address: string;
+    ZipCode: string;
+    City: string;
+    Country: string;
+    Email: string;
+    Phone: string;
+    DatabaseNumber: string;
+    CompanyForm: string;
+}
+
+export interface FortnoxCompanyInfoResponse {
+    CompanyInformation: FortnoxCompanyInfo;
+}

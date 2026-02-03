@@ -22,6 +22,19 @@
 
 Optional: Claude Code helpers live in `.claude/commands/` (`/dev-start`, `/dev-status`, `/dev-stop`).
 
+## Local Supabase (Docker) Workflow
+
+- Start Docker Desktop and wait for **Engine running**.
+- Run `supabase start` from the repo root (first run pulls images and can take a while).
+- Generate local env overrides: `npm run supabase:setup` (writes `.env.local` with local keys).
+- Start the app: `npm run dev`.
+- Verify: `supabase status` (should show local URLs) and `docker ps` (should list `supabase-*` containers).
+- Stop locally when done: `supabase stop`.
+
+Notes:
+- Local Supabase does **not** affect the cloud project unless you run remote commands (e.g., `supabase link`, `supabase db push`, `supabase functions deploy`).
+- Frontend reads `VITE_SUPABASE_*`; `.env.local` is the preferred local override.
+
 ## Coding Style & Naming Conventions
 
 - TypeScript is `strict`; prefer explicit types and `async/await`. Avoid `any`.
@@ -33,6 +46,8 @@ Optional: Claude Code helpers live in `.claude/commands/` (`/dev-start`, `/dev-s
 
 - Python: pytest in `python-api/tests/` (`test_*.py`). Run via `cd python-api && pytest tests/ -v`.
 - Frontend: tests live under `tests/` (see `tests/README.md` for conventions and naming).
+- E2E: Playwright in `tests/e2e/`. Start local Supabase + app, then run `npm run test:e2e`.
+  - First time: `npx playwright install`.
 
 ## Commit & Pull Request Guidelines
 

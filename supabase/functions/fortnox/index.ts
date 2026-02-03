@@ -90,7 +90,7 @@ Deno.serve(async (req: Request) => {
             redirectUri: '', // Not needed for refresh flow
         };
 
-        const fortnoxService = new FortnoxService(fortnoxConfig, supabaseClient);
+        const fortnoxService = new FortnoxService(fortnoxConfig, supabaseClient, userId);
         const auditService = new AuditService(supabaseClient);
 
         // Parse request body

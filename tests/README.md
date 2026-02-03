@@ -10,6 +10,7 @@ tests/
 │   ├── utils/         # Utility function tests
 │   └── parsers/       # Parser-specific tests (e.g., Monta)
 ├── integration/       # Cross-module tests
+├── e2e/               # Playwright end-to-end tests
 ├── fixtures/          # Test data files (sample Excel, mock responses)
 ├── setup.ts           # Test configuration
 └── README.md          # This file
@@ -26,6 +27,15 @@ npm test -- tests/unit/parsers/monta-parser.test.ts
 
 # Run with coverage
 npm test -- --coverage
+
+# Run Playwright E2E
+npm run test:e2e
+
+# E2E prerequisites (local)
+# - supabase start
+# - npm run supabase:setup
+# - npm run dev
+# - npx playwright install
 ```
 
 ## Test Guidelines

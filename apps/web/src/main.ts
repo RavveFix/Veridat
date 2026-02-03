@@ -18,6 +18,8 @@ import './styles/components/artifact-cards.css';
 import './styles/components/memory.css';
 import './styles/components/excel-artifact.css';
 import './styles/components/thinking-steps.css';
+import './styles/components/fortnox-sidebar.css';
+import './styles/components/smart-actions.css';
 
 logger.debug('main.ts module loading...');
 
