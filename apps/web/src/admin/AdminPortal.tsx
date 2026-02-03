@@ -261,6 +261,16 @@ export function AdminPortal() {
         await loadAccounts();
     }
 
+    async function handleSignOut() {
+        setActionMessage(null);
+        const { error: signOutError } = await supabase.auth.signOut();
+        if (signOutError) {
+            setActionMessage('Kunde inte logga ut.');
+            return;
+        }
+        window.location.href = '/login?next=/admin';
+    }
+
     const metrics = useMemo(() => {
         const total = accounts.length;
         const pro = accounts.filter((account) => account.plan === 'pro').length;
@@ -317,6 +327,7 @@ export function AdminPortal() {
                         <button class="admin-btn admin-btn-primary" onClick={() => setSelectedAccountId(null)}>Ny inbjudan</button>
                         <button class="admin-btn admin-btn-ghost" onClick={loadAccounts}>Uppdatera</button>
                         <button class="admin-btn admin-btn-ghost" onClick={() => setMaintenanceConfirmOpen(true)}>Kör underhåll</button>
+                        <button class="admin-btn admin-btn-ghost" onClick={handleSignOut}>Logga ut</button>
                     </div>
                 </header>
 

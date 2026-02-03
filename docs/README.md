@@ -6,6 +6,7 @@ This folder contains implementation notes and operational runbooks for Veridat.
 
 - `docs/system_instructions.md`: high-level product/system guidance.
 - `docs/SUPABASE_SETUP.md`: local Supabase + Edge Functions setup.
+- `docs/ADMIN_SETUP.md`: admin portal setup + troubleshooting checklist.
 - `docs/vite-migration.md`: frontend build/runtime notes.
 
 ## Architecture & Flows
@@ -20,6 +21,8 @@ This folder contains implementation notes and operational runbooks for Veridat.
 - `docs/MANUAL_TEST_RATE_LIMIT.md`: manual rate-limit verification.
 - `docs/TESTING_VERSION_TRACKING.md`: deployment/testing checklist notes.
 - `docs/RELEASING.md`: branching/tagging workflow for releases.
+- `docs/SECURITY_DEPLOY_CHECKLIST.md`: security rollout + verification checklist (storage privacy, OAuth, rate limits).
+- `docs/PRE_PROD_CHECKLIST.md`: short pre-prod sanity checklist.
 
 ## Historical Notes
 
