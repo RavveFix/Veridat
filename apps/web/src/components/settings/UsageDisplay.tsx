@@ -6,12 +6,18 @@ interface UsageDisplayProps {
         dailyReset: string | null;
     } | null;
     usageError: string | null;
-    plan: 'free' | 'pro';
+    plan: 'free' | 'pro' | 'trial';
     planLimits: { hourly: number; daily: number };
     formatResetAt: (resetIso: string | null, windowMs: number) => string;
 }
 
 export function UsageDisplay({ usage, usageError, plan, planLimits, formatResetAt }: UsageDisplayProps) {
+    const isPro = plan === 'pro' || plan === 'trial';
+    const planLabel = plan === 'pro'
+        ? 'Pro (199 kr/mån)'
+        : plan === 'trial'
+            ? 'Trial (14 dagar)'
+            : 'Gratis';
     return (
         <section style={{ marginBottom: '2rem' }}>
             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Plan & Användning</h3>
@@ -24,17 +30,17 @@ export function UsageDisplay({ usage, usageError, plan, planLimits, formatResetA
             }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Din plan</span>
                 <span style={{
-                    background: plan === 'pro'
+                    background: isPro
                         ? 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))'
                         : 'rgba(255, 255, 255, 0.08)',
                     padding: '0.2rem 0.6rem',
                     borderRadius: '999px',
                     fontSize: '0.85rem',
                     fontWeight: 700,
-                    color: plan === 'pro' ? '#fff' : 'var(--text-secondary)',
-                    border: plan === 'pro' ? 'none' : '1px solid var(--glass-border)'
+                    color: isPro ? '#fff' : 'var(--text-secondary)',
+                    border: isPro ? 'none' : '1px solid var(--glass-border)'
                 }}>
-                    {plan === 'pro' ? 'Pro (199 kr/mån)' : 'Gratis'}
+                    {planLabel}
                 </span>
             </div>
 

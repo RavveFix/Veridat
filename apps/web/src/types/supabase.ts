@@ -226,42 +226,72 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null
+          billing_provider: string
+          billing_status: string
           consent_email_sent: boolean | null
           consent_email_sent_at: string | null
+          external_subscription_id: string | null
           full_name: string | null
+          grace_until: string | null
           has_accepted_terms: boolean | null
           id: string
+          invoice_due_date: string | null
+          invoice_id: string | null
+          is_admin: boolean
+          paid_at: string | null
           plan: string
+          period_end: string | null
           terms_accepted_at: string | null
           terms_version: string | null
+          trial_end: string | null
           updated_at: string | null
           username: string | null
           website: string | null
         }
         Insert: {
           avatar_url?: string | null
+          billing_provider?: string
+          billing_status?: string
           consent_email_sent?: boolean | null
           consent_email_sent_at?: string | null
+          external_subscription_id?: string | null
           full_name?: string | null
+          grace_until?: string | null
           has_accepted_terms?: boolean | null
           id: string
+          invoice_due_date?: string | null
+          invoice_id?: string | null
+          is_admin?: boolean
+          paid_at?: string | null
           plan?: string
+          period_end?: string | null
           terms_accepted_at?: string | null
           terms_version?: string | null
+          trial_end?: string | null
           updated_at?: string | null
           username?: string | null
           website?: string | null
         }
         Update: {
           avatar_url?: string | null
+          billing_provider?: string
+          billing_status?: string
           consent_email_sent?: boolean | null
           consent_email_sent_at?: string | null
+          external_subscription_id?: string | null
           full_name?: string | null
+          grace_until?: string | null
           has_accepted_terms?: boolean | null
           id?: string
+          invoice_due_date?: string | null
+          invoice_id?: string | null
+          is_admin?: boolean
+          paid_at?: string | null
           plan?: string
+          period_end?: string | null
           terms_accepted_at?: string | null
           terms_version?: string | null
+          trial_end?: string | null
           updated_at?: string | null
           username?: string | null
           website?: string | null

@@ -7,14 +7,15 @@ import { createLogger } from './LoggerService.ts';
 
 const logger = createLogger('plan');
 
-export type UserPlan = 'free' | 'pro';
+export type UserPlan = 'free' | 'pro' | 'trial';
 
 type ProfilePlanRow = {
     plan?: string | null;
 };
 
 function normalizeUserPlan(value: unknown): UserPlan {
-    return value === 'pro' ? 'pro' : 'free';
+    if (value === 'pro' || value === 'trial') return value;
+    return 'free';
 }
 
 function parsePositiveIntEnv(key: string, fallback: number): number {
@@ -31,11 +32,12 @@ function parsePositiveIntEnv(key: string, fallback: number): number {
 }
 
 export function getRateLimitConfigForPlan(plan: UserPlan): { requestsPerDay: number; requestsPerHour: number } {
-    const defaults = plan === 'pro'
+    const normalizedPlan = plan === 'trial' ? 'pro' : plan;
+    const defaults = normalizedPlan === 'pro'
         ? { requestsPerDay: 200, requestsPerHour: 40 }
         : { requestsPerDay: 50, requestsPerHour: 10 };
 
-    const prefix = plan === 'pro' ? 'RATE_LIMIT_PRO' : 'RATE_LIMIT_FREE';
+    const prefix = normalizedPlan === 'pro' ? 'RATE_LIMIT_PRO' : 'RATE_LIMIT_FREE';
 
     return {
         requestsPerDay: parsePositiveIntEnv(`${prefix}_DAILY`, defaults.requestsPerDay),
@@ -62,4 +64,3 @@ export async function getUserPlan(supabase: SupabaseClient, userId: string): Pro
         return 'free';
     }
 }
-

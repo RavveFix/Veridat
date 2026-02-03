@@ -21,6 +21,8 @@ export default defineConfig({
 
                     if (pathOnly === '/login') {
                         req.url = '/login.html';
+                    } else if (pathOnly === '/admin') {
+                        req.url = '/admin.html';
                     } else if (pathOnly === '/privacy') {
                         req.url = '/privacy.html';
                     } else if (pathOnly === '/terms') {
@@ -51,6 +53,7 @@ export default defineConfig({
                 main: resolve(__dirname, 'index.html'),
                 login: resolve(__dirname, 'login.html'),
                 app: resolve(__dirname, 'app/index.html'),
+                admin: resolve(__dirname, 'admin.html'),
                 privacy: resolve(__dirname, 'privacy.html'),
                 terms: resolve(__dirname, 'terms.html'),
                 manifest: resolve(__dirname, 'manifest.html'),

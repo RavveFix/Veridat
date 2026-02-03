@@ -11,12 +11,29 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 logger.debug('Login script loaded');
 
+function getSafeNextPath(raw: string | null): string | null {
+    if (!raw) return null;
+    if (!raw.startsWith('/')) return null;
+    if (raw.startsWith('//')) return null;
+    if (raw.includes('://')) return null;
+    return raw;
+}
+
+function buildLoginRedirect(nextPath: string | null): string {
+    const url = new URL(`${window.location.origin}/login`);
+    if (nextPath) {
+        url.searchParams.set('next', nextPath);
+    }
+    return url.toString();
+}
+
 async function initLogin() {
     logger.debug('initLogin called, DOM readyState:', document.readyState);
 
     // If Supabase sent a PKCE callback (`?code=...`), exchange it for a session here.
     // Without this, users can end up "bouncing" back to landing without being logged in.
     const url = new URL(window.location.href);
+    const nextPath = getSafeNextPath(url.searchParams.get('next'));
     const code = url.searchParams.get('code');
     if (code) {
         logger.info('Auth callback detected, exchanging code for session');
@@ -35,9 +52,9 @@ async function initLogin() {
     // Check if already logged in
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
-        logger.info('User already logged in, redirecting to app');
+        logger.info('User already logged in, redirecting');
         // Keep loader visible while redirecting
-        window.location.href = '/app/newchat';
+        window.location.href = nextPath || '/app/newchat';
         return;
     }
 
@@ -123,7 +140,7 @@ async function initLogin() {
         }
 
         // Proceed with login
-        await performLogin(email, fullName, messageEl, submitBtn, loginForm);
+        await performLogin(email, fullName, nextPath, messageEl, submitBtn, loginForm);
     });
 
     logger.debug('Login form event listener attached');
@@ -132,6 +149,7 @@ async function initLogin() {
 async function performLogin(
     email: string,
     fullName: string,
+    nextPath: string | null,
     messageEl: HTMLDivElement,
     submitBtn: HTMLButtonElement,
     loginForm: HTMLFormElement
@@ -143,7 +161,7 @@ async function performLogin(
             options: {
                 // Send the magic link back to the login route so the callback can be processed reliably.
                 // If Supabase rejects a redirect URL, it may fall back to the Site URL (often `/`).
-                emailRedirectTo: window.location.origin + '/login',
+                emailRedirectTo: buildLoginRedirect(nextPath),
                 data: {
                     full_name: fullName
                 }

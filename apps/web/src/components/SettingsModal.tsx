@@ -19,7 +19,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
     const [termsVersion, setTermsVersion] = useState<string>('-');
-    const [plan, setPlan] = useState<'free' | 'pro'>('free');
+    const [plan, setPlan] = useState<'free' | 'pro' | 'trial'>('free');
     const [usage, setUsage] = useState<{
         hourlyUsed: number;
         dailyUsed: number;
@@ -30,9 +30,9 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
     const [abortController, setAbortController] = useState<AbortController | null>(null);
     const [loadingTimeout, setLoadingTimeout] = useState(false);
 
-    const planLimits = plan === 'pro'
-        ? { hourly: 40, daily: 200 }
-        : { hourly: 10, daily: 50 };
+    const planLimits = plan === 'free'
+        ? { hourly: 10, daily: 50 }
+        : { hourly: 40, daily: 200 };
 
     useEffect(() => {
         const controller = new AbortController();
@@ -53,8 +53,9 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
         };
     }, []);
 
-    function normalizePlan(value: unknown): 'free' | 'pro' {
-        return value === 'pro' ? 'pro' : 'free';
+    function normalizePlan(value: unknown): 'free' | 'pro' | 'trial' {
+        if (value === 'pro' || value === 'trial') return value;
+        return 'free';
     }
 
     function formatResetAt(resetIso: string | null, windowMs: number): string {
