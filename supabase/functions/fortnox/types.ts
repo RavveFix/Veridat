@@ -60,6 +60,20 @@ export interface FortnoxInvoiceResponse extends FortnoxResponse<FortnoxInvoice> 
     Invoice: FortnoxInvoice;
 }
 
+export interface FortnoxInvoiceListResponse extends FortnoxResponse<FortnoxInvoice> {
+    Invoices: Array<FortnoxInvoice & {
+        InvoiceNumber: number;
+        CustomerNumber: string;
+        InvoiceDate?: string;
+        DueDate?: string;
+        Total?: number;
+        Balance?: number;
+        Booked?: boolean;
+        Cancelled?: boolean;
+        Sent?: boolean;
+    }>;
+}
+
 // ============================================================================
 // VOUCHER TYPES (Verifikationer)
 // ============================================================================

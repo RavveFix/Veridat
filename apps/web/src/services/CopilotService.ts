@@ -108,13 +108,13 @@ class CopilotServiceClass extends EventTarget {
             }
 
             // Rule 2: Unbooked invoices
-            const unbooked = invoices.filter(inv => !inv.Booked && inv.Balance > 0);
+            const unbooked = invoices.filter(inv => !inv.Booked && this.toNumber(inv.Balance) > 0);
             if (unbooked.length > 0) {
                 newNotifications.push({
                     id: `unbooked-${this.today()}`,
                     type: 'unbooked_invoice',
                     title: `${unbooked.length} obokförd${unbooked.length === 1 ? '' : 'a'} fakturor`,
-                    description: `Totalt ${this.formatSEK(unbooked.reduce((sum, inv) => sum + inv.Total, 0))} att bokföra`,
+                    description: `Totalt ${this.formatSEK(unbooked.reduce((sum, inv) => sum + this.toNumber(inv.Total), 0))} att bokföra`,
                     severity: 'info',
                     prompt: `Visa alla obokförda leverantörsfakturor och hjälp mig bokföra dem.`,
                     createdAt: new Date().toISOString(),
@@ -199,7 +199,8 @@ class CopilotServiceClass extends EventTarget {
             if (!response.ok) return [];
 
             const result = await response.json();
-            return (result.data?.SupplierInvoices || []) as SupplierInvoiceSummary[];
+            const items = (result.data?.SupplierInvoices ?? result.SupplierInvoices) || [];
+            return items as SupplierInvoiceSummary[];
         } catch {
             return [];
         }
@@ -209,7 +210,7 @@ class CopilotServiceClass extends EventTarget {
 
     private findOverdueInvoices(invoices: SupplierInvoiceSummary[]): SupplierInvoiceSummary[] {
         const today = this.today();
-        return invoices.filter(inv => inv.DueDate < today && inv.Balance > 0);
+        return invoices.filter(inv => inv.DueDate < today && this.toNumber(inv.Balance) > 0);
     }
 
     private checkVATReminder(): CopilotNotification | null {
@@ -303,13 +304,25 @@ class CopilotServiceClass extends EventTarget {
         return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     }
 
+    private toNumber(value: number | string | null | undefined): number {
+        if (typeof value === 'number') return value;
+        if (value === null || value === undefined) return 0;
+        const normalized = String(value).replace(/\s+/g, '').replace(',', '.');
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
     private formatSEK(amount: number): string {
         return new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(amount);
     }
 
     private formatOverdueSummary(invoices: SupplierInvoiceSummary[]): string {
-        const total = invoices.reduce((sum, inv) => sum + inv.Balance, 0);
-        const oldest = invoices.reduce((min, inv) => inv.DueDate < min ? inv.DueDate : min, invoices[0].DueDate);
+        const total = invoices.reduce((sum, inv) => sum + this.toNumber(inv.Balance), 0);
+        const datedInvoices = invoices.filter(inv => Boolean(inv.DueDate));
+        if (datedInvoices.length === 0) {
+            return `${this.formatSEK(total)} totalt`;
+        }
+        const oldest = datedInvoices.reduce((min, inv) => inv.DueDate < min ? inv.DueDate : min, datedInvoices[0].DueDate);
         const daysOverdue = Math.floor((Date.now() - new Date(oldest).getTime()) / (1000 * 60 * 60 * 24));
         return `${this.formatSEK(total)} totalt, äldsta ${daysOverdue} dagar sen`;
     }

@@ -159,7 +159,7 @@ class FortnoxContextServiceClass extends EventTarget {
             if (!response.ok) return this.customers?.data || [];
 
             const result = await response.json();
-            const customers: FortnoxCustomer[] = result.data?.Customers || [];
+            const customers: FortnoxCustomer[] = (result.data?.Customers ?? result.Customers) || [];
 
             this.customers = { data: customers, expires: Date.now() + CACHE_TTL_MS };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('customers'));
@@ -193,7 +193,7 @@ class FortnoxContextServiceClass extends EventTarget {
             if (!response.ok) return this.suppliers?.data || [];
 
             const result = await response.json();
-            const suppliers: FortnoxSupplier[] = result.data?.Suppliers || [];
+            const suppliers: FortnoxSupplier[] = (result.data?.Suppliers ?? result.Suppliers) || [];
 
             this.suppliers = { data: suppliers, expires: Date.now() + CACHE_TTL_MS };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('suppliers'));
@@ -227,7 +227,7 @@ class FortnoxContextServiceClass extends EventTarget {
             if (!response.ok) return this.articles?.data || [];
 
             const result = await response.json();
-            const articles: FortnoxArticle[] = result.data?.Articles || [];
+            const articles: FortnoxArticle[] = (result.data?.Articles ?? result.Articles) || [];
 
             this.articles = { data: articles, expires: Date.now() + CACHE_TTL_MS };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('articles'));

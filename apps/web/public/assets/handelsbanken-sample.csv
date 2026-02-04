@@ -1,0 +1,4 @@
+Bokforingsdag;Valutadag;Belopp;Saldo;Valuta;Transaktionstyp;Beskrivning;Motpart;Referens;OCR;Konto;KontoNamn
+2026-02-01;2026-02-01;-1250,00;84250,00;SEK;Kortkop;KONTORSDEPOT AB;KONTORSDEPOT AB;456789;1234567890;1930;Foretagskonto
+2026-02-02;2026-02-02;3450,00;87700,00;SEK;Inbetalning;Faktura 1023;Clean Charge AB;1023;9876543210;1930;Foretagskonto
+2026-02-03;2026-02-03;-275,00;87425,00;SEK;Bankavgift;Avgift;HANDELSBANKEN;;;1930;Foretagskonto

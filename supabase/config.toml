@@ -26,8 +26,8 @@ enabled = true
 
 [auth]
 enabled = true
-site_url = "http://localhost:5173"
-additional_redirect_urls = ["http://127.0.0.1:5173/login", "http://localhost:5173/login"]
+site_url = "http://localhost:5174"
+additional_redirect_urls = ["http://127.0.0.1:5174/login", "http://localhost:5174/login"]
 jwt_expiry = 3600
 enable_signup = true
 
@@ -41,4 +41,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.billing-maintenance]
+verify_jwt = false
+
+[functions.fortnox-oauth]
 verify_jwt = false

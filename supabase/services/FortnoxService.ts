@@ -7,6 +7,7 @@ import type {
     FortnoxArticleListResponse,
     FortnoxInvoice,
     FortnoxInvoiceResponse,
+    FortnoxInvoiceListResponse,
     FortnoxVoucher,
     FortnoxVoucherResponse,
     FortnoxVoucherListResponse,
@@ -181,6 +182,38 @@ export class FortnoxService {
     }
 
     // ========================================================================
+    // INVOICE METHODS (Kundfakturor)
+    // ========================================================================
+
+    /**
+     * Get all invoices
+     */
+    async getInvoices(params?: {
+        fromDate?: string;
+        toDate?: string;
+        customerNumber?: string;
+    }): Promise<FortnoxInvoiceListResponse> {
+        let endpoint = '/invoices';
+        const queryParams: string[] = [];
+
+        if (params?.fromDate) {
+            queryParams.push(`fromdate=${params.fromDate}`);
+        }
+        if (params?.toDate) {
+            queryParams.push(`todate=${params.toDate}`);
+        }
+        if (params?.customerNumber) {
+            queryParams.push(`customernumber=${params.customerNumber}`);
+        }
+
+        if (queryParams.length > 0) {
+            endpoint += `?${queryParams.join('&')}`;
+        }
+
+        return await this.request<FortnoxInvoiceListResponse>(endpoint);
+    }
+
+    // ========================================================================
     // VOUCHER METHODS (Verifikationer)
     // ========================================================================
 
@@ -244,6 +277,7 @@ export class FortnoxService {
         fromDate?: string;
         toDate?: string;
         supplierNumber?: string;
+        filter?: string;
     }): Promise<FortnoxSupplierInvoiceListResponse> {
         let endpoint = '/supplierinvoices';
         const queryParams: string[] = [];
@@ -256,6 +290,9 @@ export class FortnoxService {
         }
         if (params?.supplierNumber) {
             queryParams.push(`suppliernumber=${params.supplierNumber}`);
+        }
+        if (params?.filter) {
+            queryParams.push(`filter=${params.filter}`);
         }
 
         if (queryParams.length > 0) {
@@ -294,6 +331,24 @@ export class FortnoxService {
      */
     async bookSupplierInvoice(givenNumber: number): Promise<FortnoxSupplierInvoiceResponse> {
         return await this.request<FortnoxSupplierInvoiceResponse>(`/supplierinvoices/${givenNumber}/bookkeep`, {
+            method: 'PUT'
+        });
+    }
+
+    /**
+     * Approve supplier invoice bookkeep (attest)
+     */
+    async approveSupplierInvoiceBookkeep(givenNumber: number): Promise<FortnoxSupplierInvoiceResponse> {
+        return await this.request<FortnoxSupplierInvoiceResponse>(`/supplierinvoices/${givenNumber}/approvalbookkeep`, {
+            method: 'PUT'
+        });
+    }
+
+    /**
+     * Approve supplier invoice payment
+     */
+    async approveSupplierInvoicePayment(givenNumber: number): Promise<FortnoxSupplierInvoiceResponse> {
+        return await this.request<FortnoxSupplierInvoiceResponse>(`/supplierinvoices/${givenNumber}/approvalpayment`, {
             method: 'PUT'
         });
     }

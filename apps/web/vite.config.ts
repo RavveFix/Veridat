@@ -15,30 +15,10 @@ export default defineConfig({
         {
             name: 'html-rewrite',
             configureServer(server) {
-                server.middlewares.use((req, res, next) => {
-                    const rawUrl = req.url || '/';
-                    const pathOnly = rawUrl.split('?')[0] || rawUrl;
-
-                    if (pathOnly === '/login') {
-                        req.url = '/login.html';
-                    } else if (pathOnly === '/admin') {
-                        req.url = '/admin.html';
-                    } else if (pathOnly === '/privacy') {
-                        req.url = '/privacy.html';
-                    } else if (pathOnly === '/terms') {
-                        req.url = '/terms.html';
-                    } else if (pathOnly === '/manifest') {
-                        req.url = '/manifest.html';
-                    } else if (
-                        // App "routes" (no file extension) should resolve to the app shell.
-                        (pathOnly === '/app' || pathOnly === '/app/' || pathOnly.startsWith('/app/')) &&
-                        // Don't rewrite real files under /app (manifest, icons, etc).
-                        !pathOnly.split('/').pop()?.includes('.')
-                    ) {
-                        req.url = '/app/index.html';
-                    }
-                    next();
-                });
+                server.middlewares.use(rewriteHtmlRequests);
+            },
+            configurePreviewServer(server) {
+                server.middlewares.use(rewriteHtmlRequests);
             },
         },
     ],
@@ -79,3 +59,26 @@ export default defineConfig({
         },
     },
 });
+
+function rewriteHtmlRequests(req: { url?: string }, _res: unknown, next: () => void) {
+    const rawUrl = req.url || '/';
+    const pathOnly = rawUrl.split('?')[0] || rawUrl;
+
+    if (pathOnly === '/login') {
+        req.url = '/login.html';
+    } else if (pathOnly === '/admin') {
+        req.url = '/admin.html';
+    } else if (pathOnly === '/privacy') {
+        req.url = '/privacy.html';
+    } else if (pathOnly === '/terms') {
+        req.url = '/terms.html';
+    } else if (pathOnly === '/manifest') {
+        req.url = '/manifest.html';
+    } else if (
+        (pathOnly === '/app' || pathOnly === '/app/' || pathOnly.startsWith('/app/')) &&
+        !pathOnly.split('/').pop()?.includes('.')
+    ) {
+        req.url = '/app/index.html';
+    }
+    next();
+}

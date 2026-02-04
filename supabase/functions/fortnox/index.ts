@@ -58,7 +58,13 @@ Deno.serve(async (req: Request) => {
 
         const userId = user.id;
 
-        const rateLimiter = new RateLimiterService(supabaseAdmin);
+        const isLocal = supabaseUrl.includes('127.0.0.1') || supabaseUrl.includes('localhost');
+        const rateLimiter = new RateLimiterService(
+            supabaseAdmin,
+            isLocal
+                ? { requestsPerHour: 1000, requestsPerDay: 10000 }
+                : { requestsPerHour: 200, requestsPerDay: 2000 }
+        );
         const rateLimit = await rateLimiter.checkAndIncrement(userId, 'fortnox');
         if (!rateLimit.allowed) {
             return new Response(
@@ -119,6 +125,14 @@ Deno.serve(async (req: Request) => {
             case 'getArticles':
                 result = await fortnoxService.getArticles();
                 break;
+
+            case 'getInvoices': {
+                const fromDate = payload?.fromDate as string | undefined;
+                const toDate = payload?.toDate as string | undefined;
+                const customerNumber = payload?.customerNumber as string | undefined;
+                result = await fortnoxService.getInvoices({ fromDate, toDate, customerNumber });
+                break;
+            }
 
             // ================================================================
             // VOUCHER ACTIONS (Verifikationer)
@@ -189,7 +203,8 @@ Deno.serve(async (req: Request) => {
                 const fromDate = payload?.fromDate as string | undefined;
                 const toDate = payload?.toDate as string | undefined;
                 const supplierNumber = payload?.supplierNumber as string | undefined;
-                result = await fortnoxService.getSupplierInvoices({ fromDate, toDate, supplierNumber });
+                const filter = payload?.filter as string | undefined;
+                result = await fortnoxService.getSupplierInvoices({ fromDate, toDate, supplierNumber, filter });
                 break;
             }
 
@@ -249,6 +264,18 @@ Deno.serve(async (req: Request) => {
             case 'bookSupplierInvoice': {
                 const givenNumber = payload?.givenNumber as number;
                 result = await fortnoxService.bookSupplierInvoice(givenNumber);
+                break;
+            }
+
+            case 'approveSupplierInvoiceBookkeep': {
+                const givenNumber = payload?.givenNumber as number;
+                result = await fortnoxService.approveSupplierInvoiceBookkeep(givenNumber);
+                break;
+            }
+
+            case 'approveSupplierInvoicePayment': {
+                const givenNumber = payload?.givenNumber as number;
+                result = await fortnoxService.approveSupplierInvoicePayment(givenNumber);
                 break;
             }
 

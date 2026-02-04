@@ -10,6 +10,9 @@ import { supabase } from '../lib/supabase';
 import type { Integration, IntegrationStatus } from '../types/integrations';
 import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
 import { ModalWrapper } from './ModalWrapper';
+import { BankImportPanel } from './BankImportPanel';
+import { AgencyPanel } from './AgencyPanel';
+import { FortnoxPanel } from './FortnoxPanel';
 
 interface IntegrationsModalProps {
     onClose: () => void;
@@ -20,7 +23,7 @@ const INTEGRATIONS_CONFIG: Omit<Integration, 'status'>[] = [
     {
         id: 'fortnox',
         name: 'Fortnox',
-        description: 'Bokforingssystem for fakturering och redovisning',
+        description: 'Bokföringssystem för fakturering och redovisning',
         icon: 'fortnox'
     },
     {
@@ -47,6 +50,7 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
     const [error, setError] = useState<string | null>(null);
     const [abortController, setAbortController] = useState<AbortController | null>(null);
     const [loadingTimeout, setLoadingTimeout] = useState(false);
+    const [activeTool, setActiveTool] = useState<'bank-import' | 'agency' | 'fortnox-panel' | null>(null);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -314,8 +318,50 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
         return icons[iconId] || '?';
     }
 
+    if (activeTool === 'bank-import') {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Bankimport (CSV)"
+                subtitle="Importera kontoutdrag från Handelsbanken och förhandsvisa matchning."
+                maxWidth="1200px"
+                variant="fullscreen"
+            >
+                <BankImportPanel onBack={() => setActiveTool(null)} />
+            </ModalWrapper>
+        );
+    }
+
+    if (activeTool === 'agency') {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Byråvy (beta)"
+                subtitle="Hantera klientbolag och byt aktivt bolag snabbt."
+                maxWidth="1200px"
+                variant="fullscreen"
+            >
+                <AgencyPanel onBack={() => setActiveTool(null)} />
+            </ModalWrapper>
+        );
+    }
+
+    if (activeTool === 'fortnox-panel') {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Fortnoxpanel"
+                subtitle="Leverantörsfakturor, status och Copilot på ett ställe."
+                maxWidth="1200px"
+                variant="fullscreen"
+            >
+                <FortnoxPanel onBack={() => setActiveTool(null)} />
+            </ModalWrapper>
+        );
+    }
+
     return (
-        <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokforingssystem.">
+        <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokföringssystem." maxWidth="1200px" variant="fullscreen">
                 {error && (
                     <div style={{
                         padding: '0.8rem',
@@ -344,7 +390,7 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                         )}
                     </div>
                 ) : (
-                    <div className="integrations-list" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div className="integrations-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
                         {integrations.map((integration) => (
                             <div
                                 key={integration.id}
@@ -466,6 +512,124 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                     border: '1px solid var(--glass-border)'
                 }}>
                     <h4 style={{
+                        margin: '0 0 0.75rem',
+                        fontSize: '0.9rem',
+                        color: 'var(--text-primary)'
+                    }}>
+                        Verktyg
+                    </h4>
+                    <div style={{ display: 'grid', gap: '0.75rem' }}>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('fortnox-panel')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '1rem',
+                                padding: '0.9rem 1rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--glass-border)',
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>Fortnoxpanel</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Se leverantörsfakturor, status och Copilot i en vy.
+                                </div>
+                            </div>
+                            <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '999px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                            }}>
+                                Nytt
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('bank-import')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '1rem',
+                                padding: '0.9rem 1rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--glass-border)',
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>Bankimport (CSV)</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Importera kontoutdrag från Handelsbanken och skapa matchningsförslag.
+                                </div>
+                            </div>
+                            <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '999px',
+                                background: 'rgba(59, 130, 246, 0.15)',
+                                color: '#3b82f6',
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                            }}>
+                                Beta
+                            </span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('agency')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '1rem',
+                                padding: '0.9rem 1rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--glass-border)',
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>Byråvy</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Byt snabbt mellan klientbolag och få en enkel översikt.
+                                </div>
+                            </div>
+                            <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '999px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                            }}>
+                                Nytt
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <div style={{
+                    marginTop: '1.5rem',
+                    padding: '1rem',
+                    borderRadius: '12px',
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid var(--glass-border)'
+                }}>
+                    <h4 style={{
                         margin: '0 0 0.5rem',
                         fontSize: '0.9rem',
                         color: 'var(--text-primary)'
@@ -478,9 +642,9 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                         color: 'var(--text-secondary)',
                         lineHeight: 1.5
                     }}>
-                        Nar du ansluter Fortnox kan Veridat automatiskt skapa fakturor,
-                        hamta kunder och artiklar, samt synka bokforingsdata.
-                        All kommunikation sker sakert via Fortnox officiella API.
+                        När du ansluter Fortnox kan Veridat automatiskt skapa fakturor,
+                        hämta kunder och artiklar, samt synka bokföringsdata.
+                        All kommunikation sker säkert via Fortnox officiella API.
                     </p>
                 </div>
         </ModalWrapper>

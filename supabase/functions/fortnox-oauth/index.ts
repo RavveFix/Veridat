@@ -29,7 +29,9 @@ const FORTNOX_SCOPES = [
     'article',
     'invoice',
     'bookkeeping',
-    'companyinformation'
+    'companyinformation',
+    'supplier',
+    'supplierinvoice'
 ].join(' ');
 
 type OAuthStatePayload = {
@@ -106,6 +108,14 @@ interface OAuthDisconnectRequest {
 
 type OAuthRequest = OAuthInitiateRequest | OAuthCallbackRequest | OAuthStatusRequest | OAuthDisconnectRequest;
 
+function getEnv(keys: string[]): string | undefined {
+    for (const key of keys) {
+        const value = Deno.env.get(key);
+        if (value && value.trim()) return value.trim();
+    }
+    return undefined;
+}
+
 Deno.serve(async (req: Request) => {
     const corsHeaders = getCorsHeaders();
 
@@ -136,10 +146,11 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+        const supabaseInternalUrl = getEnv(['INTERNAL_SUPABASE_URL', 'SUPABASE_URL', 'API_URL']) ?? '';
+        const supabasePublicUrl = getEnv(['SB_SUPABASE_URL', 'SUPABASE_URL', 'API_URL']) ?? '';
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
-        if (!supabaseUrl || !supabaseServiceKey) {
+        if (!supabaseInternalUrl || !supabaseServiceKey) {
             return new Response(
                 JSON.stringify({ error: 'Server configuration error' }),
                 { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -147,7 +158,7 @@ Deno.serve(async (req: Request) => {
         }
 
         const token = authHeader.replace(/^Bearer\s+/i, '');
-        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+        const supabaseAdmin = createClient(supabaseInternalUrl, supabaseServiceKey);
 
         // Verify the user
         const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
@@ -165,7 +176,7 @@ Deno.serve(async (req: Request) => {
 
         switch (action) {
             case 'initiate':
-                return handleInitiate(user.id, supabaseUrl, corsHeaders);
+                return handleInitiate(user.id, supabasePublicUrl, corsHeaders);
 
             case 'status':
                 return await handleStatus(user.id, supabaseAdmin, corsHeaders);
@@ -282,16 +293,17 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
         }
 
         // Exchange code for tokens
-        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+        const supabaseInternalUrl = getEnv(['INTERNAL_SUPABASE_URL', 'SUPABASE_URL', 'API_URL']) ?? '';
+        const supabasePublicUrl = getEnv(['SB_SUPABASE_URL', 'SUPABASE_URL', 'API_URL']) ?? '';
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
         const clientId = Deno.env.get('FORTNOX_CLIENT_ID') ?? '';
         const clientSecret = Deno.env.get('FORTNOX_CLIENT_SECRET') ?? '';
 
-        if (!supabaseUrl || !supabaseServiceKey || !clientId || !clientSecret) {
+        if (!supabaseInternalUrl || !supabaseServiceKey || !clientId || !clientSecret) {
             throw new Error('Missing configuration');
         }
 
-        const redirectUri = `${supabaseUrl}/functions/v1/fortnox-oauth`;
+        const redirectUri = `${supabasePublicUrl}/functions/v1/fortnox-oauth`;
         const credentials = btoa(`${clientId}:${clientSecret}`);
 
         const tokenParams = new URLSearchParams();
@@ -321,7 +333,7 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
         const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
         // Store tokens in database
-        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+        const supabaseAdmin = createClient(supabaseInternalUrl, supabaseServiceKey);
 
         // Upsert - delete existing and insert new
         await supabaseAdmin

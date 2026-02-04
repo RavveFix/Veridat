@@ -93,6 +93,11 @@ export class FortnoxSidebar {
 
         badge.className = `fortnox-sidebar-status ${status}`;
         badge.textContent = status === 'connected' ? 'Ansluten' : status === 'checking' ? '...' : 'Ej ansluten';
+
+        const body = this.container?.querySelector('.fortnox-sidebar-body') as HTMLElement | null;
+        if (body && !fortnoxContextService.getActiveEntity()) {
+            this.renderEmptyState(body);
+        }
     }
 
     // --- Copilot ---
