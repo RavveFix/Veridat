@@ -1,0 +1,4 @@
+interface:
+  display_name: "Svensk Ekonomi"
+  short_description: "Bokföring och moms enligt svensk lag och BAS-kontoplan."
+  default_prompt: "Hjälp med svensk bokföring, moms och SIE-export enligt BAS och Skatteverkets regler."

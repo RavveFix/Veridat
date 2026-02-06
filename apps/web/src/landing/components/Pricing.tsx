@@ -21,7 +21,8 @@ export function Pricing() {
                         </div>
                         <ul class="plan-features">
                             <li><span class="check-icon">✓</span> <strong>Gemini 3 Flash</strong></li>
-                            <li><span class="check-icon">✓</span> 5 AI-analyser per månad</li>
+                            <li><span class="check-icon">✓</span> 10 förfrågningar per timme</li>
+                            <li><span class="check-icon">✓</span> 50 förfrågningar per dag</li>
                             <li><span class="check-icon">✓</span> Manuell bilduppladdning</li>
                             <li><span class="check-icon">✓</span> Grundläggande bokföringstips</li>
                             <li><span class="check-icon">✓</span> Support via Discord</li>
@@ -42,13 +43,14 @@ export function Pricing() {
                         </div>
                         <ul class="plan-features">
                             <li><span class="check-icon highlight">✓</span> <strong>Gemini 3 Pro</strong></li>
-                            <li><span class="check-icon highlight">✓</span> <strong>Obegränsad</strong> AI-assistans</li>
+                            <li><span class="check-icon highlight">✓</span> <strong>40 förfrågningar</strong> per timme</li>
+                            <li><span class="check-icon highlight">✓</span> <strong>200 förfrågningar</strong> per dag</li>
                             <li><span class="check-icon highlight">✓</span> <strong>Integration med Fortnox</strong></li>
                             <li><span class="check-icon highlight">✓</span> Automatisk kvitto-tolkning</li>
                             <li><span class="check-icon highlight">✓</span> Prioriterad support</li>
                             <li><span class="check-icon highlight">✓</span> Export till Excel & PDF</li>
                         </ul>
-                        <a href="mailto:support@veridat.se?subject=Uppgradering till Veridat Pro&body=Hej Veridat-teamet!%0D%0A%0D%0AJag är intresserad av att uppgradera mitt bolag till Veridat Pro. Kan ni hjälpa mig att komma igång?%0D%0A%0D%0AMed vänlig hälsning," class="btn btn-primary btn-glow">Kontakta oss för Pro</a>
+                        <a href="mailto:support@veridat.se?subject=Uppgradering till Veridat Pro&body=Hej Veridat-teamet!%0D%0A%0D%0AJag är intresserad av att uppgradera mitt bolag till Veridat Pro (40 förfrågningar/timme, 200/dag). Kan ni hjälpa mig att komma igång?%0D%0A%0D%0AMed vänlig hälsning," class="btn btn-primary btn-glow">Kontakta oss för Pro</a>
                         <p class="vat-note">Priser exkl. moms</p>
                     </div>
                 </div>

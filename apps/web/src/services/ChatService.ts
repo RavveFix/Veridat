@@ -43,6 +43,44 @@ function getBackoffDelay(attempt: number, baseDelayMs: number, retryAfterHeader?
     return baseDelayMs * Math.pow(2, attempt);
 }
 
+type SSEParseResult = {
+    events: string[];
+    buffer: string;
+};
+
+function extractSSEEvents(buffer: string): SSEParseResult {
+    const normalized = buffer.replace(/\r/g, '');
+    const events: string[] = [];
+    let startIndex = 0;
+
+    while (true) {
+        const delimiterIndex = normalized.indexOf('\n\n', startIndex);
+        if (delimiterIndex === -1) break;
+
+        const rawEvent = normalized.slice(startIndex, delimiterIndex);
+        if (rawEvent.trim()) {
+            events.push(rawEvent);
+        }
+
+        startIndex = delimiterIndex + 2;
+    }
+
+    return {
+        events,
+        buffer: normalized.slice(startIndex)
+    };
+}
+
+function extractSSEData(rawEvent: string): string | null {
+    const dataLines = rawEvent
+        .split('\n')
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice(5).replace(/^ /, ''));
+
+    if (dataLines.length === 0) return null;
+    return dataLines.join('\n');
+}
+
 function toNumberOrNull(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string' && value.trim() !== '') {
@@ -140,7 +178,8 @@ class ChatServiceClass {
         file: File | null = null,
         fileUrl: string | null = null,
         vatReportContext: Record<string, unknown> | null = null,
-        onStreamingChunk?: (chunk: string) => void
+        onStreamingChunk?: (chunk: string) => void,
+        assistantMode: 'skill_assist' | null = null
     ): Promise<GeminiResponse> {
         logger.startTimer('gemini-chat');
 
@@ -223,7 +262,8 @@ class ChatServiceClass {
                             fileUrl,
                             fileName: file?.name || null,
                             vatReportContext,
-                            model: modelService.getApiModel()
+                            model: modelService.getApiModel(),
+                            assistantMode
                         })
                     });
 
@@ -596,32 +636,49 @@ class ChatServiceClass {
 
                 buffer += decoder.decode(value, { stream: true });
 
-                // Process complete SSE messages
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                const { events, buffer: remaining } = extractSSEEvents(buffer);
+                buffer = remaining;
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const data = JSON.parse(line.slice(6)) as AIAnalysisProgress;
+                for (const event of events) {
+                    const payload = extractSSEData(event);
+                    if (!payload) continue;
 
-                            // Call progress callback
-                            onProgress(data);
+                    try {
+                        const data = JSON.parse(payload) as AIAnalysisProgress;
 
-                            // Check for completion or error
-                            if (data.step === 'complete' && data.report) {
-                                finalReport = data.report;
-                            } else if (data.step === 'error') {
-                                throw new Error(data.error || 'Analysis failed');
-                            }
-                        } catch (parseError) {
-                            logger.warn('Failed to parse SSE message', { line, error: parseError });
+                        // Call progress callback
+                        onProgress(data);
+
+                        // Check for completion or error
+                        if (data.step === 'complete' && data.report) {
+                            finalReport = data.report;
+                        } else if (data.step === 'error') {
+                            throw new Error(data.error || 'Analysen misslyckades');
                         }
+                    } catch (parseError) {
+                        logger.warn('Failed to parse SSE message', { event, error: parseError });
                     }
                 }
             }
 
             logger.endTimer('excel-analysis-ai');
+
+            if (buffer.trim()) {
+                const { events } = extractSSEEvents(`${buffer}\n\n`);
+                for (const event of events) {
+                    const payload = extractSSEData(event);
+                    if (!payload) continue;
+                    try {
+                        const data = JSON.parse(payload) as AIAnalysisProgress;
+                        onProgress(data);
+                        if (data.step === 'complete' && data.report) {
+                            finalReport = data.report;
+                        }
+                    } catch (parseError) {
+                        logger.warn('Failed to parse SSE message (flush)', { event, error: parseError });
+                    }
+                }
+            }
 
             if (finalReport) {
                 logger.info('AI Excel analysis succeeded');
@@ -631,7 +688,7 @@ class ChatServiceClass {
                     backend: 'ai'
                 };
             } else {
-                throw new Error('No report received');
+                throw new Error('Ingen rapport mottogs från servern. Prova igen eller exportera filen på nytt.');
             }
 
         } catch (error) {
@@ -698,33 +755,54 @@ class ChatServiceClass {
         }
 
         const decoder = new TextDecoder();
+        let buffer = '';
         let finalReport: VATReportResponse | null = null;
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+            buffer += decoder.decode(value, { stream: true });
+            const { events, buffer: remaining } = extractSSEEvents(buffer);
+            buffer = remaining;
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        if (data.step === 'complete' && data.report) {
-                            finalReport = data.report;
-                        } else if (data.step === 'error') {
-                            throw new Error(data.error || 'Analys misslyckades');
-                        }
-                    } catch {
-                        // Ignore parse errors for partial chunks
+            for (const event of events) {
+                const payload = extractSSEData(event);
+                if (!payload) continue;
+
+                try {
+                    const data = JSON.parse(payload);
+                    if (data.step === 'complete' && data.report) {
+                        finalReport = data.report;
+                    } else if (data.step === 'error') {
+                        throw new Error(data.error || 'Analys misslyckades');
                     }
+                } catch {
+                    // Ignore parse errors for partial chunks
+                }
+            }
+        }
+
+        if (buffer.trim()) {
+            const { events } = extractSSEEvents(`${buffer}\n\n`);
+            for (const event of events) {
+                const payload = extractSSEData(event);
+                if (!payload) continue;
+                try {
+                    const data = JSON.parse(payload);
+                    if (data.step === 'complete' && data.report) {
+                        finalReport = data.report;
+                    } else if (data.step === 'error') {
+                        throw new Error(data.error || 'Analys misslyckades');
+                    }
+                } catch {
+                    // Ignore parse errors for partial chunks
                 }
             }
         }
 
         if (!finalReport) {
-            throw new Error('Ingen rapport returnerades');
+            throw new Error('Ingen rapport returnerades från servern. Prova igen eller exportera filen på nytt.');
         }
 
         logger.info('Edge Function response received', { type: finalReport.type });

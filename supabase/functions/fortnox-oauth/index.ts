@@ -28,6 +28,7 @@ const FORTNOX_SCOPES = [
     'customer',
     'article',
     'invoice',
+    'payment',
     'bookkeeping',
     'companyinformation',
     'supplier',

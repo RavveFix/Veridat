@@ -91,7 +91,6 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="logo-area">
-                    <div class="logo-icon chat-orb"></div>
                     <span class="logo-text">Veridat</span>
                 </div>
                 <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle sidebar">
@@ -179,6 +178,15 @@
                         </button>
                     </div>
                     <div id="memory-indicator-root"></div>
+                    <button id="grid-toggle-btn" class="fortnox-toggle-btn grid-toggle-btn" title="Visa rutnät" aria-pressed="false">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7" rx="1"/>
+                            <rect x="14" y="3" width="7" height="7" rx="1"/>
+                            <rect x="3" y="14" width="7" height="7" rx="1"/>
+                            <rect x="14" y="14" width="7" height="7" rx="1"/>
+                        </svg>
+                        <span>Grid</span>
+                    </button>
                     <button id="fortnox-sidebar-toggle" class="fortnox-toggle-btn" title="Fortnox panel">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="3" y="3" width="18" height="18" rx="2"/>
@@ -376,7 +384,7 @@
                         <button class="panel-tab" data-tab="journal">Bokföring</button>
                     </div>
                     <div id="sheet-tabs" class="sheet-tabs"></div>
-                    <div id="excel-table-container"></div>
+                    <div id="excel-table-container" class="excel-table-container"></div>
                 </div>
             </div>
         </main>

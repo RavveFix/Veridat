@@ -7,6 +7,7 @@ import { VATReportCard } from './VATReportCard';
 import { ExcelArtifact, type ExcelSheet, type ExcelArtifactProps } from './ExcelArtifact';
 import { mountPreactComponent } from './preact-adapter';
 import { logger } from '../services/LoggerService';
+import { buildAnalysisSummary } from '../utils/analysisSummary';
 
 /**
  * ExcelWorkspace - Handles parsing and displaying Excel files using SheetJS
@@ -188,6 +189,13 @@ export class ExcelWorkspace {
     }
 
     /**
+     * Toggle VAT report layout mode on the panel container
+     */
+    private setVatReportMode(enabled: boolean): void {
+        this.elements.container.classList.toggle('vat-report-mode', enabled);
+    }
+
+    /**
      * Open and display an Excel file from a URL
      *
      * @param fileUrl - Public URL to the Excel file
@@ -195,6 +203,8 @@ export class ExcelWorkspace {
      */
     async openExcelFile(fileUrl: string, filename: string): Promise<void> {
         try {
+            this.setVatReportMode(false);
+
             // Update filename display
             this.elements.filenameDisplay.textContent = filename;
 
@@ -249,6 +259,8 @@ export class ExcelWorkspace {
         onAnalyze?: () => void
     ): Promise<void> {
         try {
+            this.setVatReportMode(false);
+
             // Unmount any previous Preact component
             this.excelArtifactUnmount?.();
             this.vatReportUnmount?.();
@@ -496,6 +508,7 @@ export class ExcelWorkspace {
      */
     private displaySheet(sheetName: string): void {
         if (!this.currentWorkbook) {
+            this.setVatReportMode(false);
             this.elements.container.innerHTML = '<div class="excel-error">Ingen arbetsbok laddad.</div>';
             return;
         }
@@ -503,6 +516,7 @@ export class ExcelWorkspace {
         const worksheet = this.currentWorkbook.Sheets[sheetName];
 
         if (!worksheet) {
+            this.setVatReportMode(false);
             this.elements.container.innerHTML = '<div class="excel-error">Flik hittades inte.</div>';
             return;
         }
@@ -515,10 +529,12 @@ export class ExcelWorkspace {
 
         const safeTableHtml = this.sanitizeExcelHtmlTable(htmlTable);
         if (!safeTableHtml) {
+            this.setVatReportMode(false);
             this.elements.container.innerHTML = '<div class="excel-error">Kunde inte rendera Excel-tabellen säkert.</div>';
             return;
         }
 
+        this.setVatReportMode(false);
         this.elements.container.innerHTML = safeTableHtml;
 
         // Add custom styling to the table
@@ -567,6 +583,7 @@ export class ExcelWorkspace {
         this.excelArtifactUnmount = undefined;
 
         this.elements.panel.classList.remove('open');
+        this.setVatReportMode(false);
         this.currentWorkbook = null;
         this.currentFile = null;
         this.currentContent = null;
@@ -631,6 +648,8 @@ export class ExcelWorkspace {
      * @param filename - Name of the file being analyzed
      */
     showAnalyzing(filename: string): void {
+        this.setVatReportMode(false);
+
         // Update panel title
         this.elements.filenameDisplay.textContent = `Analyserar ${filename}...`;
 
@@ -662,6 +681,8 @@ export class ExcelWorkspace {
      * @param filename - Name of the file being analyzed
      */
     showStreamingAnalysis(filename: string): void {
+        this.setVatReportMode(false);
+
         // Update panel title
         this.elements.filenameDisplay.textContent = filename;
 
@@ -692,6 +713,37 @@ export class ExcelWorkspace {
                         </div>
                         <span class="confidence-label" id="ai-confidence-label"></span>
                     </div>
+                </div>
+
+                <div class="excel-preflight" id="excel-preflight">
+                    <div class="preflight-header">
+                        <div class="preflight-title">Förhandskontroll</div>
+                        <div class="preflight-subtitle">Snabb koll innan analys</div>
+                    </div>
+                    <div class="preflight-grid">
+                        <div class="preflight-item">
+                            <div class="preflight-label">Filtyp</div>
+                            <div class="preflight-value" id="preflight-filetype">—</div>
+                        </div>
+                        <div class="preflight-item">
+                            <div class="preflight-label">Storlek</div>
+                            <div class="preflight-value" id="preflight-filesize">—</div>
+                        </div>
+                        <div class="preflight-item">
+                            <div class="preflight-label">Blad</div>
+                            <div class="preflight-value" id="preflight-sheets">—</div>
+                        </div>
+                        <div class="preflight-item">
+                            <div class="preflight-label">Rader (första bladet)</div>
+                            <div class="preflight-value" id="preflight-rows">—</div>
+                        </div>
+                        <div class="preflight-item">
+                            <div class="preflight-label">Kolumner (första bladet)</div>
+                            <div class="preflight-value" id="preflight-columns">—</div>
+                        </div>
+                    </div>
+                    <div class="preflight-hints" id="preflight-hints"></div>
+                    <div class="preflight-warning" id="preflight-warning" style="display: none;"></div>
                 </div>
 
                 <div class="analysis-steps" id="ai-analysis-steps">
@@ -762,6 +814,88 @@ export class ExcelWorkspace {
         if (this.elements.titleIcon) {
             this.elements.titleIcon.textContent = '⚡';
         }
+    }
+
+    async updatePreflight(file: File): Promise<void> {
+        const fileTypeEl = document.getElementById('preflight-filetype');
+        const fileSizeEl = document.getElementById('preflight-filesize');
+        const sheetCountEl = document.getElementById('preflight-sheets');
+        const rowCountEl = document.getElementById('preflight-rows');
+        const columnCountEl = document.getElementById('preflight-columns');
+        const hintsEl = document.getElementById('preflight-hints');
+        const warningEl = document.getElementById('preflight-warning');
+
+        if (!fileTypeEl || !fileSizeEl || !sheetCountEl || !rowCountEl || !columnCountEl || !hintsEl || !warningEl) {
+            return;
+        }
+
+        const extension = file.name.split('.').pop()?.toLowerCase() || '';
+        fileTypeEl.textContent = extension ? `.${extension}` : 'Okänd';
+        fileSizeEl.textContent = this.formatFileSize(file.size);
+        sheetCountEl.textContent = '…';
+        rowCountEl.textContent = '…';
+        columnCountEl.textContent = '…';
+
+        const hints: string[] = [];
+        if (extension === 'csv') {
+            hints.push('CSV med kommatecken måste vara citerad.');
+        }
+        if (extension === 'numbers') {
+            hints.push('Numbers fungerar bäst om du exporterar som .xlsx.');
+        }
+
+        const MAX_EXCEL_SIZE = 5 * 1024 * 1024;
+        if (file.size > MAX_EXCEL_SIZE) {
+            warningEl.textContent = 'Filen är större än 5 MB och kan inte analyseras. Exportera en mindre fil.';
+            warningEl.style.display = 'block';
+        } else if (file.size > MAX_EXCEL_SIZE * 0.8) {
+            warningEl.textContent = 'Stor fil – analysen kan ta längre tid.';
+            warningEl.style.display = 'block';
+        } else {
+            warningEl.style.display = 'none';
+        }
+
+        hintsEl.innerHTML = hints.map(hint => `<span class="preflight-hint">${this.escapeHtml(hint)}</span>`).join('');
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            const sheetNames = workbook.SheetNames || [];
+            sheetCountEl.textContent = sheetNames.length.toString();
+
+            const firstSheetName = sheetNames[0];
+            const worksheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
+            const ref = worksheet?.['!ref'] || '';
+
+            if (ref) {
+                const range = XLSX.utils.decode_range(ref);
+                const rows = range.e.r - range.s.r + 1;
+                const cols = range.e.c - range.s.c + 1;
+                rowCountEl.textContent = rows.toLocaleString('sv-SE');
+                columnCountEl.textContent = cols.toLocaleString('sv-SE');
+            } else {
+                rowCountEl.textContent = 'Okänd';
+                columnCountEl.textContent = 'Okänd';
+            }
+        } catch (error) {
+            rowCountEl.textContent = 'Okänd';
+            columnCountEl.textContent = 'Okänd';
+            if (!hints.includes('Kunde inte läsa rader/kolumner. Prova att exportera som .xlsx.')) {
+                hintsEl.innerHTML = `${hintsEl.innerHTML}<span class="preflight-hint">Kunde inte läsa rader/kolumner. Prova att exportera som .xlsx.</span>`;
+            }
+        }
+    }
+
+    private formatFileSize(bytes: number): string {
+        if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
     }
 
     /**
@@ -904,6 +1038,7 @@ export class ExcelWorkspace {
                     const data = reportData.data;
                     const summary = data.summary as Record<string, unknown> || {};
                     const transactions = data.transactions as Array<Record<string, unknown>> || [];
+                    const analysisSummary = buildAnalysisSummary(transactions, reportData.metadata as Record<string, unknown> | undefined);
 
                     // Build VAT breakdown from transactions (more reliable than vat_breakdown)
                     const salesItems: Array<Record<string, unknown>> = [];
@@ -1036,6 +1171,7 @@ export class ExcelWorkspace {
                             errors: [],
                             warnings: ((data.validation as Record<string, unknown>)?.warnings as string[]) || []
                         },
+                        analysis_summary: analysisSummary,
                         // Add EV charging specific data if available
                         charging_sessions: summary.total_kwh ? [{
                             id: 'summary',
@@ -1129,6 +1265,7 @@ export class ExcelWorkspace {
      * Show analysis error in the streaming UI
      */
     showAnalysisError(error: string): void {
+        this.setVatReportMode(false);
         this.panelState = 'error';
         this.elements.container.innerHTML = `
             <div class="excel-analyzing error">
@@ -1168,6 +1305,8 @@ export class ExcelWorkspace {
      */
     openVATReport(data: VATReportData, fileUrl?: string, filePath?: string, fileBucket?: string, skipSave = false): void {
         try {
+            this.setVatReportMode(true);
+
             // Unmount previous Preact component if exists
             this.vatReportUnmount?.();
 

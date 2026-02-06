@@ -38,15 +38,15 @@ export function ModalWrapper({ onClose, title, subtitle, children, maxWidth = '5
             <div
                 className="modal-content glass-panel"
                 style={{
-                    background: 'var(--glass-bg)',
-                    border: '1px solid var(--glass-border)',
+                    background: 'var(--glass-gradient)',
+                    border: '1px solid var(--surface-border-strong)',
                     borderRadius: '16px',
                     padding: '2rem',
                     width: '100%',
                     maxWidth: isFullscreen ? 'min(96vw, 1400px)' : `min(90vw, ${maxWidth})`,
                     maxHeight: isFullscreen ? '90vh' : '85vh',
                     overflowY: 'auto',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                    boxShadow: 'var(--surface-shadow-strong)',
                     position: 'relative'
                 }}
             >

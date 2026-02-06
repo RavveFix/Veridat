@@ -106,6 +106,24 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                 console.error('Error checking Fortnox status:', tokenError);
             }
 
+            // Fire-and-forget: sync Fortnox profile to memory on connection
+            if (fortnoxTokens && user) {
+                const companyId = localStorage.getItem('activeCompanyId');
+                if (companyId) {
+                    fetch(
+                        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+                            },
+                            body: JSON.stringify({ action: 'sync_profile', companyId })
+                        }
+                    ).catch((err) => console.warn('Fortnox profile sync skipped:', err));
+                }
+            }
+
             // Build integrations list with status
             const integrationsWithStatus: Integration[] = INTEGRATIONS_CONFIG.map(config => {
                 let status: IntegrationStatus = 'coming_soon';
@@ -325,7 +343,6 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                 title="Bankimport (CSV)"
                 subtitle="Importera kontoutdrag från Handelsbanken och förhandsvisa matchning."
                 maxWidth="1200px"
-                variant="fullscreen"
             >
                 <BankImportPanel onBack={() => setActiveTool(null)} />
             </ModalWrapper>
@@ -339,7 +356,6 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                 title="Byråvy (beta)"
                 subtitle="Hantera klientbolag och byt aktivt bolag snabbt."
                 maxWidth="1200px"
-                variant="fullscreen"
             >
                 <AgencyPanel onBack={() => setActiveTool(null)} />
             </ModalWrapper>
@@ -353,7 +369,6 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                 title="Fortnoxpanel"
                 subtitle="Leverantörsfakturor, status och Copilot på ett ställe."
                 maxWidth="1200px"
-                variant="fullscreen"
             >
                 <FortnoxPanel onBack={() => setActiveTool(null)} />
             </ModalWrapper>
@@ -361,7 +376,7 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
     }
 
     return (
-        <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokföringssystem." maxWidth="1200px" variant="fullscreen">
+        <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokföringssystem." maxWidth="1200px">
                 {error && (
                     <div style={{
                         padding: '0.8rem',
@@ -398,12 +413,13 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                                 style={{
                                     padding: '1.25rem',
                                     borderRadius: '12px',
-                                    border: '1px solid var(--glass-border)',
-                                    background: 'rgba(255, 255, 255, 0.04)',
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-1)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '1rem',
-                                    transition: 'background 0.2s',
+                                    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                                    boxShadow: 'var(--surface-shadow)',
                                     opacity: integration.status === 'coming_soon' ? 0.6 : 1
                                 }}
                             >
@@ -413,8 +429,8 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                                     height: '48px',
                                     borderRadius: '12px',
                                     background: integration.status === 'connected'
-                                        ? 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))'
-                                        : 'rgba(255, 255, 255, 0.08)',
+                                        ? 'var(--accent-gradient)'
+                                        : 'var(--surface-3)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -466,13 +482,14 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                                                 style={{
                                                     padding: '0.5rem 1rem',
                                                     borderRadius: '8px',
-                                                    border: '1px solid var(--glass-border)',
-                                                    background: 'transparent',
+                                                    border: '1px solid var(--surface-border)',
+                                                    background: 'var(--surface-2)',
                                                     color: 'var(--text-secondary)',
                                                     cursor: connecting === integration.id ? 'wait' : 'pointer',
                                                     fontSize: '0.85rem',
                                                     fontWeight: 500,
-                                                    transition: 'all 0.2s'
+                                                    transition: 'all 0.2s',
+                                                    boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
                                                 }}
                                             >
                                                 {connecting === integration.id ? '...' : 'Koppla bort'}
@@ -485,13 +502,14 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                                                     padding: '0.5rem 1rem',
                                                     borderRadius: '8px',
                                                     border: 'none',
-                                                    background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                                                    background: 'var(--accent-gradient)',
                                                     color: '#fff',
                                                     cursor: connecting === integration.id ? 'wait' : 'pointer',
                                                     fontSize: '0.85rem',
                                                     fontWeight: 600,
                                                     transition: 'all 0.2s',
-                                                    opacity: connecting === integration.id ? 0.7 : 1
+                                                    opacity: connecting === integration.id ? 0.7 : 1,
+                                                    boxShadow: 'var(--accent-glow)'
                                                 }}
                                             >
                                                 {connecting === integration.id ? 'Ansluter...' : 'Anslut'}
@@ -508,8 +526,9 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                     marginTop: '1.5rem',
                     padding: '1rem',
                     borderRadius: '12px',
-                    background: 'rgba(255, 255, 255, 0.04)',
-                    border: '1px solid var(--glass-border)'
+                    background: 'var(--surface-1)',
+                    border: '1px solid var(--surface-border)',
+                    boxShadow: 'var(--surface-shadow)'
                 }}>
                     <h4 style={{
                         margin: '0 0 0.75rem',
@@ -529,10 +548,11 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                                 gap: '1rem',
                                 padding: '0.9rem 1rem',
                                 borderRadius: '10px',
-                                border: '1px solid var(--glass-border)',
-                                background: 'rgba(255, 255, 255, 0.03)',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
                                 color: 'var(--text-primary)',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
                             }}
                         >
                             <div style={{ textAlign: 'left' }}>
@@ -562,10 +582,11 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                                 gap: '1rem',
                                 padding: '0.9rem 1rem',
                                 borderRadius: '10px',
-                                border: '1px solid var(--glass-border)',
-                                background: 'rgba(255, 255, 255, 0.03)',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
                                 color: 'var(--text-primary)',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
                             }}
                         >
                             <div style={{ textAlign: 'left' }}>
@@ -596,10 +617,11 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                                 gap: '1rem',
                                 padding: '0.9rem 1rem',
                                 borderRadius: '10px',
-                                border: '1px solid var(--glass-border)',
-                                background: 'rgba(255, 255, 255, 0.03)',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
                                 color: 'var(--text-primary)',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
                             }}
                         >
                             <div style={{ textAlign: 'left' }}>
@@ -626,8 +648,9 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                     marginTop: '1.5rem',
                     padding: '1rem',
                     borderRadius: '12px',
-                    background: 'rgba(255, 255, 255, 0.04)',
-                    border: '1px solid var(--glass-border)'
+                    background: 'var(--surface-1)',
+                    border: '1px solid var(--surface-border)',
+                    boxShadow: 'var(--surface-shadow)'
                 }}>
                     <h4 style={{
                         margin: '0 0 0.5rem',

@@ -75,6 +75,27 @@ export interface FortnoxInvoiceListResponse extends FortnoxResponse<FortnoxInvoi
 }
 
 // ============================================================================
+// INVOICE PAYMENT TYPES (Betalningar)
+// ============================================================================
+
+export interface FortnoxInvoicePayment {
+    InvoiceNumber: number;
+    Amount: number;
+    PaymentDate: string;
+    ModeOfPayment?: string;
+    ModeOfPaymentAccount?: number;
+    ExternalInvoiceReference1?: string;
+    ExternalInvoiceReference2?: string;
+}
+
+export interface FortnoxInvoicePaymentResponse extends FortnoxResponse<FortnoxInvoicePayment> {
+    InvoicePayment: FortnoxInvoicePayment & {
+        Number: string;
+        Booked?: boolean;
+    };
+}
+
+// ============================================================================
 // VOUCHER TYPES (Verifikationer)
 // ============================================================================
 
@@ -150,6 +171,21 @@ export interface FortnoxSupplierInvoiceResponse extends FortnoxResponse<FortnoxS
         Balance: number;
         Booked: boolean;
         FinalPayDate?: string;
+    };
+}
+
+export interface FortnoxSupplierInvoicePayment {
+    InvoiceNumber: string;
+    Amount: number;
+    PaymentDate: string;
+    ModeOfPayment?: string;
+    Information?: string;
+}
+
+export interface FortnoxSupplierInvoicePaymentResponse extends FortnoxResponse<FortnoxSupplierInvoicePayment> {
+    SupplierInvoicePayment: FortnoxSupplierInvoicePayment & {
+        Number: number;
+        Booked?: boolean;
     };
 }
 

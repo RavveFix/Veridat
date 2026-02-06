@@ -105,14 +105,26 @@
             Kom igång med Veridat
           </button>
 
-          <!-- Consent text (click-through consent) -->
-          <p
-            style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-secondary); text-align: center; line-height: 1.5"
-          >
-            Genom att fortsätta godkänner du våra
-            <a href="/terms.html" target="_blank" style="color: var(--accent-primary); text-decoration: underline">användarvillkor</a>
-            och
-            <a href="/privacy.html" target="_blank" style="color: var(--accent-primary); text-decoration: underline">integritetspolicy</a>.
+          <!-- Consent checkbox (required) -->
+          <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-secondary); text-align: left; line-height: 1.5">
+            <label style="display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.5rem;">
+              <input type="checkbox" id="consent-terms" required>
+              <span>
+                Jag godkänner
+                <a href="/terms" target="_blank" style="color: var(--accent-primary); text-decoration: underline">användarvillkor</a>
+                och
+                <a href="/privacy" target="_blank" style="color: var(--accent-primary); text-decoration: underline">integritetspolicy</a>.
+              </span>
+            </label>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 1.7rem;">
+              Läs även
+              <a href="/security" target="_blank" style="color: var(--accent-primary); text-decoration: underline">säkerhetspolicy</a>
+              och
+              <a href="/dpa" target="_blank" style="color: var(--accent-primary); text-decoration: underline">DPA</a>.
+            </div>
+          </div>
+          <p style="margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-secondary); text-align: center; line-height: 1.4">
+            För att fortsätta behöver du godkänna användarvillkor och integritetspolicy.
           </p>
         </form>
 

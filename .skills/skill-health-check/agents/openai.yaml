@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Health Check"
+  short_description: "Veckovisa hälsokontroller för lokala Codex‑skills."
+  default_prompt: "Genomför en hälsokontroll av alla lokala skills och rapportera brister utan att ändra filer."

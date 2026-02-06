@@ -8,7 +8,7 @@
  * When version changes, ALL users will be prompted to re-consent on next login.
  */
 
-export const CURRENT_TERMS_VERSION = '1.2.0';
+export const CURRENT_TERMS_VERSION = '1.3.0';
 
 /**
  * Version history and change summaries
@@ -19,6 +19,15 @@ export const VERSION_HISTORY: Record<string, {
     summary: string;
     majorChanges: string[];
 }> = {
+    '1.3.0': {
+        date: '2026-02-05',
+        summary: 'DPA och säkerhetspolicy + AI-leverantörsinfo',
+        majorChanges: [
+            'Tillagt DPA och säkerhetspolicy som juridiska dokument',
+            'Förtydligat AI-leverantör (Google Gemini i nuläget)',
+            'Borttaget Resend som underbiträde i policyn'
+        ]
+    },
     '1.2.0': {
         date: '2026-01-13',
         summary: 'Komplett företagsinformation och GDPR-förbättringar',

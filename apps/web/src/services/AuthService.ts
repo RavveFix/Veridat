@@ -8,7 +8,8 @@
  */
 
 import { supabase } from '../lib/supabase';
-import { CURRENT_TERMS_VERSION, isVersionOutdated } from '../constants/termsVersion';
+import { CURRENT_TERMS_VERSION } from '../constants/termsVersion';
+import { REQUIRED_LEGAL_DOCS, type LegalDocType } from '../constants/legalDocs';
 import { logger } from './LoggerService';
 
 export interface AuthState {
@@ -23,6 +24,14 @@ export interface ConsentData {
     fullName: string;
     acceptedAt: string;
     version: string;
+}
+
+interface LocalLegalAcceptances {
+    acceptedAt: string;
+    version: string;
+    docs: LegalDocType[];
+    dpaAuthorized: boolean;
+    userAgent: string;
 }
 
 class AuthServiceClass {
@@ -66,26 +75,26 @@ class AuthServiceClass {
         if (!session) return false;
 
         try {
-            const { data: profile, error } = await supabase
-                .from('profiles')
-                .select('has_accepted_terms, terms_version')
-                .eq('id', session.user.id)
-                .single();
+            const { data: acceptances, error } = await supabase
+                .from('legal_acceptances')
+                .select('doc_type, version')
+                .eq('user_id', session.user.id)
+                .eq('version', CURRENT_TERMS_VERSION)
+                .in('doc_type', REQUIRED_LEGAL_DOCS);
 
             if (error) {
-                logger.warn('Error fetching profile, assuming terms not accepted', { error });
+                logger.warn('Error fetching legal acceptances, assuming not accepted', { error });
                 return false;
             }
 
-            const hasAccepted = !!profile?.has_accepted_terms;
+            const acceptedDocs = new Set((acceptances || []).map((row) => row.doc_type));
+            const hasAllDocs = REQUIRED_LEGAL_DOCS.every((doc) => acceptedDocs.has(doc));
 
-            // Check if version is outdated (needs re-consent)
-            if (hasAccepted && isVersionOutdated(profile?.terms_version)) {
-                logger.info('Terms version outdated, user needs to re-consent');
-                return false;
+            if (!hasAllDocs) {
+                logger.info('Legal acceptance missing required documents');
             }
 
-            return hasAccepted;
+            return hasAllDocs;
         } catch (e) {
             logger.error('Exception checking terms', e);
             return false;
@@ -98,7 +107,17 @@ class AuthServiceClass {
     hasLocalConsent(): boolean {
         const localConsent = localStorage.getItem('has_accepted_terms_local');
         const localName = localStorage.getItem('user_full_name_local');
-        return !!(localConsent && localName);
+        const legalRaw = localStorage.getItem('legal_acceptances_local');
+
+        if (!localConsent || !localName || !legalRaw) return false;
+
+        try {
+            const parsed = JSON.parse(legalRaw) as LocalLegalAcceptances;
+            if (!parsed?.docs?.length) return false;
+            return REQUIRED_LEGAL_DOCS.every((doc) => parsed.docs.includes(doc));
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -117,6 +136,19 @@ class AuthServiceClass {
             acceptedAt: localTime || new Date().toISOString(),
             version: localVersion || CURRENT_TERMS_VERSION
         };
+    }
+
+    /**
+     * Get local legal acceptance details
+     */
+    getLocalLegalAcceptances(): LocalLegalAcceptances | null {
+        const raw = localStorage.getItem('legal_acceptances_local');
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw) as LocalLegalAcceptances;
+        } catch {
+            return null;
+        }
     }
 
     /**
@@ -146,6 +178,33 @@ class AuthServiceClass {
 
             if (error) {
                 logger.error('Error syncing consent to database', { error });
+                localStorage.setItem('consent_sync_pending', 'true');
+                return false;
+            }
+
+            const localAcceptances = this.getLocalLegalAcceptances();
+            const acceptedAt = localAcceptances?.acceptedAt || consentData.acceptedAt;
+            const version = localAcceptances?.version || consentData.version;
+            const docs = localAcceptances?.docs?.length ? localAcceptances.docs : REQUIRED_LEGAL_DOCS;
+            const userAgent = localAcceptances?.userAgent || navigator.userAgent;
+            const dpaAuthorized = localAcceptances?.dpaAuthorized ?? false;
+
+            const acceptanceRows = docs.map((doc) => ({
+                user_id: session.user.id,
+                doc_type: doc,
+                version,
+                accepted_at: acceptedAt,
+                user_agent: userAgent,
+                dpa_authorized: doc === 'dpa' ? dpaAuthorized : false,
+                accepted_from: 'prelogin'
+            }));
+
+            const { error: acceptanceError } = await supabase
+                .from('legal_acceptances')
+                .upsert(acceptanceRows, { onConflict: 'user_id,doc_type,version' });
+
+            if (acceptanceError) {
+                logger.error('Error syncing legal acceptances', { error: acceptanceError });
                 localStorage.setItem('consent_sync_pending', 'true');
                 return false;
             }
@@ -181,10 +240,18 @@ class AuthServiceClass {
      * Save consent locally (for immediate use before DB sync)
      */
     saveLocalConsent(fullName: string): void {
+        const acceptedAt = new Date().toISOString();
         localStorage.setItem('has_accepted_terms_local', 'true');
         localStorage.setItem('user_full_name_local', fullName);
-        localStorage.setItem('terms_accepted_at_local', new Date().toISOString());
+        localStorage.setItem('terms_accepted_at_local', acceptedAt);
         localStorage.setItem('terms_version_local', CURRENT_TERMS_VERSION);
+        localStorage.setItem('legal_acceptances_local', JSON.stringify({
+            acceptedAt,
+            version: CURRENT_TERMS_VERSION,
+            docs: [...REQUIRED_LEGAL_DOCS],
+            dpaAuthorized: false,
+            userAgent: navigator.userAgent
+        }));
         logger.info('Local consent saved', { fullName });
     }
 
@@ -196,6 +263,7 @@ class AuthServiceClass {
         localStorage.removeItem('user_full_name_local');
         localStorage.removeItem('terms_accepted_at_local');
         localStorage.removeItem('terms_version_local');
+        localStorage.removeItem('legal_acceptances_local');
         localStorage.removeItem('consent_sync_pending');
     }
 

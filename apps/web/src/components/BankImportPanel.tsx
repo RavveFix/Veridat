@@ -17,18 +17,40 @@ interface BankImportPanelProps {
 }
 
 interface SupplierInvoiceSummary {
-    GivenNumber: number;
+    GivenNumber: number | string;
     SupplierNumber: string;
     InvoiceNumber: string;
     DueDate: string;
-    Total: number;
-    Balance: number;
+    Total: number | string;
+    Balance: number | string;
     Booked: boolean;
+    OCR?: string;
+    SupplierName?: string;
+    OurReference?: string;
+    YourReference?: string;
 }
+
+interface CustomerInvoiceSummary {
+    InvoiceNumber: number;
+    CustomerNumber: string;
+    DueDate?: string;
+    Total?: number | string;
+    Balance?: number | string;
+    Booked?: boolean;
+    Cancelled?: boolean;
+    OCR?: string;
+    CustomerName?: string;
+    OurReference?: string;
+    YourReference?: string;
+}
+
+type MatchCandidate =
+    | { type: 'supplier'; invoice: SupplierInvoiceSummary }
+    | { type: 'customer'; invoice: CustomerInvoiceSummary };
 
 interface MatchResult {
     transaction: BankTransaction;
-    match?: SupplierInvoiceSummary;
+    match?: MatchCandidate;
     confidence?: 'Hög' | 'Medium' | 'Låg';
     note?: string;
 }
@@ -223,6 +245,22 @@ function formatAmount(value: number): string {
     return value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function toNumber(value: number | string | null | undefined): number {
+    if (typeof value === 'number') return value;
+    if (value === null || value === undefined) return 0;
+    const normalized = String(value).replace(/\s+/g, '').replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeDigits(value?: string): string {
+    return (value || '').replace(/\D+/g, '');
+}
+
+function normalizeText(value?: string): string {
+    return (value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function dayDiff(dateA: string, dateB: string): number {
     const a = new Date(dateA);
     const b = new Date(dateB);
@@ -238,32 +276,121 @@ function createId(): string {
     return `import_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function buildMatches(transactions: BankTransaction[], invoices: SupplierInvoiceSummary[]): MatchResult[] {
-    const candidates = invoices.filter((inv) => !inv.Booked && (inv.Balance ?? inv.Total) > 0);
+function buildMatches(
+    transactions: BankTransaction[],
+    supplierInvoices: SupplierInvoiceSummary[],
+    customerInvoices: CustomerInvoiceSummary[]
+): MatchResult[] {
+    const supplierCandidates = supplierInvoices.filter((inv) => !inv.Booked && toNumber(inv.Balance || inv.Total) > 0);
+    const customerCandidates = customerInvoices.filter((inv) => !inv.Cancelled && toNumber(inv.Balance || inv.Total) > 0);
+    const amountTolerance = 1;
 
-    return transactions.map((tx) => {
-        if (tx.amount >= 0) {
-            return { transaction: tx, note: 'Inbetalning (ej leverantörsfaktura)' };
+    const scoreCandidate = (
+        tx: BankTransaction,
+        invoiceAmount: number,
+        dueDate?: string,
+        matchInfo?: { ocr?: string; invoiceNumber?: string; counterparty?: string }
+    ) => {
+        const amountDiff = Math.abs(Math.abs(tx.amount) - invoiceAmount);
+        if (amountDiff > amountTolerance) return null;
+
+        const referenceText = `${tx.reference || ''} ${tx.ocr || ''} ${tx.description || ''} ${tx.counterparty || ''}`;
+        const referenceDigits = normalizeDigits(referenceText);
+        const ocrDigits = normalizeDigits(matchInfo?.ocr);
+        const invoiceDigits = normalizeDigits(matchInfo?.invoiceNumber);
+        const counterparty = normalizeText(matchInfo?.counterparty);
+        const txText = normalizeText(referenceText);
+
+        const ocrMatch = Boolean(ocrDigits && referenceDigits.includes(ocrDigits));
+        const numberMatch = Boolean(invoiceDigits && referenceDigits.includes(invoiceDigits));
+        const counterpartyMatch = Boolean(counterparty && txText.includes(counterparty));
+        const days = dueDate ? dayDiff(tx.date, dueDate) : 999;
+
+        let score = 0;
+        score += Math.max(0, 40 - amountDiff * 10);
+        if (ocrMatch) score += 40;
+        if (numberMatch) score += 25;
+        if (counterpartyMatch) score += 15;
+        if (days <= 7) score += Math.max(0, 14 - days * 2);
+
+        const reasons: string[] = [];
+        if (ocrMatch) reasons.push('OCR');
+        if (numberMatch) reasons.push('Fakturanr');
+        if (counterpartyMatch) reasons.push('Motpart');
+        if (days <= 7) reasons.push('Datum');
+        reasons.push('Belopp');
+
+        let confidence: MatchResult['confidence'] = 'Låg';
+        if (score >= 85) {
+            confidence = 'Hög';
+        } else if (score >= 60) {
+            confidence = 'Medium';
         }
 
-        const amount = Math.abs(tx.amount);
-        let best: SupplierInvoiceSummary | undefined;
-        let bestScore = Number.POSITIVE_INFINITY;
-        let bestDiff = Number.POSITIVE_INFINITY;
-        let bestDayDiff = 999;
+        return {
+            score,
+            confidence,
+            note: reasons.length > 0 ? `Match: ${reasons.join(', ')}` : undefined
+        };
+    };
 
-        for (const invoice of candidates) {
-            const invoiceAmount = invoice.Balance > 0 ? invoice.Balance : invoice.Total;
-            const diff = Math.abs(amount - invoiceAmount);
-            if (diff > 5) continue;
+    return transactions.map((tx) => {
+        if (tx.amount === 0) {
+            return { transaction: tx, note: 'Belopp 0 (ingen matchning)' };
+        }
 
-            const days = invoice.DueDate ? dayDiff(tx.date, invoice.DueDate) : 999;
-            const score = diff * 10 + days;
-            if (score < bestScore) {
-                bestScore = score;
+        if (tx.amount < 0) {
+            let best: SupplierInvoiceSummary | null = null;
+            let bestScore = 0;
+            let bestConfidence: MatchResult['confidence'] = 'Låg';
+            let bestNote: string | undefined;
+
+            for (const invoice of supplierCandidates) {
+                const invoiceAmount = toNumber(invoice.Balance) > 0 ? toNumber(invoice.Balance) : toNumber(invoice.Total);
+                const scored = scoreCandidate(tx, invoiceAmount, invoice.DueDate, {
+                    ocr: invoice.OCR,
+                    invoiceNumber: invoice.InvoiceNumber || String(invoice.GivenNumber),
+                    counterparty: invoice.SupplierName
+                });
+                if (!scored) continue;
+                if (scored.score > bestScore) {
+                    bestScore = scored.score;
+                    best = invoice;
+                    bestConfidence = scored.confidence;
+                    bestNote = scored.note;
+                }
+            }
+
+            if (!best) {
+                return { transaction: tx, note: 'Ingen match hittad' };
+            }
+
+            return {
+                transaction: tx,
+                match: { type: 'supplier', invoice: best },
+                confidence: bestConfidence,
+                note: bestNote
+            };
+        }
+
+        let best: CustomerInvoiceSummary | null = null;
+        let bestScore = 0;
+        let bestConfidence: MatchResult['confidence'] = 'Låg';
+        let bestNote: string | undefined;
+
+        for (const invoice of customerCandidates) {
+            const invoiceAmount = toNumber(invoice.Balance) > 0 ? toNumber(invoice.Balance) : toNumber(invoice.Total);
+            const scored = scoreCandidate(tx, invoiceAmount, invoice.DueDate, {
+                ocr: invoice.OCR,
+                invoiceNumber: String(invoice.InvoiceNumber),
+                counterparty: invoice.CustomerName
+            });
+            if (!scored) continue;
+            if (scored.score > bestScore) {
+                bestScore = scored.score;
                 best = invoice;
-                bestDiff = diff;
-                bestDayDiff = days;
+                bestConfidence = scored.confidence;
+                bestNote = scored.note;
             }
         }
 
@@ -271,14 +398,12 @@ function buildMatches(transactions: BankTransaction[], invoices: SupplierInvoice
             return { transaction: tx, note: 'Ingen match hittad' };
         }
 
-        let confidence: MatchResult['confidence'] = 'Låg';
-        if (bestDiff <= 0.1 && bestDayDiff <= 3) {
-            confidence = 'Hög';
-        } else if (bestDiff <= 1 && bestDayDiff <= 7) {
-            confidence = 'Medium';
-        }
-
-        return { transaction: tx, match: best, confidence };
+        return {
+            transaction: tx,
+            match: { type: 'customer', invoice: best },
+            confidence: bestConfidence,
+            note: bestNote
+        };
     });
 }
 
@@ -292,6 +417,10 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
     const [matching, setMatching] = useState(false);
     const [matchError, setMatchError] = useState<string | null>(null);
     const [matches, setMatches] = useState<MatchResult[] | null>(null);
+    const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+    const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
+    const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         if (!preview) return;
@@ -429,6 +558,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
         setMatching(true);
         setMatchError(null);
         setMatches(null);
+        setActionError(null);
 
         try {
             const { data: session } = await supabase.auth.getSession();
@@ -438,25 +568,55 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 return;
             }
 
-            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`
-                },
-                body: JSON.stringify({ action: 'getSupplierInvoices' })
-            });
+            const [supplierResponse, customerResponse] = await Promise.all([
+                fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`
+                    },
+                    body: JSON.stringify({ action: 'getSupplierInvoices' })
+                }),
+                fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`
+                    },
+                    body: JSON.stringify({ action: 'getInvoices' })
+                })
+            ]);
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                setMatchError(errorData.error || 'Kunde inte hämta leverantörsfakturor.');
+            const errors: string[] = [];
+
+            let supplierInvoices: SupplierInvoiceSummary[] = [];
+            if (!supplierResponse.ok) {
+                const errorData = await supplierResponse.json().catch(() => ({}));
+                errors.push(errorData.error || 'Kunde inte hämta leverantörsfakturor.');
+            } else {
+                const result = await supplierResponse.json();
+                supplierInvoices = ((result.data?.SupplierInvoices ?? result.SupplierInvoices) || []) as SupplierInvoiceSummary[];
+            }
+
+            let customerInvoices: CustomerInvoiceSummary[] = [];
+            if (!customerResponse.ok) {
+                const errorData = await customerResponse.json().catch(() => ({}));
+                errors.push(errorData.error || 'Kunde inte hämta kundfakturor.');
+            } else {
+                const result = await customerResponse.json();
+                customerInvoices = ((result.data?.Invoices ?? result.Invoices) || []) as CustomerInvoiceSummary[];
+            }
+
+            if (supplierInvoices.length === 0 && customerInvoices.length === 0) {
+                setMatchError(errors[0] || 'Kunde inte hämta Fortnox-data.');
                 return;
             }
 
-            const result = await response.json();
-            const invoices = ((result.data?.SupplierInvoices ?? result.SupplierInvoices) || []) as SupplierInvoiceSummary[];
-            const matchResults = buildMatches(normalizedTransactions, invoices);
+            const matchResults = buildMatches(normalizedTransactions, supplierInvoices, customerInvoices);
             setMatches(matchResults);
+            if (errors.length > 0) {
+                setMatchError(errors.join(' '));
+            }
         } catch (err) {
             console.error('Match suggestions failed', err);
             setMatchError('Ett fel uppstod vid matchning.');
@@ -465,7 +625,133 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
         }
     };
 
+    const handleApproveMatch = async (result: MatchResult) => {
+        if (!result.match) return;
+        setActionLoadingId(result.transaction.id);
+        setActionError(null);
+
+        try {
+            const { data: session } = await supabase.auth.getSession();
+            const accessToken = session?.session?.access_token;
+            if (!accessToken) {
+                setActionError('Du måste vara inloggad för att skapa bokning.');
+                return;
+            }
+
+            const companyId = companyService.getCurrentId();
+            const amount = Math.abs(result.transaction.amount);
+            const paymentDate = result.transaction.date;
+            const reference = result.transaction.reference || result.transaction.ocr || result.transaction.description;
+            const approvedAt = new Date().toISOString();
+
+            const baseTransactionMeta = {
+                transactionId: result.transaction.id,
+                source: 'bank_import',
+                sourceFilename: filename,
+                approvedAt,
+                transaction: {
+                    date: result.transaction.date,
+                    amount: result.transaction.amount,
+                    description: result.transaction.description,
+                    counterparty: result.transaction.counterparty,
+                    reference: result.transaction.reference,
+                    ocr: result.transaction.ocr,
+                    account: result.transaction.account,
+                    raw: result.transaction.raw
+                },
+                confidence: result.confidence,
+                note: result.note,
+                approvalMethod: 'manual_ok'
+            };
+
+            let action = '';
+            let payment: Record<string, unknown> = {};
+            let matchMeta: Record<string, unknown> = {};
+
+            if (result.match.type === 'supplier') {
+                const invoice = result.match.invoice;
+                const invoiceNumber = invoice.InvoiceNumber || String(invoice.GivenNumber);
+                action = 'registerSupplierInvoicePayment';
+                payment = {
+                    InvoiceNumber: invoiceNumber,
+                    Amount: amount,
+                    PaymentDate: paymentDate,
+                    Information: reference
+                };
+                matchMeta = {
+                    type: 'supplier',
+                    invoiceNumber,
+                    supplierNumber: invoice.SupplierNumber,
+                    supplierName: invoice.SupplierName,
+                    dueDate: invoice.DueDate,
+                    total: invoice.Total,
+                    balance: invoice.Balance,
+                    ocr: invoice.OCR
+                };
+            } else {
+                const invoice = result.match.invoice;
+                action = 'registerInvoicePayment';
+                payment = {
+                    InvoiceNumber: invoice.InvoiceNumber,
+                    Amount: amount,
+                    PaymentDate: paymentDate,
+                    ExternalInvoiceReference1: reference
+                };
+                matchMeta = {
+                    type: 'customer',
+                    invoiceNumber: invoice.InvoiceNumber,
+                    customerNumber: invoice.CustomerNumber,
+                    customerName: invoice.CustomerName,
+                    dueDate: invoice.DueDate,
+                    total: invoice.Total,
+                    balance: invoice.Balance,
+                    ocr: invoice.OCR
+                };
+            }
+
+            const meta = { ...baseTransactionMeta, match: matchMeta };
+
+            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({ action, companyId, payload: { payment, meta } })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                setActionError(errorData.error || 'Kunde inte skapa bokning i Fortnox.');
+                return;
+            }
+
+            setApprovedIds((prev) => {
+                const next = new Set(prev);
+                next.add(result.transaction.id);
+                return next;
+            });
+        } catch (err) {
+            console.error('Approve match failed', err);
+            setActionError('Ett fel uppstod vid bokning.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const handleDismissMatch = (result: MatchResult) => {
+        setDismissedIds((prev) => {
+            const next = new Set(prev);
+            next.add(result.transaction.id);
+            return next;
+        });
+    };
+
     const mappingOptions = preview?.headers || [];
+    const visibleMatches = useMemo(() => {
+        if (!matches) return null;
+        return matches.filter((result) => !dismissedIds.has(result.transaction.id));
+    }, [matches, dismissedIds]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -801,10 +1087,22 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                         </div>
                     )}
 
-                    {matches && (
+                    {actionError && (
+                        <div style={{
+                            padding: '0.6rem 0.8rem',
+                            borderRadius: '8px',
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            color: '#ef4444',
+                            fontSize: '0.8rem'
+                        }}>
+                            {actionError}
+                        </div>
+                    )}
+
+                    {visibleMatches && (
                         <>
                             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                Visar {Math.min(matches.length, MAX_MATCH_ROWS)} av {matches.length} transaktioner.
+                                Visar {Math.min(visibleMatches.length, MAX_MATCH_ROWS)} av {visibleMatches.length} transaktioner.
                             </div>
                             <div style={{ overflowX: 'auto' }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
@@ -814,11 +1112,16 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                             <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Beskrivning</th>
                                             <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Belopp</th>
                                             <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Match</th>
+                                            <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Åtgärd</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {matches.slice(0, MAX_MATCH_ROWS).map((result) => (
-                                            <tr key={result.transaction.id}>
+                                        {visibleMatches.slice(0, MAX_MATCH_ROWS).map((result) => {
+                                            const isApproved = approvedIds.has(result.transaction.id);
+                                            const isLoading = actionLoadingId === result.transaction.id;
+
+                                            return (
+                                                <tr key={result.transaction.id}>
                                                 <td style={{ padding: '0.35rem 0.5rem', whiteSpace: 'nowrap' }}>{result.transaction.date}</td>
                                                 <td style={{ padding: '0.35rem 0.5rem' }}>{result.transaction.description}</td>
                                                 <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -828,11 +1131,27 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                                     {result.match ? (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                                                             <span>
-                                                                Faktura {result.match.InvoiceNumber || result.match.GivenNumber} • Lev.nr {result.match.SupplierNumber}
+                                                                {result.match.type === 'supplier' ? 'Leverantörsfaktura' : 'Kundfaktura'}{' '}
+                                                                {result.match.type === 'supplier'
+                                                                    ? `${result.match.invoice.InvoiceNumber || result.match.invoice.GivenNumber}`
+                                                                    : `${result.match.invoice.InvoiceNumber}`}{' '}
+                                                                • {result.match.type === 'supplier'
+                                                                    ? `Lev.nr ${result.match.invoice.SupplierNumber}`
+                                                                    : `Kund.nr ${result.match.invoice.CustomerNumber}`}
                                                             </span>
                                                             <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                                                Förfallo: {result.match.DueDate} • Belopp: {formatAmount(result.match.Total)}
+                                                                Förfallo: {result.match.type === 'supplier'
+                                                                    ? result.match.invoice.DueDate
+                                                                    : result.match.invoice.DueDate || '—'}{' '}
+                                                                • Belopp: {formatAmount(toNumber(result.match.type === 'supplier'
+                                                                    ? result.match.invoice.Total
+                                                                    : result.match.invoice.Total))}
                                                             </span>
+                                                            {result.note && (
+                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                                                    {result.note}
+                                                                </span>
+                                                            )}
                                                             <span style={{
                                                                 alignSelf: 'flex-start',
                                                                 padding: '0.1rem 0.5rem',
@@ -851,8 +1170,54 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                                         </span>
                                                     )}
                                                 </td>
+                                                <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                    {result.match ? (
+                                                        <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => void handleApproveMatch(result)}
+                                                                disabled={isLoading || isApproved}
+                                                                style={{
+                                                                    height: '30px',
+                                                                    padding: '0 0.75rem',
+                                                                    borderRadius: '8px',
+                                                                    border: '1px solid var(--glass-border)',
+                                                                    background: isApproved ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.12)',
+                                                                    color: '#10b981',
+                                                                    fontSize: '0.75rem',
+                                                                    fontWeight: 600,
+                                                                    cursor: isLoading || isApproved ? 'not-allowed' : 'pointer'
+                                                                }}
+                                                            >
+                                                                {isApproved ? 'Skapad' : isLoading ? 'Skapar...' : 'OK'}
+                                                            </button>
+                                                            {!isApproved && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleDismissMatch(result)}
+                                                                    disabled={isLoading}
+                                                                    style={{
+                                                                        height: '30px',
+                                                                        padding: '0 0.7rem',
+                                                                        borderRadius: '8px',
+                                                                        border: '1px solid var(--glass-border)',
+                                                                        background: 'transparent',
+                                                                        color: 'var(--text-secondary)',
+                                                                        fontSize: '0.72rem',
+                                                                        cursor: isLoading ? 'not-allowed' : 'pointer'
+                                                                    }}
+                                                                >
+                                                                    Avvisa
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>Manuell</span>
+                                                    )}
+                                                </td>
                                             </tr>
-                                        ))}
+                                        );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>

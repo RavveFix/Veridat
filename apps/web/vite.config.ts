@@ -36,6 +36,8 @@ export default defineConfig({
                 admin: resolve(__dirname, 'admin.html'),
                 privacy: resolve(__dirname, 'privacy.html'),
                 terms: resolve(__dirname, 'terms.html'),
+                dpa: resolve(__dirname, 'dpa.html'),
+                security: resolve(__dirname, 'security.html'),
                 manifest: resolve(__dirname, 'manifest.html'),
             },
         },
@@ -72,6 +74,10 @@ function rewriteHtmlRequests(req: { url?: string }, _res: unknown, next: () => v
         req.url = '/privacy.html';
     } else if (pathOnly === '/terms') {
         req.url = '/terms.html';
+    } else if (pathOnly === '/dpa') {
+        req.url = '/dpa.html';
+    } else if (pathOnly === '/security') {
+        req.url = '/security.html';
     } else if (pathOnly === '/manifest') {
         req.url = '/manifest.html';
     } else if (

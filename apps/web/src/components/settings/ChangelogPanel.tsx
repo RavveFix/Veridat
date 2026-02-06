@@ -9,7 +9,7 @@ export function ChangelogPanel() {
                     <div key={entry.version} style={{
                         marginBottom: index === CHANGELOG.length - 1 ? 0 : '1.5rem',
                         paddingBottom: index === CHANGELOG.length - 1 ? 0 : '1.5rem',
-                        borderBottom: index === CHANGELOG.length - 1 ? 'none' : '1px solid rgba(255, 255, 255, 0.05)'
+                        borderBottom: index === CHANGELOG.length - 1 ? 'none' : '1px solid var(--surface-border)'
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem' }}>
                             <h4 style={{

@@ -22,6 +22,8 @@ export interface VATReportData {
     validation: ValidationResult;
     verification?: VerificationInfo;
     charging_sessions?: ChargingSession[];
+    analysis_summary?: AnalysisSummary;
+    transactions?: Array<Record<string, unknown>>;
 }
 
 export interface SalesTransaction {
@@ -91,6 +93,32 @@ export interface ChargingSession {
     kwh: number;
     amount: number;
     [key: string]: unknown;
+}
+
+export interface AnalysisSummaryItem {
+    label: string;
+    amount: number;
+    count: number;
+}
+
+export interface MontaAnalysisSummary {
+    platform_fee: number;
+    operator_fee: number;
+    subscription: number;
+    roaming_revenue: number;
+    charging_revenue: number;
+    zero_vat_amount: number;
+}
+
+export interface AnalysisSummary {
+    total_transactions: number;
+    cost_transactions: number;
+    revenue_transactions: number;
+    zero_vat_count: number;
+    zero_vat_amount: number;
+    top_costs: AnalysisSummaryItem[];
+    top_revenues: AnalysisSummaryItem[];
+    monta?: MontaAnalysisSummary;
 }
 
 /**

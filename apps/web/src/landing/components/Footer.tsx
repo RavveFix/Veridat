@@ -24,6 +24,8 @@ export function Footer() {
                             <h4>Juridiskt</h4>
                             <a href="/terms">Användarvillkor</a>
                             <a href="/privacy">Integritetspolicy</a>
+                            <a href="/dpa">DPA</a>
+                            <a href="/security">Säkerhetspolicy</a>
                         </div>
 
                         <div class="footer-col">

@@ -37,3 +37,16 @@
 3. Admin‑API: skapa/ändra plan, markera betald, sätt period.
 4. Fortnox‑koppling: skapa faktura + uppdatera status manuellt.
 5. Automatiska jobb: periodslut, grace‑utgång, notiser.
+
+## Bankmatchning & svensk redovisningssed (Hybrid‑läge)
+### Säkerhetsprinciper
+- All bokföring sker via tydligt OK‑flöde under inlärningsperiod.
+- Spårbar logg på varje beslut (BFL 7 kap: verifikation + vem).
+- Auto‑läge aktiveras först efter upprepade manuella godkännanden per motpart.
+- Ångra/avvisa ska alltid vara möjligt.
+
+### Sprint (nästa steg)
+- Match‑confidence och “varför”-text i bankmatch‑vyn.
+- Spårbar logg vid OK (audit‑trail).
+- Policy‑tabell för inlärning per motpart (approved_count, auto_enabled).
+- Uppdatera policy vid varje OK (men håll auto avstängt som default).

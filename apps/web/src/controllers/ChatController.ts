@@ -18,9 +18,11 @@ import { skillDetectionService } from '../services/SkillDetectionService';
 import { mountPreactComponent } from '../components/preact-adapter';
 import { TextAnimate } from '../registry/magicui/text-animate';
 import type { VATReportResponse, VATReportData } from '../types/vat';
+import { buildAnalysisSummary } from '../utils/analysisSummary';
 
 export class ChatController {
     private currentFile: File | null = null;
+    private lastExcelFile: File | null = null;
     private excelWorkspace: ExcelWorkspace | null = null;
     private vatReportSaveInProgress: boolean = false;
     private rateLimitActive: boolean = false;
@@ -29,6 +31,9 @@ export class ChatController {
     private loadingConversationId: string | null = null;
     private conversationLoadingTimeout: number | null = null;
     private placeholderUnmount: (() => void) | null = null;
+    private skillAssistMode: boolean = false;
+    private static readonly SKILL_ASSIST_STORAGE_KEY = 'veridat_skill_assist_mode';
+    private static readonly SKILL_ASSIST_PLACEHOLDER = 'Beskriv vad du vill automatisera i bokföringen...';
 
     init(excelWorkspace: ExcelWorkspace): void {
         this.excelWorkspace = excelWorkspace;
@@ -41,6 +46,7 @@ export class ChatController {
         this.setupCompanyChangeHandler();
         this.setupConversationLoadingHandler();
         this.setupAnimatedPlaceholder();
+        this.setupSkillAssistToggle();
     }
 
     /**
@@ -57,6 +63,7 @@ export class ChatController {
 
         // Clear attached file
         this.currentFile = null;
+        this.lastExcelFile = null;
 
         // Clear rate limit (it's per-user, not per-company, but reset UI for fresh start)
         this.rateLimitActive = false;
@@ -159,10 +166,10 @@ export class ChatController {
         } else if (!this.rateLimitActive) {
             // Only re-enable if not rate limited
             userInput.disabled = false;
-            if (placeholderContainer && !userInput.value) {
+            if (placeholderContainer && !userInput.value && !this.skillAssistMode) {
                 placeholderContainer.classList.remove('hidden');
             }
-            userInput.placeholder = ''; // Clear static placeholder when animated is active
+            this.updateInputForSkillAssist();
             userInput.classList.remove('loading');
             // Focus input after loading completes for better UX
             setTimeout(() => userInput.focus(), 50);
@@ -186,11 +193,61 @@ export class ChatController {
             userInput.classList.add('rate-limited');
         } else {
             userInput.disabled = false;
+            if (this.conversationLoading) {
+                return;
+            }
+            if (placeholderContainer && !userInput.value && !this.skillAssistMode) {
+                placeholderContainer.classList.remove('hidden');
+            }
+            this.updateInputForSkillAssist();
+            userInput.classList.remove('rate-limited');
+        }
+    }
+
+    private setupSkillAssistToggle(): void {
+        const { skillAssistToggle } = uiController.elements;
+        if (!skillAssistToggle) return;
+
+        const stored = localStorage.getItem(ChatController.SKILL_ASSIST_STORAGE_KEY);
+        this.setSkillAssistMode(stored === 'true', false);
+
+        skillAssistToggle.addEventListener('click', () => {
+            this.setSkillAssistMode(!this.skillAssistMode, true);
+        });
+    }
+
+    private setSkillAssistMode(enabled: boolean, persist: boolean): void {
+        this.skillAssistMode = enabled;
+        const { skillAssistToggle } = uiController.elements;
+        if (skillAssistToggle) {
+            skillAssistToggle.classList.toggle('active', enabled);
+            skillAssistToggle.setAttribute('aria-pressed', String(enabled));
+        }
+        if (persist) {
+            try {
+                localStorage.setItem(ChatController.SKILL_ASSIST_STORAGE_KEY, String(enabled));
+            } catch {
+                // Ignore storage errors
+            }
+        }
+        this.updateInputForSkillAssist();
+    }
+
+    private updateInputForSkillAssist(): void {
+        const { userInput } = uiController.elements;
+        const placeholderContainer = document.getElementById('animated-placeholder-container');
+        if (!userInput) return;
+
+        if (this.skillAssistMode) {
+            if (placeholderContainer) {
+                placeholderContainer.classList.add('hidden');
+            }
+            userInput.placeholder = ChatController.SKILL_ASSIST_PLACEHOLDER;
+        } else if (!this.conversationLoading && !this.rateLimitActive) {
+            userInput.placeholder = '';
             if (placeholderContainer && !userInput.value) {
                 placeholderContainer.classList.remove('hidden');
             }
-            userInput.placeholder = ''; // Clear static placeholder when animated is active
-            userInput.classList.remove('rate-limited');
         }
     }
 
@@ -206,7 +263,7 @@ export class ChatController {
             userInput.addEventListener('input', () => {
                 if (userInput.value.length > 0) {
                     placeholderContainer.classList.add('hidden');
-                } else if (!this.conversationLoading && !this.rateLimitActive) {
+                } else if (!this.conversationLoading && !this.rateLimitActive && !this.skillAssistMode) {
                     placeholderContainer.classList.remove('hidden');
                 }
             });
@@ -244,6 +301,10 @@ export class ChatController {
         const { userInput } = uiController.elements;
 
         if (placeholderContainer && userInput) {
+            if (this.skillAssistMode && !this.conversationLoading && !this.rateLimitActive) {
+                this.updateInputForSkillAssist();
+                return;
+            }
             if (userInput.value.length === 0 && !this.conversationLoading && !this.rateLimitActive) {
                 if (forceRemount) {
                     this.mountPlaceholder();
@@ -383,6 +444,102 @@ export class ChatController {
             })();
         }) as EventListener);
 
+        window.addEventListener('retry-analysis', (() => {
+            void this.retryLastExcelAnalysis();
+        }) as EventListener);
+    }
+
+    private async retryLastExcelAnalysis(): Promise<void> {
+        if (!this.excelWorkspace) return;
+
+        if (!this.lastExcelFile) {
+            this.excelWorkspace.showAnalysisError('Ingen fil att analysera. Ladda upp filen igen.');
+            return;
+        }
+
+        const validation = fileService.validate(this.lastExcelFile);
+        if (!validation.valid) {
+            this.excelWorkspace.showAnalysisError(validation.error || 'Filen kunde inte valideras');
+            return;
+        }
+
+        const conversationId = companyManager.getConversationId();
+        if (!conversationId) {
+            this.excelWorkspace.showAnalysisError('Ingen aktiv konversation hittades. Ladda upp filen igen.');
+            return;
+        }
+
+        this.excelWorkspace.showStreamingAnalysis(this.lastExcelFile.name);
+        void this.excelWorkspace.updatePreflight(this.lastExcelFile);
+
+        const handleProgress = (progress: AIAnalysisProgress) => {
+            logger.debug('Retry analysis progress', { step: progress.step, progress: progress.progress });
+            this.excelWorkspace?.updateStreamingProgress(progress);
+        };
+
+        const result = await chatService.analyzeExcelWithAI(this.lastExcelFile, handleProgress, conversationId);
+
+        if (!result.success || !result.response) {
+            this.excelWorkspace.showAnalysisError(result.error || 'Okänt fel vid analys');
+            return;
+        }
+
+        const vatReportResponse = result.response;
+
+        let fileUrl: string | null = null;
+        let filePath: string | null = null;
+        let fileBucket: string | null = null;
+
+        try {
+            const currentCompanyId = companyManager.getCurrentId();
+            const uploadResult = await fileService.uploadToStorage(this.lastExcelFile, 'chat-files', currentCompanyId);
+            fileUrl = uploadResult.url;
+            filePath = uploadResult.path;
+            fileBucket = uploadResult.bucket;
+
+            localStorage.setItem(`latest_vat_report_${currentCompanyId}`, JSON.stringify({
+                ...vatReportResponse,
+                fileUrl,
+                filePath,
+                fileBucket,
+                filename: this.lastExcelFile.name,
+                analyzedAt: new Date().toISOString()
+            }));
+        } catch (uploadError) {
+            logger.warn('File upload failed (non-critical)', uploadError);
+        }
+
+        if (vatReportResponse?.data && !vatReportResponse.data.analysis_summary) {
+            const rawReport = vatReportResponse as unknown as {
+                data?: { transactions?: Array<Record<string, unknown>> };
+                metadata?: Record<string, unknown>;
+            };
+            const transactions = rawReport.data?.transactions || [];
+            const summary = buildAnalysisSummary(transactions, rawReport.metadata);
+            if (summary) {
+                vatReportResponse.data.analysis_summary = summary;
+            }
+        }
+
+        this.excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined, filePath || undefined, fileBucket || undefined, true);
+
+        await supabase.from('messages').insert({
+            conversation_id: conversationId,
+            role: 'assistant',
+            content: `Momsredovisning klar för ${vatReportResponse.data.period}`,
+            file_name: this.lastExcelFile.name,
+            file_url: fileUrl || null,
+            metadata: JSON.parse(JSON.stringify({
+                type: 'vat_report',
+                data: vatReportResponse.data,
+                file_url: fileUrl || null,
+                file_path: filePath || null,
+                file_bucket: fileBucket || null,
+                analyzed_at: new Date().toISOString()
+            }))
+        });
+
+        chatService.dispatchRefresh();
     }
 
     private async handleFormSubmit(e: SubmitEvent): Promise<void> {
@@ -402,6 +559,9 @@ export class ChatController {
         if (!message && this.currentFile) {
             message = "Analysera denna fil";
         }
+
+        const userMessage = message;
+        const shouldUseSkillAssist = this.skillAssistMode && !this.currentFile && userMessage.length > 0;
 
         // Show loading state in send button
         const { chatForm } = uiController.elements;
@@ -449,7 +609,7 @@ export class ChatController {
 
             if (conversationId) {
                 // Dispatch optimistic message before remounting chat to preserve thinking state
-                chatService.dispatchOptimisticMessage(message, fileToSend?.name);
+                chatService.dispatchOptimisticMessage(userMessage, fileToSend?.name);
                 didDispatchOptimistic = true;
 
                 conversationController.transitionFromWelcome();
@@ -470,9 +630,11 @@ export class ChatController {
         // Excel file handling with AI-first intelligent analysis
         if (fileToSend && fileService.isExcel(fileToSend) && this.excelWorkspace) {
             logger.info('Detected Excel file, routing to AI-first analysis');
+            this.lastExcelFile = fileToSend;
 
             // Show streaming analysis UI immediately
             this.excelWorkspace.showStreamingAnalysis(fileToSend.name);
+            void this.excelWorkspace.updatePreflight(fileToSend);
 
             const handleProgress = (progress: AIAnalysisProgress) => {
                 logger.debug('Analysis progress', { step: progress.step, progress: progress.progress });
@@ -529,7 +691,7 @@ export class ChatController {
 
         // Optimistic UI Update
         if (!didDispatchOptimistic) {
-            chatService.dispatchOptimisticMessage(message, fileToSend?.name, fileUrl ?? undefined);
+            chatService.dispatchOptimisticMessage(userMessage, fileToSend?.name, fileUrl ?? undefined);
         }
 
         // Clear input and file
@@ -538,6 +700,18 @@ export class ChatController {
         this.togglePlaceholder(true); // Force remount for re-animation
 
         // Show AI response based on file type
+        if (vatReportResponse?.data && !vatReportResponse.data.analysis_summary) {
+            const rawReport = vatReportResponse as unknown as {
+                data?: { transactions?: Array<Record<string, unknown>> };
+                metadata?: Record<string, unknown>;
+            };
+            const transactions = rawReport.data?.transactions || [];
+            const summary = buildAnalysisSummary(transactions, rawReport.metadata);
+            if (summary) {
+                vatReportResponse.data.analysis_summary = summary;
+            }
+        }
+
         if (vatReportResponse && vatReportResponse.type === 'vat_report' && this.excelWorkspace) {
             // Open VAT report in side panel automatically
             this.excelWorkspace.openVATReport(vatReportResponse.data, fileUrl || undefined, filePath || undefined, fileBucket || undefined, true);
@@ -574,7 +748,7 @@ export class ChatController {
                     titleBits.push(`Fil: ${fileToSend.name}`);
                 }
                 const titleContext = titleBits.join('. ');
-                void chatService.generateConversationTitle(conversationId, message, titleContext);
+                void chatService.generateConversationTitle(conversationId, userMessage, titleContext);
             }
         } else {
             // Get VAT report context if available
@@ -590,7 +764,7 @@ export class ChatController {
                 let didStream = false;
                 let isFirstChunk = true;
                 const response = await chatService.sendToGemini(
-                    message,
+                    userMessage,
                     fileForGemini,
                     fileUrl,
                     vatContext,
@@ -602,7 +776,8 @@ export class ChatController {
                             detail: { chunk, isNewResponse: isFirstChunk }
                         }));
                         isFirstChunk = false;
-                    }
+                    },
+                    shouldUseSkillAssist ? 'skill_assist' : null
                 );
 
                 if (!didStream) {
@@ -631,7 +806,7 @@ export class ChatController {
                 }
 
                 // Run skill detection on user message
-                skillDetectionService.analyzeMessage(message);
+                skillDetectionService.analyzeMessage(userMessage);
 
                 // Schedule automatic memory generation after idle timeout
                 if (conversationId) {

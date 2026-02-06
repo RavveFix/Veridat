@@ -1,10 +1,9 @@
-# Quick Test Guide: Version Tracking & Email Confirmation
+# Quick Test Guide: Version Tracking
 
 ## ✅ Deployment Complete
 
 - Database migration applied to Supabase Cloud
-- Edge Function `send-consent-email` deployed
-- All features are live!
+- Version tracking är live (consent‑mejl inaktiverat)
 
 ## Quick Manual Test
 
@@ -14,7 +13,7 @@
 2. Navigate to `/login.html`
 3. **Look for:** Version number in consent modal footer: "Villkorsversion: 1.0.0"
 4. Accept terms and log in
-5. **Check browser console** for: "Sending consent confirmation email..."
+5. **Check browser console** for att inga fel visas
 
 ### Test 2: Verify Database (SQL Query)
 
@@ -55,25 +54,8 @@ LIMIT 1;
 
 ## Important Notes
 
-### Email Sending (Production TODO)
-
-The Edge Function is deployed but email sending is **stubbed**. To enable real emails:
-
-1. Choose email provider (Resend, SendGrid, AWS SES)
-2. Get API key
-3. Add to Supabase secrets:
-   ```bash
-   supabase secrets set EMAIL_API_KEY=your_key_here
-   ```
-4. Update Edge Function code to use the service
-5. Redeploy: `supabase functions deploy send-consent-email`
-
-### Checking Edge Function Logs
-
-View logs in Supabase Dashboard:
-- Go to: https://supabase.com/dashboard/project/baweorbvueghhkzlyncu/functions
-- Click on `send-consent-email`
-- View logs to see function calls and any errors
+### Email Sending
+Consent‑mejl är för närvarande inaktiverat (ingen e‑postleverantör). Om e‑post återinförs behöver en ny leverantör konfigureras och en ny funktion implementeras.
 
 ## Troubleshooting
 
@@ -87,20 +69,10 @@ View logs in Supabase Dashboard:
 - Clear browser cache/hard refresh
 - Check database: user's `terms_version` should be outdated
 
-**Email not sending:**
-- This is expected (stubbed for now)
-- Check Edge Function logs for invocation
-- Verify `consent_email_sent` is updating in database
-
 ## Production Deployment Checklist
 
 - [x] Database migration pushed
 - [x] Edge Function deployed
-- [ ] Integrate real email service
-- [ ] Update email template URLs to production domain
-- [ ] Test end-to-end in production
-- [ ] Monitor email delivery rates
-- [ ] Set up alerts for email failures
 
 ---
 

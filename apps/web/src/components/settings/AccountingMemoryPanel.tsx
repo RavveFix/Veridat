@@ -215,10 +215,11 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                     style={{
                         borderRadius: '999px',
                         padding: '0.4rem 0.9rem',
-                        border: '1px solid var(--glass-border)',
-                        background: 'rgba(255, 255, 255, 0.06)',
+                        border: '1px solid var(--surface-border)',
+                        background: 'var(--surface-2)',
                         color: 'var(--text-primary)',
-                        cursor: loading ? 'not-allowed' : 'pointer'
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
                     }}
                 >
                     Uppdatera
@@ -241,8 +242,8 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                         style={{
                             padding: '0.5rem 0.75rem',
                             borderRadius: '8px',
-                            border: '1px solid var(--glass-border)',
-                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid var(--surface-border)',
+                            background: 'var(--input-bg)',
                             color: 'var(--text-primary)'
                         }}
                     >
@@ -263,8 +264,8 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                         style={{
                             padding: '0.5rem 0.75rem',
                             borderRadius: '8px',
-                            border: '1px solid var(--glass-border)',
-                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid var(--surface-border)',
+                            background: 'var(--input-bg)',
                             color: 'var(--text-primary)'
                         }}
                     >
@@ -292,8 +293,9 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
 
             <div style={{
                 borderRadius: '12px',
-                border: '1px solid var(--glass-border)',
-                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid var(--surface-border)',
+                background: 'var(--surface-1)',
+                boxShadow: 'var(--surface-shadow)',
                 padding: '1rem'
             }}>
                 {loading && memories.length === 0 && (
@@ -316,8 +318,8 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                             style={{
                                 padding: '0.9rem',
                                 borderRadius: '10px',
-                                border: '1px solid rgba(255,255,255,0.08)',
-                                background: 'rgba(0,0,0,0.15)',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
                                 marginBottom: '0.75rem'
                             }}
                         >

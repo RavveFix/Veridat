@@ -8,6 +8,7 @@ import { UsageDisplay } from './settings/UsageDisplay';
 import { ChangelogPanel } from './settings/ChangelogPanel';
 import { AccountingMemoryPanel } from './settings/AccountingMemoryPanel';
 
+
 interface SettingsModalProps {
     onClose: () => void;
     onLogout: () => void;
@@ -205,7 +206,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
     }
 
     return (
-        <ModalWrapper onClose={onClose} title="Inställningar">
+        <ModalWrapper onClose={onClose} title="Inställningar" maxWidth="1200px">
                 {loading ? (
                     <div style={{ textAlign: 'center', padding: '2rem' }}>
                         <div className="modal-spinner" style={{ margin: '0 auto 1rem' }} role="status" aria-label="Laddar"></div>
@@ -240,7 +241,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                     Få en översikt av AI-minnet per bolag, godkänn viktiga siffror och säkra redovisningskvaliteten.
                                 </p>
                                 <a
-                                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20för%20att%20få%20redovisningsminne.%0A%0AMvh"
+                                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20(40%20förfrågningar%2Ftimme%2C%20200%2Fdag)%20för%20att%20få%20redovisningsminne.%0A%0AMvh"
                                     style={{
                                         display: 'inline-block',
                                         marginTop: '0.9rem',
@@ -249,11 +250,12 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                         textDecoration: 'none',
                                         fontWeight: 600,
                                         fontSize: '0.9rem',
-                                        color: '#fff',
-                                        background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))'
+                                        color: 'var(--text-on-accent)',
+                                        background: 'var(--accent-gradient)',
+                                        boxShadow: 'var(--accent-glow)'
                                     }}
                                 >
-                                    Uppgradera till Pro
+                                    Uppgradera till Pro (40/t, 200/d)
                                 </a>
                             </section>
                         )}
@@ -274,8 +276,8 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                                 width: '100%',
                                                 padding: '0.8rem',
                                                 borderRadius: '8px',
-                                                border: '1px solid var(--glass-border)',
-                                                background: 'rgba(255, 255, 255, 0.05)',
+                                                border: '1px solid var(--surface-border)',
+                                                background: 'var(--surface-2)',
                                                 color: 'var(--text-secondary)',
                                                 cursor: 'not-allowed'
                                             }}
@@ -293,10 +295,11 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                                 width: '100%',
                                                 padding: '0.8rem',
                                                 borderRadius: '8px',
-                                                border: '1px solid var(--glass-border)',
-                                                background: 'rgba(255, 255, 255, 0.1)',
+                                                border: '1px solid var(--surface-border)',
+                                                background: 'var(--input-bg)',
                                                 color: 'var(--text-primary)',
-                                                outline: 'none'
+                                                outline: 'none',
+                                                boxShadow: 'inset 0 1px 2px rgba(15, 23, 42, 0.06)'
                                             }}
                                         />
                                     </div>
@@ -328,17 +331,17 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                             padding: '0.85rem',
                                             borderRadius: '99px',
                                             border: 'none',
-                                            background: '#1a1a1a',
-                                            color: 'white',
+                                            background: 'var(--accent-gradient)',
+                                            color: 'var(--text-on-accent)',
                                             fontWeight: '500',
                                             fontSize: '0.9rem',
                                             cursor: saving ? 'wait' : 'pointer',
                                             opacity: saving ? 0.7 : 1,
                                             transition: 'all 0.2s ease',
-                                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
+                                            boxShadow: 'var(--accent-glow)'
                                         }}
-                                        onMouseOver={(e) => !saving && (e.currentTarget.style.background = '#2a2a2a')}
-                                        onMouseOut={(e) => (e.currentTarget.style.background = '#1a1a1a')}
+                                        onMouseOver={(e) => !saving && (e.currentTarget.style.transform = 'translateY(-1px)')}
+                                        onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
                                     >
                                         {saving ? 'Sparar...' : 'Spara ändringar'}
                                     </button>
@@ -346,12 +349,13 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                             )}
                         </section>
 
-                        <section style={{ marginBottom: '2rem', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
+                        <section style={{ marginBottom: '2rem', borderTop: '1px solid var(--surface-border)', paddingTop: '1.5rem' }}>
                             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Juridik</h3>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                                 <span style={{ color: 'var(--text-secondary)' }}>Godkänd version:</span>
                                 <span style={{
-                                    background: 'rgba(255, 255, 255, 0.1)',
+                                    background: 'var(--surface-2)',
+                                    border: '1px solid var(--surface-border)',
                                     padding: '0.2rem 0.6rem',
                                     borderRadius: '4px',
                                     fontSize: '0.9rem',
@@ -368,7 +372,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
 
                         <ChangelogPanel />
 
-                        <section style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
+                        <section style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1.5rem' }}>
                             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Konto</h3>
                             <button
                                 onClick={onLogout}
@@ -376,18 +380,19 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                     width: '100%',
                                     padding: '0.8rem',
                                     borderRadius: '8px',
-                                    border: '1px solid var(--glass-border)',
-                                    background: 'rgba(255, 255, 255, 0.05)',
+                                    border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface-2)',
                                     color: 'var(--text-primary)',
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     gap: '0.5rem',
-                                    transition: 'background 0.2s'
+                                    transition: 'background 0.2s',
+                                    boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
                                 }}
-                                onMouseOver={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)')}
-                                onMouseOut={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)')}
+                                onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-1)')}
+                                onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>

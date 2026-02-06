@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { CURRENT_TERMS_VERSION, getVersionChanges, getVersionsSince } from '../constants/termsVersion';
+import { LEGAL_DOCS, REQUIRED_LEGAL_DOCS, type LegalDocType } from '../constants/legalDocs';
 import { logger } from '../services/LoggerService';
 
 interface LegalConsentModalProps {
@@ -22,9 +23,27 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
     const [fullName, setFullName] = useState('');
     const [previousTermsVersion, setPreviousTermsVersion] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [acceptedDocs, setAcceptedDocs] = useState<Record<LegalDocType, boolean>>({
+        terms: false,
+        privacy: false,
+        security: false,
+        dpa: false
+    });
 
     // Name is always valid if we have it from DB (re-consent scenario)
-    const isValid = fullName.trim().length > 0;
+    const hasAllDocs = REQUIRED_LEGAL_DOCS.every((doc) => acceptedDocs[doc]);
+    const isValid = fullName.trim().length > 0 && hasAllDocs;
+
+    const toggleRequiredDocs = () => {
+        setAcceptedDocs((prev) => {
+            const shouldAccept = !REQUIRED_LEGAL_DOCS.every((doc) => prev[doc]);
+            return {
+                ...prev,
+                terms: shouldAccept,
+                privacy: shouldAccept
+            };
+        });
+    };
 
     // Prefill name and capture previous terms version for re-consent UX
     useEffect(() => {
@@ -87,11 +106,17 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
         ? `Uppdaterade villkor (v${CURRENT_TERMS_VERSION})`
         : `Godkänn villkor (v${CURRENT_TERMS_VERSION})`;
     const consentDescription = isReconsent
-        ? 'Vi har uppdaterat våra användarvillkor. Granska ändringarna och godkänn för att fortsätta.'
-        : 'Godkänn våra användarvillkor för att fortsätta använda Veridat.';
+        ? 'Vi har uppdaterat våra villkor och integritetspolicy. Granska ändringarna och godkänn för att fortsätta.'
+        : 'Godkänn användarvillkor och integritetspolicy för att fortsätta använda Veridat.';
 
     const handleAccept = async () => {
-        if (!isValid) {
+        if (!fullName.trim()) {
+            setError('Vänligen ange ditt fullständiga namn.');
+            return;
+        }
+
+        if (!hasAllDocs) {
+            setError('Du måste godkänna användarvillkor och integritetspolicy för att fortsätta.');
             return;
         }
 
@@ -125,20 +150,25 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
 
                 if (updateError) throw updateError;
 
+                const acceptanceRows = REQUIRED_LEGAL_DOCS.map((doc) => ({
+                    user_id: user.id,
+                    doc_type: doc,
+                    version: CURRENT_TERMS_VERSION,
+                    accepted_at: acceptedAt,
+                    user_agent: navigator.userAgent,
+                    dpa_authorized: false,
+                    accepted_from: 'reconsent'
+                }));
+
+                const { error: acceptanceError } = await supabase
+                    .from('legal_acceptances')
+                    .upsert(acceptanceRows, { onConflict: 'user_id,doc_type,version' });
+
+                if (acceptanceError) throw acceptanceError;
+
                 logger.info('LegalConsentModal: Terms accepted, version updated to', CURRENT_TERMS_VERSION);
 
-                // Send re-consent confirmation email (non-blocking)
-                supabase.functions.invoke('send-consent-email', {
-                    body: {
-                        userId: user.id,
-                        email: user.email,
-                        fullName: fullName.trim(),
-                        termsVersion: CURRENT_TERMS_VERSION,
-                        acceptedAt: acceptedAt
-                    }
-                }).catch(err => {
-                    logger.warn('Failed to send re-consent email', err);
-                });
+                // No consent email sent (email disabled)
             }
 
             onAccepted(fullName.trim());
@@ -358,6 +388,41 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                     </div>
                 )}
 
+                <div style={{
+                    marginBottom: '1.5rem',
+                    fontSize: '0.8rem',
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    lineHeight: '1.6'
+                }}>
+                    <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                        <input
+                            type="checkbox"
+                            checked={hasAllDocs}
+                            onChange={toggleRequiredDocs}
+                        />
+                        <span>
+                            Jag godkänner{' '}
+                            <a href={LEGAL_DOCS.terms.url} target="_blank" style={{ color: '#00f0ff', textDecoration: 'underline' }}>
+                                {LEGAL_DOCS.terms.label}
+                            </a>
+                            {' '}och{' '}
+                            <a href={LEGAL_DOCS.privacy.url} target="_blank" style={{ color: '#00f0ff', textDecoration: 'underline' }}>
+                                {LEGAL_DOCS.privacy.label}
+                            </a>.
+                        </span>
+                    </label>
+                    <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.55)', marginLeft: '1.7rem' }}>
+                        Läs även{' '}
+                        <a href={LEGAL_DOCS.security.url} target="_blank" style={{ color: '#00f0ff', textDecoration: 'underline' }}>
+                            {LEGAL_DOCS.security.label}
+                        </a>
+                        {' '}och{' '}
+                        <a href={LEGAL_DOCS.dpa.url} target="_blank" style={{ color: '#00f0ff', textDecoration: 'underline' }}>
+                            {LEGAL_DOCS.dpa.label}
+                        </a>.
+                    </div>
+                </div>
+
                 {/* Accept Button */}
                 <button
                     onClick={handleAccept}
@@ -406,7 +471,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                 }}>
                     Läs fullständiga{' '}
                     <a
-                        href="/terms.html"
+                        href="/terms"
                         target="_blank"
                         style={{ color: '#00f0ff', textDecoration: 'underline' }}
                     >
@@ -414,12 +479,30 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                     </a>
                     {' '}och{' '}
                     <a
-                        href="/privacy.html"
+                        href="/privacy"
                         target="_blank"
                         style={{ color: '#00f0ff', textDecoration: 'underline' }}
                     >
                         integritetspolicy
                     </a>
+                    {'. '}
+                    Läs även{' '}
+                    <a
+                        href="/security"
+                        target="_blank"
+                        style={{ color: '#00f0ff', textDecoration: 'underline' }}
+                    >
+                        säkerhetspolicy
+                    </a>
+                    {' '}och{' '}
+                    <a
+                        href="/dpa"
+                        target="_blank"
+                        style={{ color: '#00f0ff', textDecoration: 'underline' }}
+                    >
+                        DPA
+                    </a>
+                    .
                 </p>
 
                 {/* Error Message */}

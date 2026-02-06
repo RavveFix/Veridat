@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Säkerhetspolicy - Veridat AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/styles/legal.css">
+</head>
+
+<body data-legal-theme="privacy">
+    <header class="header-glass">
+        <div class="header-container">
+            <a href="/" class="logo brand-logo" style="text-decoration: none; font-size: 1.5rem;">
+                Veridat
+            </a>
+            <a href="/login" class="btn btn-glass btn-glow" style="padding: 0.5rem 1.5rem; font-size: 0.9rem; border-radius: 12px;">
+                Logga in
+            </a>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="sub-nav">
+            <a href="/" class="back-link">← Tillbaka</a>
+            <a href="/terms" class="sub-nav-link">Användarvillkor</a>
+            <a href="/privacy" class="sub-nav-link">Integritetspolicy</a>
+            <a href="/dpa" class="sub-nav-link">DPA</a>
+            <a href="/security" class="sub-nav-link active">Säkerhetspolicy</a>
+        </div>
+
+        <h1>Säkerhetspolicy</h1>
+        <p>Senast uppdaterad: <span data-legal-updated>2026-02-05</span> (v<span data-legal-version>1.3.0</span>)</p>
+
+        <h2>1. Syfte och omfattning</h2>
+        <p>Denna säkerhetspolicy beskriver Fixverse AB:s krav och praxis för att skydda information och personuppgifter i Veridat AI. Policyn gäller för personal, system, leverantörer och processer som hanterar data kopplad till tjänsten.</p>
+
+        <h2>2. Roller och ansvar</h2>
+        <ul>
+            <li><strong>Ledning:</strong> Säkerställer efterlevnad och resursallokering.</li>
+            <li><strong>Teknik/Drift:</strong> Implementerar tekniska kontroller och bevakar drift.</li>
+            <li><strong>Alla medarbetare:</strong> Följer policyn och rapporterar incidenter.</li>
+        </ul>
+
+        <h2>3. Informationsklassning</h2>
+        <ul>
+            <li><strong>Offentlig</strong> – kan delas utan risk.</li>
+            <li><strong>Intern</strong> – avsedd för internt bruk.</li>
+            <li><strong>Känslig</strong> – personuppgifter, bokföringsdata och API‑nycklar.</li>
+        </ul>
+
+        <h2>4. Åtkomstkontroll</h2>
+        <ul>
+            <li>Principen om minsta behörighet tillämpas.</li>
+            <li>Åtkomst ges efter roll och arbetsbehov.</li>
+            <li>Administrativ åtkomst kräver MFA.</li>
+            <li>Åtkomstloggar sparas och granskas vid behov.</li>
+        </ul>
+
+        <h2>5. Kryptering</h2>
+        <ul>
+            <li>Data i transit skyddas med TLS.</li>
+            <li>Lagrad data skyddas via leverantörernas kryptering i vila där det stöds.</li>
+            <li>Hemligheter lagras i säkra miljövariabler eller hemlighetshantering.</li>
+        </ul>
+
+        <h2>6. Loggning och spårbarhet</h2>
+        <ul>
+            <li>Säkerhets- och auditloggar används för spårbarhet och incidentutredning.</li>
+            <li>Loggning sker via applikationsloggar och leverantörsloggar (t.ex. Supabase).</li>
+            <li>Bokföringsrelevanta loggar behålls enligt BFL (upp till 7 år).</li>
+        </ul>
+
+        <h2>7. Sårbarhetshantering</h2>
+        <ul>
+            <li>Beroenden uppdateras löpande.</li>
+            <li>Sårbarheter prioriteras och åtgärdas enligt risknivå.</li>
+            <li>Kritiska säkerhetsbrister åtgärdas skyndsamt.</li>
+        </ul>
+
+        <h2>8. Säker utveckling</h2>
+        <ul>
+            <li>Kodgranskning används för ändringar i produktionskod.</li>
+            <li>Säkerhetskritisk logik testas och dokumenteras.</li>
+            <li>Secret‑scanning och skydd mot oavsiktlig exponering tillämpas.</li>
+        </ul>
+
+        <h2>9. Incidenthantering</h2>
+        <ul>
+            <li>Incidenter identifieras, prioriteras och åtgärdas enligt etablerad process.</li>
+            <li>Kunden informeras vid personuppgiftsincident senast inom 72 timmar.</li>
+        </ul>
+
+        <h2>10. Backup och återställning</h2>
+        <ul>
+            <li>Regelbundna backuper genomförs.</li>
+            <li>Återställning testas periodiskt.</li>
+        </ul>
+
+        <h2>11. Leverantörsstyrning</h2>
+        <ul>
+            <li>Underbiträden utvärderas och listas i DPA.</li>
+            <li>Överföring till tredjeland sker med SCC där det är tillämpligt.</li>
+        </ul>
+
+        <h2>12. Dataminimering och retention</h2>
+        <ul>
+            <li>Endast nödvändiga personuppgifter behandlas.</li>
+            <li>Lagringstider följer integritetspolicyn och BFL‑krav.</li>
+        </ul>
+
+        <h2>13. Policyuppdatering</h2>
+        <p>Policyn ses över minst årligen och vid större förändringar i tjänsten eller leverantörskedjan.</p>
+    </div>
+
+    <script type="module" src="/src/legal.ts"></script>
+</body>
+
+</html>

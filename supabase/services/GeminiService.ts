@@ -90,6 +90,12 @@ Du kan läsa och analysera uppladdade dokument (PDF, bilder) som fakturor, kvitt
 2. **Agera**: Använd tillgängliga verktyg (tools) för att hämta data eller utföra åtgärder i Fortnox.
 3. **Svara**: Ge ett tydligt och trevligt svar på svenska baserat på resultatet.
 
+## VIKTIGT — Intern process:
+Visa ALDRIG din interna tankeprocess, verktygsval eller exekveringsplan för användaren.
+Skriv ALDRIG saker som "Wait, I have a tool...", "Let's use...", "Execution:", "Let me search..." eller liknande.
+Kör verktyg tyst i bakgrunden och presentera bara det slutliga resultatet på svenska.
+Svara alltid på svenska — aldrig på engelska.
+
 ## Minne och kontext:
 Du har tillgång till användarens tidigare konversationer. Använd proaktivt:
 - **conversation_search**: När användaren refererar till något ni pratat om förut, eller när tidigare kontext kan vara relevant
@@ -98,9 +104,17 @@ Du har tillgång till användarens tidigare konversationer. Använd proaktivt:
 Var proaktiv - sök i historiken om du misstänker att relevant information finns där.
 Nämn aldrig att du "söker" eller "letar" - presentera informationen naturligt.
 
+## Personlig assistent:
+Du lär känna varje företag över tid. När du har kontext om företaget:
+- Bekräfta din förståelse: "Jag vet att ni är ett konsultbolag — vill ni att jag bokför detta som 6580?"
+- Föreslå baserat på mönster: "Förra gången bokförde vi Telia på 6212 — ska vi göra likadant?"
+- Var ödmjuk: om du är osäker, fråga. Säg aldrig "jag minns" utan "baserat på tidigare konversationer".
+- När du använder information från minnet, bekräfta gärna kort att du har rätt förståelse.
+
 ## Verktyg (Tools):
 - **conversation_search**: Söker i användarens tidigare konversationer. Använd när något verkar referera till tidigare diskussioner.
 - **recent_chats**: Hämtar de senaste konversationerna för att få överblick.
+- **web_search**: Söker upp uppdaterad, officiell information om svensk redovisning (t.ex. Skatteverket, Bokföringsnämnden, BAS, FAR, Riksdagen). Använd när frågan är tidskänslig eller regelstyrd. Redovisa alltid källa och datum i svaret.
 - **create_invoice**: Skapar ett fakturautkast i Fortnox. Kräver kundnummer och artiklar.
 - **get_customers**: Hämtar en lista på kunder från Fortnox. Returnerar namn och kundnummer.
 - **get_articles**: Hämtar en lista på artiklar från Fortnox. Returnerar beskrivning, artikelnummer och pris.
@@ -132,6 +146,10 @@ Nämn aldrig att du "söker" eller "letar" - presentera informationen naturligt.
    - Använd **export_journal_to_fortnox** med verifikat-ID:t.
 2. Bekräfta exportstatus och verifikatnummer i Fortnox.
 
+## Webbsök (uppdaterad information):
+Använd **web_search** när frågan gäller lagar, regler, datum, gränsvärden eller annan tidskänslig information inom svensk redovisning.
+Redovisa alltid källa och datum i svaret. Om inga tillförlitliga källor hittas, säg det tydligt.
+
 ## Datahantering:
 - När du får data från **get_customers**, notera särskilt "CustomerNumber" och "Name".
 - När du får data från **get_articles**, notera "ArticleNumber", "Description" och "SalesPrice".
@@ -155,24 +173,32 @@ När användaren laddar upp ett dokument från Skatteverket (skattekonto som PDF
    - Föreslå att sätta upp betalning om förfallodagen är nära
    - Förklara vad olika skatteposter innebär om användaren undrar
 
-3. **Bokföringsförslag för skattebetalningar:**
-   När användaren ska betala skatt eller redan betalat:
+3. **Bokföringsförslag för skattebetalningar (via skattekonto 1630):**
+   När användaren ska betala skatt eller när Skatteverket drar/återbetalar:
    
-   **Vid inbetalning av moms:**
-   - Debet: 2650 (Redovisningskonto för moms)
+   **När du betalar in till skattekontot:**
+   - Debet: 1630 (Skattekonto)
    - Kredit: 1930 (Företagskonto/checkräkningskonto)
    
-   **Vid inbetalning av arbetsgivaravgifter:**
+   **När Skatteverket drar moms:**
+   - Debet: 2650 (Redovisningskonto för moms)
+   - Kredit: 1630 (Skattekonto)
+   
+   **När Skatteverket drar arbetsgivaravgifter:**
+   - Debet: 2730/2731 (Sociala avgifter)
+   - Kredit: 1630 (Skattekonto)
+   
+   **När Skatteverket drar personalskatt:**
    - Debet: 2710 (Personalskatt)
-   - Kredit: 1930 (Företagskonto)
+   - Kredit: 1630 (Skattekonto)
    
-   **Vid inbetalning av F-skatt/preliminärskatt:**
+   **När Skatteverket drar F-skatt/preliminärskatt:**
    - Debet: 2510 (Skatteskuld)
-   - Kredit: 1930 (Företagskonto)
+   - Kredit: 1630 (Skattekonto)
    
-   **Om företaget har skattefordran (tillgodo):**
-   - Debet: 1630 (Skattefordran)
-   - Kredit: 2650/2710 (beroende på typ)
+   **Vid återbetalning från skattekontot:**
+   - Debet: 1930 (Företagskonto)
+   - Kredit: 1630 (Skattekonto)
 
 4. **Presentationsformat:**
    Ge alltid ett strukturerat svar med:
@@ -197,18 +223,18 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
    - Eventuell betalningsreferens/OCR-nummer
 
 2. **Analysera och kategorisera inköpet:**
-   Identifiera typ av kostnad och föreslå rätt BAS-konto:
+   Identifiera typ av kostnad och föreslå rätt BAS-konto (exempel - kontrollera er kontoplan):
 
    **Vanliga kostnadskategorier:**
    - **Varor för återförsäljning**: 4010 (Inköp varor)
    - **Kontorsmaterial**: 6110 (Kontorsmaterial)
    - **Hyra**: 5010 (Lokalhyra)
-   - **El, vatten, värme**: 5460 (Förbrukningsmaterial)
+   - **El, vatten, värme**: 5020/5030/5040 (Lokalkostnader)
    - **IT-tjänster/programvara**: 6540 (IT-tjänster)
-   - **Marknadsföring**: 6110 (Reklam och PR)
+   - **Marknadsföring**: 5910 (Reklam och PR)
    - **Konsulttjänster**: 6580 (Konsultarvoden)
    - **Frakt**: 6420 (Frakter och transporter)
-   - **Representation**: 6970 (Representation, avdragsgill)
+   - **Representation**: 6071 (avdragsgill) / 6072 (ej avdragsgill)
    - **Bankkostnader**: 6570 (Bankkostnader)
    - **Övriga tjänster**: 6590 (Övriga externa tjänster)
 
@@ -326,6 +352,28 @@ const tools: Tool[] = [
                 }
             },
             {
+                name: "web_search",
+                description: "Söker upp uppdaterad, officiell information om svensk redovisning. Använd när frågan är tidskänslig eller regelstyrd.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        query: {
+                            type: SchemaType.STRING,
+                            description: "Sökfråga för att hitta officiella källor om svensk bokföring/moms/lagar (t.ex. 'bokföringsnämnden K3 uppdatering 2024')"
+                        },
+                        max_results: {
+                            type: SchemaType.NUMBER,
+                            description: "Max antal resultat (1-8, standard 5)"
+                        },
+                        recency_days: {
+                            type: SchemaType.NUMBER,
+                            description: "Begränsa till senaste N dagar (t.ex. 365)."
+                        }
+                    },
+                    required: ["query"]
+                }
+            },
+            {
                 name: "create_invoice",
                 description: "Skapar ett fakturautkast i Fortnox. Använd detta när användaren vill fakturera.",
                 parameters: {
@@ -398,7 +446,7 @@ const tools: Tool[] = [
                         },
                         is_roaming: {
                             type: SchemaType.BOOLEAN,
-                            description: "För EV-laddning: true om det är roamingintäkt (0% moms enligt EU C-60/23). Default: false"
+                            description: "För EV-laddning: true om det är roamingintäkt (moms enligt motpart/land och filens momsdata). Default: false"
                         }
                     },
                     required: ["type", "gross_amount", "vat_rate", "description"]
@@ -475,7 +523,7 @@ const tools: Tool[] = [
                         },
                         account: {
                             type: SchemaType.NUMBER,
-                            description: "BAS-kontot för kostnaden (t.ex. 5410 för el, 6540 för IT)"
+                            description: "BAS-kontot för kostnaden (t.ex. 5020 för el, 6540 för IT - justera efter kontoplan)"
                         },
                         description: {
                             type: SchemaType.STRING,
@@ -550,6 +598,13 @@ export type RecentChatsArgs = {
     [key: string]: unknown;
 };
 
+export type WebSearchArgs = {
+    query: string;
+    max_results?: number;
+    recency_days?: number;
+    [key: string]: unknown;
+};
+
 export type CreateJournalEntryArgs = {
     type: 'revenue' | 'expense';
     gross_amount: number;
@@ -596,6 +651,7 @@ export type BookSupplierInvoiceArgs = {
 export type ToolCall =
     | { tool: 'conversation_search'; args: ConversationSearchArgs }
     | { tool: 'recent_chats'; args: RecentChatsArgs }
+    | { tool: 'web_search'; args: WebSearchArgs }
     | { tool: 'create_invoice'; args: CreateInvoiceArgs }
     | { tool: 'get_customers'; args: Record<string, never> }
     | { tool: 'get_articles'; args: Record<string, never> }
@@ -748,6 +804,32 @@ export const sendMessageToGemini = async (
                         args: { limit }
                     }
                 };
+            }
+
+            if (functionCall.name === 'web_search') {
+                const rawArgs = (functionCall.args as Record<string, unknown>) || {};
+                const rawQuery = rawArgs?.query;
+                const query = typeof rawQuery === 'string' ? rawQuery.trim() : '';
+                if (query) {
+                    const rawMax = rawArgs?.max_results;
+                    const rawRecency = rawArgs?.recency_days;
+                    const max_results = typeof rawMax === 'number'
+                        ? Math.min(Math.max(rawMax, 1), 8)
+                        : 5;
+                    const recency_days = typeof rawRecency === 'number'
+                        ? Math.min(Math.max(rawRecency, 1), 3650)
+                        : undefined;
+                    return {
+                        toolCall: {
+                            tool: 'web_search',
+                            args: {
+                                query,
+                                max_results,
+                                ...(recency_days ? { recency_days } : {})
+                            }
+                        }
+                    };
+                }
             }
 
             // Fortnox read-only tools (no args)

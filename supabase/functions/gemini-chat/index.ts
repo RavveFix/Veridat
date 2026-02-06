@@ -1,7 +1,7 @@
 // Supabase Edge Function for Gemini Chat
 /// <reference path="../types/deno.d.ts" />
 
-import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, GeminiRateLimitError, type FileData, type ConversationSearchArgs, type RecentChatsArgs, type CreateJournalEntryArgs, type GetVouchersArgs, type CreateSupplierArgs, type CreateSupplierInvoiceArgs, type ExportJournalToFortnoxArgs, type BookSupplierInvoiceArgs } from "../../services/GeminiService.ts";
+import { sendMessageToGemini, sendMessageStreamToGemini, generateConversationTitle, GeminiRateLimitError, type FileData, type ConversationSearchArgs, type RecentChatsArgs, type WebSearchArgs, type CreateJournalEntryArgs, type GetVouchersArgs, type CreateSupplierArgs, type CreateSupplierInvoiceArgs, type ExportJournalToFortnoxArgs, type BookSupplierInvoiceArgs } from "../../services/GeminiService.ts";
 import { sendMessageToOpenAI } from "../../services/OpenAIService.ts";
 import { createSalesJournalEntries, createCostJournalEntries, validateJournalBalance, generateVerificationId } from "../../services/JournalService.ts";
 import { roundToOre } from "../../services/SwedishRounding.ts";
@@ -36,6 +36,56 @@ function truncateText(value: string, maxChars: number): string {
 function formatSek(value: number | null | undefined): string {
     if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
     return new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 }).format(value);
+}
+
+function buildSkillAssistSystemPrompt(): string {
+    return [
+        'SYSTEM: Du är Veridats Skill-assistent.',
+        'Hjälp en icke-teknisk användare att skapa eller förbättra en automation för bokföringen i Sverige.',
+        'Skriv på enkel svenska, kort och tydligt. Undvik tekniska ord.',
+        'Fokusera på: vad som ska hända, när det ska hända och om det kräver godkännande.',
+        'Hitta inte på organisationsnummer, konton, datum, eller systemdata. Om något saknas: ställ en fråga.',
+        'Nämn inte tekniska actions, JSON eller interna verktyg om inte användaren specifikt ber om det.',
+        'Lägg sist en dold systemrad som börjar med <skill_draft> och slutar med </skill_draft>.',
+        'I taggen ska det finnas JSON med fälten: name, description, schedule, requires_approval, data_needed.',
+        'Om information saknas: lämna fälten tomma och ställ frågor i punkt 3.',
+        'Denna rad ska inte nämnas i texten och ska vara sista raden.',
+        '',
+        'Svara exakt i detta format:',
+        '1) Kort sammanfattning (max 2 meningar).',
+        '2) Förslag på automation:',
+        '- Namn',
+        '- Vad händer?',
+        '- När körs den? (t.ex. varje månad, vid ny faktura, vid bankhändelse)',
+        '- Behöver godkännande? (Ja/Nej + kort varför)',
+        '- Vilken data behövs från användaren?',
+        '3) Frågor (max 3 korta frågor om något saknas).'
+    ].join('\n');
+}
+
+type SkillDraft = {
+    name?: string;
+    description?: string;
+    schedule?: string;
+    requires_approval?: boolean;
+    data_needed?: string[];
+};
+
+function extractSkillDraft(text: string): { cleanText: string; draft: SkillDraft | null } {
+    const draftMatch = text.match(/<skill_draft>([\s\S]*?)<\/skill_draft>/i);
+    if (!draftMatch) {
+        return { cleanText: text.trim(), draft: null };
+    }
+
+    let draft: SkillDraft | null = null;
+    try {
+        draft = JSON.parse(draftMatch[1]) as SkillDraft;
+    } catch {
+        draft = null;
+    }
+
+    const cleanText = text.replace(draftMatch[0], '').trim();
+    return { cleanText, draft };
 }
 
 function buildCompanyMemoryContext(memory: CompanyMemory, includeVat: boolean): string | null {
@@ -113,6 +163,7 @@ type UsedMemory = {
     category: string;
     preview: string;  // First 50 chars of content
     reason?: string;
+    confidenceLevel?: 'high' | 'medium';
 };
 
 type HistorySearchResult = {
@@ -120,6 +171,23 @@ type HistorySearchResult = {
     conversation_title: string | null;
     snippet: string;
     created_at: string;
+};
+
+type WebSearchResult = {
+    title: string;
+    url: string;
+    snippet: string;
+    source: string;
+    published_at?: string | null;
+};
+
+type WebSearchResponse = {
+    query: string;
+    provider: string;
+    fetched_at: string;
+    results: WebSearchResult[];
+    used_cache: boolean;
+    allowlist: string[];
 };
 
 function formatUserMemoriesForContext(memories: UserMemoryRow[]): string | null {
@@ -155,7 +223,13 @@ function formatUserMemoriesForContext(memories: UserMemoryRow[]): string | null 
     if (!sectionText) return null;
 
     return [
-        "SYSTEM CONTEXT: Användarminnen att använda naturligt (nämn aldrig att du minns).",
+        "SYSTEM CONTEXT: Användarminnen. Använd dessa naturligt i dina svar.",
+        "- När du har hög konfidens: Använd informationen direkt men bekräfta ibland:",
+        '  "Ni brukar bokföra X på konto Y — stämmer det fortfarande?"',
+        "- När du har lägre konfidens: Fråga först:",
+        '  "Jag tror att ni brukar... stämmer det?"',
+        '- Referera aldrig till "mitt minne" — formulera det som',
+        '  "baserat på vad vi pratat om tidigare" eller "om jag förstått er verksamhet rätt".',
         "<userMemories>",
         sectionText,
         "</userMemories>"
@@ -523,7 +597,8 @@ function selectRelevantMemories(memories: UserMemoryRow[], message: string): {
         id: item.memory.id,
         category: item.memory.category,
         preview: item.memory.content.substring(0, 50) + (item.memory.content.length > 50 ? "..." : ""),
-        reason: item.reason
+        reason: item.reason,
+        confidenceLevel: (clampScore(item.memory.importance, 0.6) >= 0.7 ? 'high' : 'medium') as 'high' | 'medium'
     }));
 
     return {
@@ -731,6 +806,34 @@ function formatHistoryResponse(
     return lines.join("\n");
 }
 
+function formatWebSearchContext(response: WebSearchResponse): string {
+    const formatDate = (value?: string | null) => {
+        if (!value) return "okänt datum";
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return "okänt datum";
+        return parsed.toLocaleDateString("sv-SE", { year: "numeric", month: "short", day: "numeric" });
+    };
+
+    const header = [
+        `SÖKFRÅGA: ${response.query}`,
+        `HÄMTAT: ${formatDate(response.fetched_at)}`,
+        `KÄLLOR (allowlist): ${response.allowlist.join(", ")}`,
+    ].join("\n");
+
+    if (!response.results.length) {
+        return `${header}\n\nInga träffar från tillåtna källor.`;
+    }
+
+    const resultLines = response.results.map((result, index) => {
+        const dateLine = `Datum: ${formatDate(result.published_at)}`;
+        const sourceLine = `Källa: ${result.source} (${result.url})`;
+        const snippetLine = result.snippet ? `Utdrag: ${result.snippet}` : "Utdrag: (saknas)";
+        return `${index + 1}. ${result.title}\n${sourceLine}\n${dateLine}\n${snippetLine}`;
+    });
+
+    return `${header}\n\n${resultLines.join("\n\n")}`;
+}
+
 async function triggerMemoryGenerator(
     supabaseUrl: string,
     serviceKey: string,
@@ -820,6 +923,7 @@ interface RequestBody {
     vatReportContext?: VATReportContext | null;
     model?: string | null;
     titleContext?: string | null;
+    assistantMode?: 'skill_assist' | null;
 }
 
 // Proper type for VAT report context instead of 'any'
@@ -944,6 +1048,46 @@ async function executeFortnoxTool(
     }
 }
 
+async function fetchWebSearchResults(
+    toolArgs: Record<string, unknown>,
+    authHeader: string
+): Promise<WebSearchResponse | null> {
+    const args = toolArgs as WebSearchArgs;
+    const query = typeof args?.query === "string" ? args.query.trim() : "";
+    if (!query) return null;
+
+    const supabaseUrl = getEnv(["SUPABASE_URL", "SB_SUPABASE_URL", "API_URL"]);
+    if (!supabaseUrl) return null;
+
+    const payload: Record<string, unknown> = { query };
+    if (typeof args.max_results === "number") payload.max_results = args.max_results;
+    if (typeof args.recency_days === "number") payload.recency_days = args.recency_days;
+
+    try {
+        const response = await fetch(`${supabaseUrl}/functions/v1/web-search`, {
+            method: "POST",
+            headers: {
+                Authorization: authHeader,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            logger.warn("Web search failed", { status: response.status, errorText });
+            return null;
+        }
+
+        const data = await response.json() as WebSearchResponse;
+        if (!data || !Array.isArray(data.results)) return null;
+        return data;
+    } catch (error) {
+        logger.warn("Web search request errored", { error: String(error) });
+        return null;
+    }
+}
+
 Deno.serve(async (req: Request) => {
     const corsHeaders = getCorsHeaders();
     const provider = (Deno.env.get('LLM_PROVIDER') || 'gemini').toLowerCase();
@@ -959,8 +1103,9 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        let { action, message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext, model, titleContext }: RequestBody = await req.json();
+        let { action, message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext, model, titleContext, assistantMode }: RequestBody = await req.json();
         const hasFileAttachment = Boolean(fileData || fileDataPages || documentText || fileUrl || fileName);
+        const isSkillAssist = assistantMode === 'skill_assist';
         
         // Log which model is requested
         if (model) {
@@ -1180,7 +1325,9 @@ Deno.serve(async (req: Request) => {
             }
         }
 
-        const historyIntent = hasFileAttachment ? { search: false, recent: false } : detectHistoryIntent(message);
+        const historyIntent = (hasFileAttachment || isSkillAssist)
+            ? { search: false, recent: false }
+            : detectHistoryIntent(message);
         if ((historyIntent.search || historyIntent.recent) && conversationId) {
             try {
                 const safeLimit = 5;
@@ -1212,7 +1359,7 @@ Deno.serve(async (req: Request) => {
             }
         }
 
-        const memoryRequest = extractMemoryRequest(message);
+        const memoryRequest = isSkillAssist ? null : extractMemoryRequest(message);
         if (memoryRequest && resolvedCompanyId) {
             try {
                 const { data: existingMemory } = await supabaseAdmin
@@ -1249,7 +1396,9 @@ Deno.serve(async (req: Request) => {
         // Inject VAT Report Context if available OR fetch from DB
         let finalMessage = message;
 
-        if (!vatReportContext && conversationId) {
+        if (isSkillAssist) {
+            finalMessage = `${buildSkillAssistSystemPrompt()}\n\nAnvändarens önskemål:\n${message}`;
+        } else if (!vatReportContext && conversationId) {
             try {
                 const { data: reports, error } = await supabaseAdmin
                     .from('vat_reports')
@@ -1284,7 +1433,7 @@ Deno.serve(async (req: Request) => {
             }
         }
 
-        if (vatReportContext) {
+        if (!isSkillAssist && vatReportContext) {
             const netVat = vatReportContext.vat?.net ?? 0;
             const contextMessage = `
 SYSTEM CONTEXT: Användaren tittar just nu på följande momsredovisning (genererad av ${vatReportContext.type === 'vat_report' ? 'systemet' : 'analysverktyget'}):
@@ -1315,7 +1464,7 @@ ANVÄNDARFRÅGA:
         }
 
         const safeDocumentText = (documentText || '').trim();
-        if (safeDocumentText) {
+        if (safeDocumentText && !isSkillAssist) {
             const MAX_DOC_CHARS = 50_000;
             const truncated = safeDocumentText.length > MAX_DOC_CHARS
                 ? `${safeDocumentText.slice(0, MAX_DOC_CHARS)}\n\n[...trunkerad...]`
@@ -1339,7 +1488,17 @@ ANVÄNDARFRÅGA:
 
                 if (userMemoriesError) {
                     logger.warn('Failed to load user memories', { userId, companyId: resolvedCompanyId });
-                } else if (userMemories && userMemories.length > 0) {
+                } else if (!userMemories || userMemories.length === 0) {
+                    // First interaction with this company — no memories yet
+                    contextBlocks.push(
+                        'SYSTEM CONTEXT: Detta är första interaktionen med detta företag. ' +
+                        'Inga minnen finns ännu. Ställ 1-2 naturliga frågor om verksamheten i ditt svar:\n' +
+                        '- Vad gör företaget? (bransch, storlek)\n' +
+                        '- Vilken redovisningsmetod? (faktura/kontant)\n' +
+                        '- Momsperiod? (månads/kvartals/årsredovisning)\n' +
+                        'Väv in frågorna naturligt — inte som ett formulär.'
+                    );
+                } else if (userMemories.length > 0) {
                     const memoryRows = userMemories as UserMemoryRow[];
                     const selection = selectRelevantMemories(memoryRows, message);
                     const selectedMemories = selection.selected;
@@ -1418,10 +1577,12 @@ ANVÄNDARFRÅGA:
         const primaryImage = fileData?.mimeType?.startsWith('image/') ? fileData : undefined;
         const imagePages = (fileDataPages || []).filter((p) => p?.mimeType?.startsWith('image/') && !!p.data);
         const geminiFileData = primaryImage || (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
-        const disableTools = shouldSkipHistorySearch(message) || hasFileAttachment;
+        const disableTools = isSkillAssist || shouldSkipHistorySearch(message) || hasFileAttachment;
+
+        const forceNonStreaming = isSkillAssist;
 
         // Handle Gemini Streaming
-        if (provider === 'gemini') {
+        if (provider === 'gemini' && !forceNonStreaming) {
             console.log('[STREAMING] Starting Gemini streaming... (model:', effectiveModel || 'default', ')');
             try {
                 const stream = await sendMessageStreamToGemini(finalMessage, geminiFileData, history, undefined, effectiveModel, { disableTools });
@@ -1493,6 +1654,17 @@ ANVÄNDARFRÅGA:
                                         toolResponseText = followUp.text || formatHistoryResponse(message, [], recentConversations);
                                     }
                                     }
+                                } else if (toolName === 'web_search') {
+                                    const webResults = await fetchWebSearchResults(toolArgs, authHeader);
+                                    if (!webResults || webResults.results.length === 0) {
+                                        const noResultsPrompt = `Jag hittade inga tillförlitliga webbkällor via webbsökning för frågan. Svara ändå så gott du kan, men var tydlig med osäkerhet och be om förtydligande vid behov. Fråga: "${message}"`;
+                                        const followUp = await sendMessageToGemini(noResultsPrompt, undefined, history, undefined, effectiveModel, { disableTools: true });
+                                        toolResponseText = followUp.text || "Jag hittade tyvärr inga tillförlitliga källor just nu.";
+                                    } else {
+                                        const contextPrompt = `WEBBSÖKRESULTAT (uppdaterade, officiella källor):\n${formatWebSearchContext(webResults)}\n\nAnvänd dessa källor för att svara på användarens fråga. Redovisa källa och datum i svaret. Fråga: "${message}"`;
+                                        const followUp = await sendMessageToGemini(contextPrompt, undefined, history, undefined, effectiveModel, { disableTools: true });
+                                        toolResponseText = followUp.text || "Jag kunde inte sammanställa ett svar från webbkällorna.";
+                                    }
                                 } else {
                                         // Execute Fortnox tools server-side
                                         const fortnoxToolResult = await executeFortnoxTool(toolName, toolArgs, supabaseAdmin, userId, resolvedCompanyId, req.headers.get('Authorization')!);
@@ -1513,7 +1685,7 @@ ANVÄNDARFRÅGA:
                                     }
                                 } catch (toolErr) {
                                     logger.error('Tool execution error in stream', toolErr);
-                                    toolResponseText = "Ett fel uppstod när jag försökte söka i tidigare konversationer.";
+                                    toolResponseText = "Ett fel uppstod när jag försökte använda ett verktyg. Försök igen.";
                                     const sseData = `data: ${JSON.stringify({ text: toolResponseText })}\n\n`;
                                     controller.enqueue(encoder.encode(sseData));
                                     fullText = toolResponseText;
@@ -1684,6 +1856,19 @@ ANVÄNDARFRÅGA:
                             const contextPrompt = `SENASTE KONVERSATIONER:\n${contextLines.join('\n')}\n\nGe en kort överblick baserat på dessa konversationer för att svara på: "${message}"`;
                             const followUp = await sendMessageToGemini(contextPrompt, undefined, history);
                             responseText = followUp.text || formatHistoryResponse(message, [], recentConversations);
+                        }
+                        break;
+                    }
+                    case 'web_search': {
+                        const webResults = await fetchWebSearchResults(args as Record<string, unknown>, authHeader);
+                        if (!webResults || webResults.results.length === 0) {
+                            const noResultsPrompt = `Jag hittade inga tillförlitliga webbkällor via webbsökning för frågan. Svara ändå så gott du kan, men var tydlig med osäkerhet och be om förtydligande vid behov. Fråga: "${message}"`;
+                            const followUp = await sendMessageToGemini(noResultsPrompt, undefined, history, undefined, undefined, { disableTools: true });
+                            responseText = followUp.text || "Jag hittade tyvärr inga tillförlitliga källor just nu.";
+                        } else {
+                            const contextPrompt = `WEBBSÖKRESULTAT (uppdaterade, officiella källor):\n${formatWebSearchContext(webResults)}\n\nAnvänd dessa källor för att svara på användarens fråga. Redovisa källa och datum i svaret. Fråga: "${message}"`;
+                            const followUp = await sendMessageToGemini(contextPrompt, undefined, history, undefined, undefined, { disableTools: true });
+                            responseText = followUp.text || "Jag kunde inte sammanställa ett svar från webbkällorna.";
                         }
                         break;
                     }
@@ -1928,6 +2113,8 @@ ANVÄNDARFRÅGA:
                 logger.error('Tool execution failed', err);
                 if (tool === 'conversation_search' || tool === 'recent_chats') {
                     responseText = "Jag kunde inte söka i tidigare konversationer just nu.";
+                } else if (tool === 'web_search') {
+                    responseText = "Jag kunde inte hämta uppdaterad information från webben just nu.";
                 } else if (tool === 'create_journal_entry') {
                     responseText = "Ett fel uppstod när verifikatet skulle skapas. Försök igen.";
                 } else {
@@ -1944,8 +2131,16 @@ ANVÄNDARFRÅGA:
             });
         }
 
+        let responseText = geminiResponse.text || '';
+        let skillDraft: SkillDraft | null = null;
+        if (isSkillAssist && responseText) {
+            const parsed = extractSkillDraft(responseText);
+            responseText = parsed.cleanText;
+            skillDraft = parsed.draft;
+        }
+
         // Save AI response (Non-streaming fallback)
-        if (conversationId && userId !== 'anonymous' && geminiResponse.text) {
+        if (conversationId && userId !== 'anonymous' && responseText) {
             try {
                 if (!conversationService) {
                     const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
@@ -1953,12 +2148,19 @@ ANVÄNDARFRÅGA:
                     });
                     conversationService = new ConversationService(supabaseClient);
                 }
-                // Include usedMemories in metadata for transparency
-                const messageMetadata = usedMemories.length > 0
-                    ? { usedMemories }
-                    : null;
-                await conversationService.addMessage(conversationId, 'assistant', geminiResponse.text, null, null, messageMetadata);
-                await generateSmartTitleIfNeeded(conversationService, supabaseAdmin, conversationId, message, geminiResponse.text);
+                const messageMetadata = {
+                    ...(usedMemories.length > 0 ? { usedMemories } : {}),
+                    ...(skillDraft ? { skillDraft } : {})
+                };
+                await conversationService.addMessage(
+                    conversationId,
+                    'assistant',
+                    responseText,
+                    null,
+                    null,
+                    Object.keys(messageMetadata).length > 0 ? messageMetadata : null
+                );
+                await generateSmartTitleIfNeeded(conversationService, supabaseAdmin, conversationId, message, responseText);
                 void triggerMemoryGenerator(supabaseUrl, supabaseServiceKey, conversationId);
 
                 // Log AI decision for BFL compliance (audit trail)
@@ -1975,7 +2177,7 @@ ANVÄNDARFRÅGA:
                         conversation_id: conversationId,
                     },
                     outputData: {
-                        response_length: geminiResponse.text.length,
+                        response_length: responseText.length,
                         has_tool_call: !!geminiResponse.toolCall,
                     },
                     confidence: 0.9, // Chat responses have high confidence
@@ -1987,8 +2189,9 @@ ANVÄNDARFRÅGA:
 
         return new Response(JSON.stringify({
             type: 'text',
-            data: geminiResponse.text,
-            usedMemories: usedMemories.length > 0 ? usedMemories : undefined
+            data: responseText,
+            usedMemories: usedMemories.length > 0 ? usedMemories : undefined,
+            skillDraft: skillDraft ?? undefined
         }), {
             headers: { ...responseHeaders, "Content-Type": "application/json" }
         });

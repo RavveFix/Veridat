@@ -1,0 +1,4 @@
+interface:
+  display_name: "Platform SEO"
+  short_description: "SEO workflow for Veridat web platform"
+  default_prompt: "Audit and improve Veridat SEO: metadata/OG, schema.org, sitemap/robots, internal linking, performance, and content briefs."

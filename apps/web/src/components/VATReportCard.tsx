@@ -200,6 +200,9 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
         }, 2000);
     };
 
+    const formatAmount = (value: number) =>
+        value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
     return (
         <div class="vat-report-card">
             <BorderBeam 
@@ -222,57 +225,139 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                 </div>
                 <ValidationBadges validation={data.validation} />
             </div>
+            <div class="card-divider" aria-hidden="true"></div>
 
             {/* Summary Tab Content */}
             <div class={`tab-content ${activeTab === 'summary' ? 'active' : ''}`}>
                 {/* Company Info */}
-                <div class="company-info">
+                <div class="company-info report-section">
                     <div class="company-name">{data.company?.name || 'N/A'}</div>
                     <div class="org-number">Org.nr: {data.company?.org_number || 'N/A'}</div>
                 </div>
 
                 {/* Summary Grid */}
-                <div class="summary-grid">
-                    <div class="summary-card income">
+                <div class="summary-grid report-section">
+                    <div class="summary-card income card-surface">
                         <div class="summary-label">Försäljning</div>
-                        <div class="summary-amount positive">{data.summary.total_income.toFixed(2)} SEK</div>
+                        <div class="summary-amount positive">{formatAmount(data.summary.total_income)} SEK</div>
                     </div>
-                    <div class="summary-card costs">
+                    <div class="summary-card costs card-surface">
                         <div class="summary-label">Kostnader</div>
-                        <div class="summary-amount negative">{data.summary.total_costs.toFixed(2)} SEK</div>
+                        <div class="summary-amount negative">{formatAmount(data.summary.total_costs)} SEK</div>
                     </div>
-                    <div class="summary-card result">
+                    <div class="summary-card result card-surface">
                         <div class="summary-label">Resultat</div>
                         <div class={`summary-amount ${data.summary.result >= 0 ? 'positive' : 'negative'}`}>
-                            {data.summary.result.toFixed(2)} SEK
+                            {formatAmount(data.summary.result)} SEK
                         </div>
                     </div>
                 </div>
 
+                {data.analysis_summary && (
+                    <div class="analysis-summary card-surface report-section">
+                        <div class="analysis-header">
+                            <h4>Analysöversikt</h4>
+                            <span>{data.analysis_summary.total_transactions} transaktioner</span>
+                        </div>
+                        <div class="analysis-stats-grid">
+                            <div class="analysis-stat card-surface">
+                                <div class="analysis-stat-label">0% moms</div>
+                                <div class="analysis-stat-value">{formatAmount(data.analysis_summary.zero_vat_amount)} SEK</div>
+                                <div class="analysis-stat-meta">{data.analysis_summary.zero_vat_count} rader</div>
+                            </div>
+                            <div class="analysis-stat card-surface">
+                                <div class="analysis-stat-label">Försäljning</div>
+                                <div class="analysis-stat-value">{data.analysis_summary.revenue_transactions}</div>
+                                <div class="analysis-stat-meta">rader</div>
+                            </div>
+                            <div class="analysis-stat card-surface">
+                                <div class="analysis-stat-label">Kostnader</div>
+                                <div class="analysis-stat-value">{data.analysis_summary.cost_transactions}</div>
+                                <div class="analysis-stat-meta">rader</div>
+                            </div>
+                        </div>
+                        <div class="analysis-lists">
+                            <div class="analysis-list card-surface">
+                                <div class="analysis-list-title">Största kostnader</div>
+                                {data.analysis_summary.top_costs.length === 0 ? (
+                                    <div class="analysis-empty">Inga kostnader hittades</div>
+                                ) : data.analysis_summary.top_costs.map(item => (
+                                    <div class="analysis-list-item" key={`cost-${item.label}-${item.amount}-${item.count}`}>
+                                        <span>{item.label}</span>
+                                        <span>{formatAmount(item.amount)} SEK</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div class="analysis-list card-surface">
+                                <div class="analysis-list-title">Största intäkter</div>
+                                {data.analysis_summary.top_revenues.length === 0 ? (
+                                    <div class="analysis-empty">Inga intäkter hittades</div>
+                                ) : data.analysis_summary.top_revenues.map(item => (
+                                    <div class="analysis-list-item" key={`rev-${item.label}-${item.amount}-${item.count}`}>
+                                        <span>{item.label}</span>
+                                        <span>{formatAmount(item.amount)} SEK</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {data.analysis_summary?.monta && (
+                    <div class="analysis-summary monta-summary card-surface report-section">
+                        <div class="analysis-header">
+                            <h4>Monta-sammanfattning</h4>
+                            <span>Avgifter och roaming</span>
+                        </div>
+                        <div class="analysis-stats-grid">
+                            <div class="analysis-stat card-surface">
+                                <div class="analysis-stat-label">Transaktionsavgifter</div>
+                                <div class="analysis-stat-value">{formatAmount(data.analysis_summary.monta.platform_fee)} SEK</div>
+                            </div>
+                            <div class="analysis-stat card-surface">
+                                <div class="analysis-stat-label">Laddningsavgift (%)</div>
+                                <div class="analysis-stat-value">{formatAmount(data.analysis_summary.monta.operator_fee)} SEK</div>
+                            </div>
+                            <div class="analysis-stat card-surface">
+                                <div class="analysis-stat-label">Abonnemang</div>
+                                <div class="analysis-stat-value">{formatAmount(data.analysis_summary.monta.subscription)} SEK</div>
+                            </div>
+                            <div class="analysis-stat card-surface">
+                                <div class="analysis-stat-label">Roaming (0% moms)</div>
+                                <div class="analysis-stat-value">{formatAmount(data.analysis_summary.monta.roaming_revenue)} SEK</div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* VAT Panel */}
-                <div class="vat-panel">
+                <div class="vat-panel card-surface report-section">
                     <h4>Momsredovisning</h4>
                     <VATDetails vat={data.vat} />
                 </div>
 
                 {/* Warnings Panel */}
-                <WarningsPanel validation={data.validation} />
+                <div class="report-section">
+                    <WarningsPanel validation={data.validation} />
+                </div>
 
                 {/* Fortnox Export Status */}
                 {reportId && (
-                    fortnoxStatusLoading ? (
-                        <div class="fortnox-sync-panel not_synced" style={{ textAlign: 'center', padding: '1rem' }}>
-                            <div class="modal-spinner" style={{ margin: '0 auto 0.5rem', width: '20px', height: '20px' }} role="status" aria-label="Laddar Fortnox-status" />
-                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Hämtar Fortnox-status...</span>
-                        </div>
-                    ) : (
-                        <FortnoxSyncStatusPanel
-                            status={fortnoxStatus}
-                            loading={fortnoxLoading}
-                            error={fortnoxError}
-                            onExport={handleFortnoxExport}
-                        />
-                    )
+                    <div class="report-section">
+                        {fortnoxStatusLoading ? (
+                            <div class="fortnox-sync-panel not_synced" style={{ textAlign: 'center', padding: '1rem' }}>
+                                <div class="modal-spinner" style={{ margin: '0 auto 0.5rem', width: '20px', height: '20px' }} role="status" aria-label="Laddar Fortnox-status" />
+                                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Hämtar Fortnox-status...</span>
+                            </div>
+                        ) : (
+                            <FortnoxSyncStatusPanel
+                                status={fortnoxStatus}
+                                loading={fortnoxLoading}
+                                error={fortnoxError}
+                                onExport={handleFortnoxExport}
+                            />
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -337,4 +422,3 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
         </div>
     );
 };
-

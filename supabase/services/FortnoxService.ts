@@ -8,12 +8,16 @@ import type {
     FortnoxInvoice,
     FortnoxInvoiceResponse,
     FortnoxInvoiceListResponse,
+    FortnoxInvoicePayment,
+    FortnoxInvoicePaymentResponse,
     FortnoxVoucher,
     FortnoxVoucherResponse,
     FortnoxVoucherListResponse,
     FortnoxSupplierInvoice,
     FortnoxSupplierInvoiceResponse,
     FortnoxSupplierInvoiceListResponse,
+    FortnoxSupplierInvoicePayment,
+    FortnoxSupplierInvoicePaymentResponse,
     FortnoxSupplier,
     FortnoxSupplierResponse,
     FortnoxSupplierListResponse,
@@ -181,6 +185,25 @@ export class FortnoxService {
         });
     }
 
+    /**
+     * Register a payment for a customer invoice
+     */
+    async createInvoicePayment(payment: FortnoxInvoicePayment): Promise<FortnoxInvoicePaymentResponse> {
+        return await this.request<FortnoxInvoicePaymentResponse>('/invoicepayments', {
+            method: 'POST',
+            body: JSON.stringify({ InvoicePayment: payment })
+        });
+    }
+
+    /**
+     * Bookkeep a customer invoice payment
+     */
+    async bookkeepInvoicePayment(number: string): Promise<FortnoxInvoicePaymentResponse> {
+        return await this.request<FortnoxInvoicePaymentResponse>(`/invoicepayments/${number}/bookkeep`, {
+            method: 'PUT'
+        });
+    }
+
     // ========================================================================
     // INVOICE METHODS (Kundfakturor)
     // ========================================================================
@@ -331,6 +354,25 @@ export class FortnoxService {
      */
     async bookSupplierInvoice(givenNumber: number): Promise<FortnoxSupplierInvoiceResponse> {
         return await this.request<FortnoxSupplierInvoiceResponse>(`/supplierinvoices/${givenNumber}/bookkeep`, {
+            method: 'PUT'
+        });
+    }
+
+    /**
+     * Register a payment for a supplier invoice
+     */
+    async createSupplierInvoicePayment(payment: FortnoxSupplierInvoicePayment): Promise<FortnoxSupplierInvoicePaymentResponse> {
+        return await this.request<FortnoxSupplierInvoicePaymentResponse>('/supplierinvoicepayments', {
+            method: 'POST',
+            body: JSON.stringify({ SupplierInvoicePayment: payment })
+        });
+    }
+
+    /**
+     * Bookkeep a supplier invoice payment
+     */
+    async bookkeepSupplierInvoicePayment(number: number): Promise<FortnoxSupplierInvoicePaymentResponse> {
+        return await this.request<FortnoxSupplierInvoicePaymentResponse>(`/supplierinvoicepayments/${number}/bookkeep`, {
             method: 'PUT'
         });
     }

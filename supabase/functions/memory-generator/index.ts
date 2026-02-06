@@ -7,6 +7,7 @@ import { createOptionsResponse, getCorsHeaders } from "../../services/CorsServic
 import { extractGoogleRateLimitInfo } from "../../services/GeminiService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
+import { CompanyMemoryService, mergeCompanyMemory } from "../../services/CompanyMemoryService.ts";
 
 const logger = createLogger("memory-generator");
 
@@ -418,7 +419,15 @@ Deno.serve(async (req: Request) => {
             .map((msg) => `${msg.role}: ${truncateMessage(msg.content)}`)
             .join("\n\n");
 
-        const prompt = `${MEMORY_PROMPT_HEADER}\nKonversation:\n${transcript}`;
+        const isEarlyConversation = orderedMessages.length < 10;
+        const onboardingHint = isEarlyConversation
+            ? '\n\nOBS: Detta verkar vara en tidig konversation (< 10 meddelanden). ' +
+              'Prioritera att extrahera grundläggande verksamhetsinfo: ' +
+              'företagsnamn, bransch, antal anställda, redovisningsmetod, momsperiod. ' +
+              'Sätt importance = 0.9 för dessa.'
+            : '';
+
+        const prompt = `${MEMORY_PROMPT_HEADER}${onboardingHint}\nKonversation:\n${transcript}`;
 
         // Delay to avoid concurrent API calls with main chat response
         logger.debug('Delaying Gemini API call to avoid rate limits', { delayMs: GEMINI_API_DELAY_MS });
@@ -578,6 +587,30 @@ Deno.serve(async (req: Request) => {
                 .from("user_memories")
                 .insert(inserts);
             if (insertError) throw insertError;
+
+            // Auto-populate company_memory from work_context memories
+            const workContextInserts = inserts.filter((m) => m.category === "work_context");
+            if (workContextInserts.length > 0) {
+                try {
+                    const companyMemoryService = new CompanyMemoryService(supabase);
+                    const existing = await companyMemoryService.get(conversation.user_id, conversation.company_id);
+
+                    // Extract company name and org number from memory content
+                    const allContent = workContextInserts.map((m) => m.content).join(" ");
+                    const orgMatch = allContent.match(/\b(\d{6}-?\d{4})\b/);
+                    const patch: Record<string, string> = {};
+                    if (orgMatch) patch.org_number = orgMatch[1];
+
+                    // Only update if we found new data and company_memory is sparse
+                    if (Object.keys(patch).length > 0 && (!existing?.org_number)) {
+                        const merged = mergeCompanyMemory(existing, patch);
+                        await companyMemoryService.upsert(conversation.user_id, conversation.company_id, merged);
+                        logger.info("Auto-populated company_memory from work_context", { companyId: conversation.company_id });
+                    }
+                } catch (companyMemoryError) {
+                    logger.warn("Failed to auto-populate company_memory", { error: String(companyMemoryError) });
+                }
+            }
         }
 
         return new Response(JSON.stringify({

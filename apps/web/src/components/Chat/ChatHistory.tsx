@@ -496,7 +496,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                             Gräns nådd{resetTime ? ` – återställs kl ${resetTime}` : ''}
                         </div>
                         <div class="rate-limit-banner__subtitle">
-                            Uppgradera till Pro för fler förfrågningar
+                            Gratis: 10/t, 50/d. Pro: 40/t, 200/d.
                         </div>
                     </div>
                     <button

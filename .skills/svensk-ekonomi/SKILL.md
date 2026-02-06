@@ -1,7 +1,5 @@
 ---
 name: svensk-ekonomi
-version: 1.0.0
-author: Veridat Team
 description: |
   Svensk redovisning, momshantering och bokföring enligt BAS-kontoplanen.
   Specialiserad på elbilsladdning, CPO/eMSP-transaktioner och OCPI roaming.
@@ -10,40 +8,43 @@ allowed-tools:
   - Bash
   - Grep
   - WebFetch
-triggers:
-  - svensk moms
-  - BAS-konto
-  - SIE-fil
-  - elbilsladdning
-  - Skatteverket
-  - bokföring Sverige
-  - momsredovisning
-  - VAT calculation
-  - momssats
-  - moms
-capabilities:
-  - name: vat-calculation
-    description: Svenska momssatser (25%, 12%, 6%, 0%)
-    entry: scripts/vat_processor.py
-  - name: bas-accounts
-    description: BAS-kontoplanen för bokföring
-    reference: references/bas_accounts.md
-  - name: sie-export
-    description: SIE4-filexport för Fortnox/Visma
-    entry: scripts/sie_export.py
-  - name: validators
-    description: Validering av org.nr, VAT-nummer, bankgiro
-    entry: scripts/validators.py
-dependencies:
-  - pandas>=2.2.3
-  - openpyxl==3.1.5
-examples:
-  - name: Process transactions
-    command: python3 scripts/vat_processor.py input.xlsx --output report.json
-  - name: Validate org number
-    command: python3 scripts/validators.py org 5561839191
-  - name: Export to SIE
-    command: python3 scripts/sie_export.py report.json --output export.sie
+metadata:
+  version: 1.0.0
+  author: Veridat Team
+  triggers:
+    - svensk moms
+    - BAS-konto
+    - SIE-fil
+    - elbilsladdning
+    - Skatteverket
+    - bokföring Sverige
+    - momsredovisning
+    - VAT calculation
+    - momssats
+    - moms
+  capabilities:
+    - name: vat-calculation
+      description: Svenska momssatser (25%, 12%, 6%, 0%)
+      entry: scripts/vat_processor.py
+    - name: bas-accounts
+      description: BAS-kontoplanen för bokföring
+      reference: references/bas_accounts.md
+    - name: sie-export
+      description: SIE4-filexport för Fortnox/Visma
+      entry: scripts/sie_export.py
+    - name: validators
+      description: Validering av org.nr, VAT-nummer, bankgiro
+      entry: scripts/validators.py
+  dependencies:
+    - pandas>=2.2.3
+    - openpyxl==3.1.5
+  examples:
+    - name: Process transactions
+      command: python3 scripts/vat_processor.py input.xlsx --output report.json
+    - name: Validate org number
+      command: python3 scripts/validators.py org 5561839191
+    - name: Export to SIE
+      command: python3 scripts/sie_export.py report.json --output export.sie
 ---
 
 # Svensk Ekonomi

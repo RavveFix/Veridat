@@ -14,12 +14,23 @@ interface StreamingTextProps {
  */
 export const StreamingText: FunctionComponent<StreamingTextProps> = ({ content }) => {
     const textRef = useRef<HTMLSpanElement>(null);
+    const sanitizeStreamingText = (value: string): string => {
+        // Hide markdown separator bursts (e.g., ***** or line-only ***)
+        let cleaned = value.replace(/(^|\n)\s*\*{3,}\s*(?=\n|$)/g, '$1');
+        // Hide horizontal rules (--- or ___) and code fence lines (```lang)
+        cleaned = cleaned.replace(/(^|\n)\s*[-_]{3,}\s*(?=\n|$)/g, '$1');
+        cleaned = cleaned.replace(/(^|\n)\s*```.*(?=\n|$)/g, '$1');
+        cleaned = cleaned.replace(/(^|\n)\s*~~~.*(?=\n|$)/g, '$1');
+        // Replace long asterisk runs inside lines
+        cleaned = cleaned.replace(/\*{5,}/g, '—');
+        return cleaned;
+    };
 
     // Update text content directly in DOM (bypasses React re-render cycle)
     useEffect(() => {
         console.log('✍️ [StreamingText] Content updated:', content?.substring(0, 50));
         if (textRef.current) {
-            textRef.current.textContent = content;
+            textRef.current.textContent = sanitizeStreamingText(content);
         }
     }, [content]);
 

@@ -257,6 +257,53 @@ export type Database = {
         }
         Relationships: []
       }
+      legal_acceptances: {
+        Row: {
+          accepted_at: string
+          accepted_from: string
+          company_id: string | null
+          created_at: string
+          doc_type: string
+          dpa_authorized: boolean
+          id: string
+          user_agent: string | null
+          user_id: string
+          version: string
+        }
+        Insert: {
+          accepted_at?: string
+          accepted_from?: string
+          company_id?: string | null
+          created_at?: string
+          doc_type: string
+          dpa_authorized?: boolean
+          id?: string
+          user_agent?: string | null
+          user_id: string
+          version: string
+        }
+        Update: {
+          accepted_at?: string
+          accepted_from?: string
+          company_id?: string | null
+          created_at?: string
+          doc_type?: string
+          dpa_authorized?: boolean
+          id?: string
+          user_agent?: string | null
+          user_id?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legal_acceptances_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string

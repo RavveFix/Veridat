@@ -6,6 +6,9 @@ import { ArtifactCard, CodeArtifact } from './ArtifactCard';
 import { VATSummaryCard } from './VATSummaryCard';
 import { JournalEntryCard, type JournalEntry, type JournalValidation, type JournalTransaction } from './JournalEntryCard';
 import type { VATReportData } from '../../types/vat';
+import type { SkillDraft } from '../../types/skills';
+import { skillService } from '../../services/SkillService';
+import { companyManager } from '../../services/CompanyService';
 
 interface AIResponseRendererProps {
     content: string;
@@ -15,6 +18,7 @@ interface AIResponseRendererProps {
         file_url?: string;
         file_path?: string;
         file_bucket?: string;
+        skillDraft?: SkillDraft;
         // Journal entry metadata
         verification_id?: string;
         entries?: JournalEntry[];
@@ -40,6 +44,12 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     fileName,
     fileUrl,
 }) => {
+    const [creatingSkill, setCreatingSkill] = useState(false);
+    const [skillCreated, setSkillCreated] = useState(false);
+    const [skillError, setSkillError] = useState<string | null>(null);
+    const skillDraft = metadata?.skillDraft;
+    const canCreateSkill = Boolean(skillDraft?.name && skillDraft?.description);
+
     // Memoize expensive parsing operations
     const hasStructuredContent = useMemo(
         () => containsCodeBlock(content) || containsMarkdownTable(content),
@@ -55,6 +65,41 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
         () => !hasStructuredContent && !metadata?.type ? markdownToHtml(content) : null,
         [content, hasStructuredContent, metadata?.type]
     );
+
+    const buildSkillDescription = (draft: SkillDraft): string => {
+        const parts: string[] = [];
+        if (draft.description) {
+            parts.push(draft.description.trim());
+        }
+        if (draft.schedule) {
+            parts.push(`Körs: ${draft.schedule}.`);
+        }
+        if (draft.data_needed && draft.data_needed.length > 0) {
+            parts.push(`Behöver: ${draft.data_needed.join(', ')}.`);
+        }
+        return parts.join(' ').trim() || 'Automation skapad via Skill-hjälp.';
+    };
+
+    const handleCreateSkill = async () => {
+        if (!skillDraft || creatingSkill) return;
+        setCreatingSkill(true);
+        setSkillError(null);
+        try {
+            const companyId = companyManager.getCurrentId();
+            const description = buildSkillDescription(skillDraft);
+            await skillService.createSkill(companyId, {
+                name: skillDraft.name || 'Ny automation',
+                description,
+                kind: 'automation',
+                requires_approval: skillDraft.requires_approval ?? true
+            });
+            setSkillCreated(true);
+        } catch (error) {
+            setSkillError('Kunde inte skapa automationen.');
+        } finally {
+            setCreatingSkill(false);
+        }
+    };
     // Check if this is a VAT report response - show compact inline card
     // Full report is displayed in the side panel
     const effectiveFileUrl = fileUrl || metadata?.file_url || null;
@@ -190,6 +235,23 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
                 class="ai-response response-text"
                 dangerouslySetInnerHTML={{ __html: htmlContent || markdownToHtml(content) }}
             />
+            {skillDraft && canCreateSkill && (
+                <div class="skill-draft-actions">
+                    <div class="skill-draft-info">
+                        <strong>Förslag redo</strong>
+                        <span>Skapa automationen i listan.</span>
+                    </div>
+                    <button
+                        class="skill-draft-create"
+                        type="button"
+                        onClick={handleCreateSkill}
+                        disabled={creatingSkill || skillCreated}
+                    >
+                        {skillCreated ? 'Automation skapad' : creatingSkill ? 'Skapar...' : 'Skapa automation'}
+                    </button>
+                    {skillError && <div class="skill-draft-error">{skillError}</div>}
+                </div>
+            )}
             <div class="message-actions">
                 <button 
                     class={`copy-action-btn ${startCopy ? 'copied' : ''}`}

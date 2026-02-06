@@ -159,10 +159,6 @@ export class AppController {
                 const synced = await authService.syncLocalConsentToDatabase();
 
                 if (synced) {
-                    // Send consent confirmation email (non-blocking)
-                    this.sendConsentEmail().catch(err => {
-                        logger.warn('Failed to send consent email', err);
-                    });
                     return true;
                 }
 
@@ -220,27 +216,6 @@ export class AppController {
         logger.debug('LegalConsentModal mounted');
 
         return false;
-    }
-
-    private async sendConsentEmail(): Promise<void> {
-        const session = await authService.getSession();
-        if (!session) return;
-
-        const consentData = authService.getLocalConsentData();
-        if (!consentData) return;
-
-        const { CURRENT_TERMS_VERSION } = await import('../constants/termsVersion');
-
-        logger.debug('Sending consent confirmation email');
-        await supabase.functions.invoke('send-consent-email', {
-            body: {
-                userId: session.user.id,
-                email: session.user.email,
-                fullName: consentData.fullName,
-                termsVersion: CURRENT_TERMS_VERSION,
-                acceptedAt: consentData.acceptedAt
-            }
-        });
     }
 
     private setupAuthListener(): void {
@@ -501,7 +476,7 @@ export class AppController {
         const contactBtn = document.getElementById('contact-btn');
         if (contactBtn) {
             contactBtn.addEventListener('click', () => {
-                window.location.href = 'mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20skulle%20vilja%20uppgradera%20till%20Pro-versionen.%0A%0AMvh';
+                window.location.href = 'mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20skulle%20vilja%20uppgradera%20till%20Pro%20(40%20förfrågningar%2Ftimme%2C%20200%2Fdag).%0A%0AMvh';
             });
         }
     }

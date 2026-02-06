@@ -2,11 +2,12 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { FortnoxService } from "../../services/FortnoxService.ts";
-import { FortnoxInvoice, FortnoxVoucher, FortnoxSupplierInvoice, FortnoxSupplier } from "./types.ts";
+import { FortnoxInvoice, FortnoxVoucher, FortnoxSupplierInvoice, FortnoxSupplier, FortnoxInvoicePayment, FortnoxSupplierInvoicePayment } from "./types.ts";
 import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
 import { AuditService } from "../../services/AuditService.ts";
+import { CompanyMemoryService, mergeCompanyMemory } from "../../services/CompanyMemoryService.ts";
 
 const logger = createLogger('fortnox');
 
@@ -134,6 +135,73 @@ Deno.serve(async (req: Request) => {
                 break;
             }
 
+            case 'registerInvoicePayment': {
+                const payment = payload?.payment as FortnoxInvoicePayment | undefined;
+                if (!payment) {
+                    throw new Error('Missing required field: payment');
+                }
+                const meta = payload?.meta as Record<string, unknown> | undefined;
+                const transactionId = typeof meta?.transactionId === 'string' ? meta.transactionId : undefined;
+                const resourceId = transactionId || String(payment.InvoiceNumber ?? 'unknown');
+                const matchMeta = (meta?.match ?? {}) as Record<string, unknown>;
+                const customerNumberRaw = matchMeta.customerNumber as string | number | undefined;
+                const customerNumber = customerNumberRaw !== undefined ? String(customerNumberRaw) : undefined;
+
+                try {
+                    const created = await fortnoxService.createInvoicePayment(payment);
+                    const number = created?.InvoicePayment?.Number;
+                    if (number) {
+                        const bookkept = await fortnoxService.bookkeepInvoicePayment(number);
+                        result = { payment: created, bookkeep: bookkept };
+                    } else {
+                        result = created;
+                    }
+
+                    await auditService.log({
+                        userId,
+                        actorType: 'user',
+                        action: 'bank_match_approved_customer_payment',
+                        resourceType: 'bank_match',
+                        resourceId,
+                        companyId,
+                        previousState: meta,
+                        newState: {
+                            paymentRequest: payment,
+                            paymentResult: result as Record<string, unknown>
+                        }
+                    });
+
+                    if (companyId && customerNumber) {
+                        const { error: policyError } = await supabaseClient.rpc('increment_bank_match_policy', {
+                            p_user_id: userId,
+                            p_company_id: companyId,
+                            p_counterparty_type: 'customer',
+                            p_counterparty_number: customerNumber
+                        });
+                        if (policyError) {
+                            logger.warn('Failed to update bank match policy (customer)', policyError);
+                        }
+                    }
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    await auditService.log({
+                        userId,
+                        actorType: 'user',
+                        action: 'bank_match_customer_payment_failed',
+                        resourceType: 'bank_match',
+                        resourceId,
+                        companyId,
+                        previousState: meta,
+                        newState: {
+                            paymentRequest: payment,
+                            error: errorMessage
+                        }
+                    });
+                    throw error;
+                }
+                break;
+            }
+
             // ================================================================
             // VOUCHER ACTIONS (Verifikationer)
             // ================================================================
@@ -211,6 +279,73 @@ Deno.serve(async (req: Request) => {
             case 'getSupplierInvoice': {
                 const givenNumber = payload?.givenNumber as number;
                 result = await fortnoxService.getSupplierInvoice(givenNumber);
+                break;
+            }
+
+            case 'registerSupplierInvoicePayment': {
+                const payment = payload?.payment as FortnoxSupplierInvoicePayment | undefined;
+                if (!payment) {
+                    throw new Error('Missing required field: payment');
+                }
+                const meta = payload?.meta as Record<string, unknown> | undefined;
+                const transactionId = typeof meta?.transactionId === 'string' ? meta.transactionId : undefined;
+                const resourceId = transactionId || String(payment.InvoiceNumber ?? 'unknown');
+                const matchMeta = (meta?.match ?? {}) as Record<string, unknown>;
+                const supplierNumberRaw = matchMeta.supplierNumber as string | number | undefined;
+                const supplierNumber = supplierNumberRaw !== undefined ? String(supplierNumberRaw) : undefined;
+
+                try {
+                    const created = await fortnoxService.createSupplierInvoicePayment(payment);
+                    const number = created?.SupplierInvoicePayment?.Number;
+                    if (number !== undefined) {
+                        const bookkept = await fortnoxService.bookkeepSupplierInvoicePayment(number);
+                        result = { payment: created, bookkeep: bookkept };
+                    } else {
+                        result = created;
+                    }
+
+                    await auditService.log({
+                        userId,
+                        actorType: 'user',
+                        action: 'bank_match_approved_supplier_payment',
+                        resourceType: 'bank_match',
+                        resourceId,
+                        companyId,
+                        previousState: meta,
+                        newState: {
+                            paymentRequest: payment,
+                            paymentResult: result as Record<string, unknown>
+                        }
+                    });
+
+                    if (companyId && supplierNumber) {
+                        const { error: policyError } = await supabaseClient.rpc('increment_bank_match_policy', {
+                            p_user_id: userId,
+                            p_company_id: companyId,
+                            p_counterparty_type: 'supplier',
+                            p_counterparty_number: supplierNumber
+                        });
+                        if (policyError) {
+                            logger.warn('Failed to update bank match policy (supplier)', policyError);
+                        }
+                    }
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    await auditService.log({
+                        userId,
+                        actorType: 'user',
+                        action: 'bank_match_supplier_payment_failed',
+                        resourceType: 'bank_match',
+                        resourceId,
+                        companyId,
+                        previousState: meta,
+                        newState: {
+                            paymentRequest: payment,
+                            error: errorMessage
+                        }
+                    });
+                    throw error;
+                }
                 break;
             }
 
@@ -351,6 +486,119 @@ Deno.serve(async (req: Request) => {
                     throw new Error('Missing required field: vatReportId');
                 }
                 result = await auditService.getVATReportSyncStatus(vatReportId);
+                break;
+            }
+
+            // ================================================================
+            // PROFILE SYNC (auto-populate memory from Fortnox)
+            // ================================================================
+            case 'sync_profile': {
+                if (!companyId) {
+                    throw new Error('Missing required field: companyId');
+                }
+
+                // 1. Fetch company info from Fortnox
+                const companyInfo = await fortnoxService.getCompanyInfo();
+                const info = companyInfo.CompanyInformation;
+
+                // 2. Fetch financial years
+                const years = await fortnoxService.getFinancialYears();
+                const latestYear = years.FinancialYears?.[0];
+
+                // 3. Fetch suppliers
+                const suppliers = await fortnoxService.getSuppliers();
+
+                // 4. Build accounting_memories records
+                const accountingMemories: Record<string, unknown>[] = [];
+
+                // Company profile
+                accountingMemories.push({
+                    user_id: userId,
+                    company_id: companyId,
+                    entity_type: 'company_profile',
+                    entity_key: info.OrganizationNumber || 'company',
+                    label: `${info.CompanyName} (${info.OrganizationNumber})`,
+                    payload: {
+                        name: info.CompanyName,
+                        org_number: info.OrganizationNumber,
+                        address: `${info.Address}, ${info.ZipCode} ${info.City}`,
+                        company_form: info.CompanyForm,
+                        email: info.Email,
+                        phone: info.Phone,
+                    },
+                    source_type: 'fortnox',
+                    source_reliability: 1.0,
+                    confidence: 1.0,
+                    review_status: 'confirmed'
+                });
+
+                // Fiscal year
+                if (latestYear) {
+                    accountingMemories.push({
+                        user_id: userId,
+                        company_id: companyId,
+                        entity_type: 'company_profile',
+                        entity_key: 'fiscal_year',
+                        label: `Räkenskapsår: ${latestYear.FromDate} – ${latestYear.ToDate}`,
+                        payload: {
+                            from: latestYear.FromDate,
+                            to: latestYear.ToDate,
+                            accounting_method: latestYear.AccountingMethod,
+                            chart: latestYear.AccountCharts
+                        },
+                        source_type: 'fortnox',
+                        source_reliability: 1.0,
+                        confidence: 1.0,
+                        review_status: 'confirmed',
+                        fiscal_year: latestYear.FromDate.slice(0, 4)
+                    });
+                }
+
+                // Top suppliers (max 10)
+                const topSuppliers = (suppliers.Suppliers || []).slice(0, 10);
+                for (const supplier of topSuppliers) {
+                    accountingMemories.push({
+                        user_id: userId,
+                        company_id: companyId,
+                        entity_type: 'supplier_profile',
+                        entity_key: supplier.SupplierNumber,
+                        label: `${supplier.Name} (#${supplier.SupplierNumber})`,
+                        payload: { name: supplier.Name, number: supplier.SupplierNumber },
+                        source_type: 'fortnox',
+                        source_reliability: 1.0,
+                        confidence: 1.0,
+                        review_status: 'auto'
+                    });
+                }
+
+                // 5. Upsert accounting memories
+                for (const mem of accountingMemories) {
+                    const { error: upsertError } = await supabaseClient
+                        .from('accounting_memories')
+                        .upsert(mem, { onConflict: 'user_id,company_id,entity_type,entity_key' });
+                    if (upsertError) {
+                        logger.warn('Failed to upsert accounting memory', { entityKey: mem.entity_key, error: upsertError });
+                    }
+                }
+
+                // 6. Update company_memory
+                const companyMemoryService = new CompanyMemoryService(supabaseClient);
+                const existingMemory = await companyMemoryService.get(userId, companyId);
+                const merged = mergeCompanyMemory(existingMemory, {
+                    company_name: info.CompanyName,
+                    org_number: info.OrganizationNumber,
+                });
+                await companyMemoryService.upsert(userId, companyId, merged);
+
+                result = {
+                    synced: true,
+                    company_name: info.CompanyName,
+                    org_number: info.OrganizationNumber,
+                    memories_created: accountingMemories.length,
+                    suppliers_synced: topSuppliers.length
+                };
+
+                logger.info('Fortnox profile synced', { companyId, memoriesCreated: accountingMemories.length });
                 break;
             }
 

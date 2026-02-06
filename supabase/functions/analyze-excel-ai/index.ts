@@ -1,4 +1,4 @@
-// Deterministisk Excel-analys - 100% noggrannhet
+// Deterministisk Excel-analys - spårbar och förklarlig
 // Excel → Direkt parsing (exakt som Python) → Färdig rapport
 // AI används ENDAST för företagsnamn/period om det saknas
 /// <reference path="../types/deno.d.ts" />
@@ -29,7 +29,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as XLSX from "npm:xlsx@0.18.5";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MONTA TRANSACTION TYPES (baserat på EU-dom C-60/23 & OCPI)
+// MONTA TRANSACTION TYPES (baserat på filens datamodell och momsdata)
 // ═══════════════════════════════════════════════════════════════════════════
 interface MontaTransaction {
   id: string;
@@ -190,12 +190,26 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
   const sumCents = (items: MontaTransaction[], pick: (t: MontaTransaction) => number): number =>
     items.reduce((sum, t) => sum + Math.round(pick(t) * 100), 0);
 
-  const privateAmountC = sumCents(privateSales, (t) => t.amount);
-  const privateVatC = sumCents(privateSales, (t) => t.vat);
-  const privateNetC = sumCents(privateSales, (t) => t.subAmount);
+  const resolveNet = (t: MontaTransaction): number => {
+    if (Number.isFinite(t.subAmount) && (t.subAmount !== 0 || t.amount === 0)) return t.subAmount;
+    return t.amount - t.vat;
+  };
 
-  const roamingAmountC = sumCents(roamingSales, (t) => t.amount);
-  // Roaming = 0% moms så amount = net
+  const sumNetC = (items: MontaTransaction[]) => sumCents(items, resolveNet);
+  const sumVatC = (items: MontaTransaction[]) => sumCents(items, (t) => t.vat);
+  const sumGrossC = (items: MontaTransaction[]) => sumCents(items, (t) => t.amount);
+  const deriveRate = (netC: number, vatC: number): number => {
+    if (netC === 0 || vatC === 0) return 0;
+    return nearestVatRate((Math.abs(vatC) / Math.abs(netC)) * 100);
+  };
+
+  const privateNetC = sumNetC(privateSales);
+  const privateVatC = sumVatC(privateSales);
+  const privateGrossC = sumGrossC(privateSales);
+
+  const roamingNetC = sumNetC(roamingSales);
+  const roamingVatC = sumVatC(roamingSales);
+  const roamingGrossC = sumGrossC(roamingSales);
 
   // KOSTNADER - gruppera per kategori
   const subscriptions = costs.filter(t => t.category === 'subscription');
@@ -207,44 +221,53 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
   // amount = BRUTTO (inkl moms) - för referens
   // subAmount = NETTO (exkl moms) - för redovisning ✓
   // vat = avdragsgill ingående moms
-  const subAmountC = Math.abs(sumCents(subscriptions, (t) => t.amount));
-  const subVatC = Math.abs(sumCents(subscriptions, (t) => t.vat));
-  const subNetC = Math.abs(sumCents(subscriptions, (t) => t.subAmount));
+  const subNetC = Math.abs(sumNetC(subscriptions));
+  const subVatC = Math.abs(sumVatC(subscriptions));
+  const subGrossC = Math.abs(sumGrossC(subscriptions));
 
   // KOSTNADER OPERATÖRSAVGIFTER
-  const opAmountC = Math.abs(sumCents(operatorFees, (t) => t.amount));
-  const opVatC = Math.abs(sumCents(operatorFees, (t) => t.vat));
-  const opNetC = Math.abs(sumCents(operatorFees, (t) => t.subAmount));
+  const opNetC = Math.abs(sumNetC(operatorFees));
+  const opVatC = Math.abs(sumVatC(operatorFees));
+  const opGrossC = Math.abs(sumGrossC(operatorFees));
 
-  const pfAmountC = Math.abs(sumCents(platformFees, (t) => t.amount));
-  // Platform fees = 0% moms så amount = net
+  const pfNetC = Math.abs(sumNetC(platformFees));
+  const pfVatC = Math.abs(sumVatC(platformFees));
+  const pfGrossC = Math.abs(sumGrossC(platformFees));
 
-  const roamingFeeAmountC = Math.abs(sumCents(roamingFees, (t) => t.amount));
-  // Roaming fees = 0% moms så amount = net
+  const roamingFeeNetC = Math.abs(sumNetC(roamingFees));
+  const roamingFeeVatC = Math.abs(sumVatC(roamingFees));
+  const roamingFeeGrossC = Math.abs(sumGrossC(roamingFees));
 
   // TOTALER - Använd NETTO för redovisning (exkl moms)
-  // Observera: roaming, pfAmount, roamingFeeAmount har 0% moms så amount = net
-  const totalSalesC = privateNetC + roamingAmountC;  // NETTO
-  const totalSalesVatC = privateVatC; // Endast privatladdning har utgående moms
+  const totalSalesC = privateNetC + roamingNetC;  // NETTO
+  const totalSalesVatC = privateVatC + roamingVatC;
 
-  const totalCostsC = subNetC + opNetC + pfAmountC + roamingFeeAmountC;  // NETTO
-  const incomingVatC = subVatC + opVatC; // Endast 25% moms är avdragsgill
+  const totalCostsC = subNetC + opNetC + pfNetC + roamingFeeNetC;  // NETTO
+  const incomingVatC = subVatC + opVatC + pfVatC + roamingFeeVatC;
 
-  const privateAmount = centsToNumber(privateAmountC);
+  const privateGross = centsToNumber(privateGrossC);
   const privateVat = centsToNumber(privateVatC);
   const privateNet = centsToNumber(privateNetC);
-  const roamingAmount = centsToNumber(roamingAmountC);
 
-  const subAmount = centsToNumber(subAmountC);
+  const roamingGross = centsToNumber(roamingGrossC);
+  const roamingVat = centsToNumber(roamingVatC);
+  const roamingNet = centsToNumber(roamingNetC);
+
+  const subGross = centsToNumber(subGrossC);
   const subVat = centsToNumber(subVatC);
   const subNet = centsToNumber(subNetC);
 
-  const opAmount = centsToNumber(opAmountC);
+  const opGross = centsToNumber(opGrossC);
   const opVat = centsToNumber(opVatC);
   const opNet = centsToNumber(opNetC);
 
-  const pfAmount = centsToNumber(pfAmountC);
-  const roamingFeeAmount = centsToNumber(roamingFeeAmountC);
+  const pfGross = centsToNumber(pfGrossC);
+  const pfVat = centsToNumber(pfVatC);
+  const pfNet = centsToNumber(pfNetC);
+
+  const roamingFeeGross = centsToNumber(roamingFeeGrossC);
+  const roamingFeeVat = centsToNumber(roamingFeeVatC);
+  const roamingFeeNet = centsToNumber(roamingFeeNetC);
 
   const totalSales = centsToNumber(totalSalesC);
   const totalSalesVat = centsToNumber(totalSalesVatC);
@@ -260,39 +283,39 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
   if (privateSales.length > 0) {
     vatBreakdown.push({
       category: 'private_charging',
-      rate: 25,
+      rate: deriveRate(privateNetC, privateVatC),
       type: 'sale',
       net_amount: privateNet,
       vat_amount: privateVat,
-      gross_amount: privateAmount,
+      gross_amount: privateGross,
       transaction_count: privateSales.length,
       bas_account: '3010',
-      description: 'Privatladdning 25% moms'
+      description: 'Privatladdning'
     });
   }
 
   if (roamingSales.length > 0) {
     vatBreakdown.push({
       category: 'roaming_export',
-      rate: 0,
+      rate: deriveRate(roamingNetC, roamingVatC),
       type: 'sale',
-      net_amount: roamingAmount,
-      vat_amount: 0,
-      gross_amount: roamingAmount,
+      net_amount: roamingNet,
+      vat_amount: roamingVat,
+      gross_amount: roamingGross,
       transaction_count: roamingSales.length,
       bas_account: '3011',
-      description: 'Roaming-försäljning momsfri (OCPI)'
+      description: 'Roaming-försäljning'
     });
   }
 
   if (subscriptions.length > 0) {
     vatBreakdown.push({
       category: 'subscription',
-      rate: 25,
+      rate: deriveRate(subNetC, subVatC),
       type: 'cost',
       net_amount: subNet,
       vat_amount: subVat,
-      gross_amount: subAmount,
+      gross_amount: subGross,
       transaction_count: subscriptions.length,
       bas_account: '6540',
       description: 'Abonnemang'
@@ -302,11 +325,11 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
   if (operatorFees.length > 0) {
     vatBreakdown.push({
       category: 'operator_fee',
-      rate: 25,
+      rate: deriveRate(opNetC, opVatC),
       type: 'cost',
       net_amount: opNet,
       vat_amount: opVat,
-      gross_amount: opAmount,
+      gross_amount: opGross,
       transaction_count: operatorFees.length,
       bas_account: '6590',
       description: 'Operatörsavgifter'
@@ -316,28 +339,28 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
   if (platformFees.length > 0) {
     vatBreakdown.push({
       category: 'platform_fee',
-      rate: 0,
+      rate: deriveRate(pfNetC, pfVatC),
       type: 'cost',
-      net_amount: pfAmount,
-      vat_amount: 0,
-      gross_amount: pfAmount,
+      net_amount: pfNet,
+      vat_amount: pfVat,
+      gross_amount: pfGross,
       transaction_count: platformFees.length,
       bas_account: '6590',
-      description: 'Plattformsavgifter (Monta)'
+      description: 'Plattformsavgifter'
     });
   }
 
   if (roamingFees.length > 0) {
     vatBreakdown.push({
       category: 'roaming_fee',
-      rate: 0,
+      rate: deriveRate(roamingFeeNetC, roamingFeeVatC),
       type: 'cost',
-      net_amount: roamingFeeAmount,
-      vat_amount: 0,
-      gross_amount: roamingFeeAmount,
+      net_amount: roamingFeeNet,
+      vat_amount: roamingFeeVat,
+      gross_amount: roamingFeeGross,
       transaction_count: roamingFees.length,
       bas_account: '6590',
-      description: 'Roaming-avgifter (OCPI)'
+      description: 'Roaming-avgifter'
     });
   }
 
@@ -351,11 +374,11 @@ function calculateMontaReport(transactions: MontaTransaction[]) {
       total_kwh: totalKwh,
       private_sales: privateNet,            // ÄNDRAT: NET istället för GROSS
       private_sales_vat: privateVat,
-      roaming_sales_export: roamingAmount,  // OK: 0% moms så amount = net
+      roaming_sales_export: roamingNet,
       subscription_costs: subNet,           // ÄNDRAT: NET istället för GROSS
       operator_fee_costs: opNet,            // ÄNDRAT: NET istället för GROSS
-      platform_fee_costs: pfAmount,         // OK: 0% moms
-      roaming_fee_costs: roamingFeeAmount,  // OK: 0% moms
+      platform_fee_costs: pfNet,
+      roaming_fee_costs: roamingFeeNet,
       private_count: privateSales.length,
       roaming_count: roamingSales.length,
       skipped_count: skippedCount  // Payouts etc.
@@ -999,7 +1022,7 @@ Deno.serve(async (req: Request) => {
         // Build dynamic insight message
         const parts: string[] = [];
         if (privateCount > 0) parts.push(`${privateCount} privatladdningar (25% moms)`);
-        if (roamingCount > 0) parts.push(`${roamingCount} roaming-exporter (0% moms, EU-handel)`);
+        if (roamingCount > 0) parts.push(`${roamingCount} roaming-exporter (moms enligt filen)`);
         if (subscriptionCount > 0) parts.push(`${subscriptionCount} abonnemang`);
         if (feeCount > 0) parts.push(`${feeCount} avgifter`);
 
@@ -1033,7 +1056,7 @@ Deno.serve(async (req: Request) => {
           step: 'calculating',
           message: 'Beräknar moms (deterministisk)...',
           progress: 0.6,
-          insight: 'Beräknar: 25% utgående moms på privatladdningar, 0% på roaming (OCPI-standarden). Avdragsgill ingående moms på avgifter.',
+          insight: 'Beräknar moms utifrån filens momssatser för privatladdningar, roaming och avgifter. Avdragsgill ingående moms tas från rader med moms.',
           thinking_steps: analysisContext.thinking_steps,
           confidence: analysisContext.confidence
         });
@@ -1080,47 +1103,69 @@ Deno.serve(async (req: Request) => {
         // Generate journal entries
         const journalEntries: JournalEntry[] = [];
 
+        const breakdownByCategory = new Map(
+          montaReport.vat_breakdown.map((item) => [item.category, item])
+        );
+
         // Sales journal entries
-        if (montaReport.summary.private_sales > 0) {
+        const privateBreakdown = breakdownByCategory.get('private_charging');
+        if (privateBreakdown && privateBreakdown.net_amount > 0) {
           journalEntries.push(...createSalesJournalEntries(
-            montaReport.summary.private_sales,
-            montaReport.summary.private_sales_vat,
-            25,
+            privateBreakdown.net_amount,
+            privateBreakdown.vat_amount,
+            privateBreakdown.rate,
             false
           ));
         }
-        if (montaReport.summary.roaming_sales_export > 0) {
+
+        const roamingBreakdown = breakdownByCategory.get('roaming_export');
+        if (roamingBreakdown && roamingBreakdown.net_amount > 0) {
           journalEntries.push(...createSalesJournalEntries(
-            montaReport.summary.roaming_sales_export,
-            0,
-            0,
+            roamingBreakdown.net_amount,
+            roamingBreakdown.vat_amount,
+            roamingBreakdown.rate,
             true
           ));
         }
 
         // Cost journal entries
-        if (montaReport.summary.subscription_costs > 0) {
+        const subscriptionBreakdown = breakdownByCategory.get('subscription');
+        if (subscriptionBreakdown && subscriptionBreakdown.net_amount > 0) {
           journalEntries.push(...createCostJournalEntries(
-            montaReport.summary.subscription_costs,
-            montaReport.vat.incoming * (montaReport.summary.subscription_costs / montaReport.summary.total_costs) || 0,
-            25,
+            subscriptionBreakdown.net_amount,
+            subscriptionBreakdown.vat_amount,
+            subscriptionBreakdown.rate,
             'abonnemang'
           ));
         }
-        if (montaReport.summary.operator_fee_costs > 0) {
+
+        const operatorBreakdown = breakdownByCategory.get('operator_fee');
+        if (operatorBreakdown && operatorBreakdown.net_amount > 0) {
           journalEntries.push(...createCostJournalEntries(
-            montaReport.summary.operator_fee_costs,
-            montaReport.vat.incoming * (montaReport.summary.operator_fee_costs / montaReport.summary.total_costs) || 0,
-            25,
+            operatorBreakdown.net_amount,
+            operatorBreakdown.vat_amount,
+            operatorBreakdown.rate,
             'operator fee'
           ));
         }
-        if (montaReport.summary.platform_fee_costs > 0) {
+
+        const platformBreakdown = breakdownByCategory.get('platform_fee');
+        if (platformBreakdown && platformBreakdown.net_amount > 0) {
           journalEntries.push(...createCostJournalEntries(
-            montaReport.summary.platform_fee_costs,
-            0,
-            0,
+            platformBreakdown.net_amount,
+            platformBreakdown.vat_amount,
+            platformBreakdown.rate,
             'platform fee'
+          ));
+        }
+
+        const roamingFeeBreakdown = breakdownByCategory.get('roaming_fee');
+        if (roamingFeeBreakdown && roamingFeeBreakdown.net_amount > 0) {
+          journalEntries.push(...createCostJournalEntries(
+            roamingFeeBreakdown.net_amount,
+            roamingFeeBreakdown.vat_amount,
+            roamingFeeBreakdown.rate,
+            'roaming fee'
           ));
         }
 
@@ -1146,7 +1191,7 @@ Deno.serve(async (req: Request) => {
             warnings: zeroVatWarnings.filter(w => w.level === 'warning').map(w => w.message),
             zero_vat_details: zeroVatWarnings,
             journal_balanced: journalBalance.balanced,
-            notes: `Deterministisk analys av ${montaTransactions.length} transaktioner. 100% noggrannhet.`
+            notes: `Deterministisk analys av ${montaTransactions.length} transaktioner. Kontrollera vid behov innan bokföring.`
           },
           verification: {
             ...verification,

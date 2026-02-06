@@ -11,7 +11,12 @@ type MemoryAction =
     | "search_conversations"
     | "get_recent"
     | "add_memory"
-    | "remove_memory";
+    | "remove_memory"
+    | "get_memory_items"
+    | "add_memory_item"
+    | "update_memory_item"
+    | "remove_memory_item"
+    | "log_memory_usage";
 
 interface MemoryRequest {
     action: MemoryAction;
@@ -21,6 +26,12 @@ interface MemoryRequest {
     before?: string;
     after?: string;
     category?: string;
+    status?: string;
+    memory_id?: string;
+    memory?: Record<string, unknown>;
+    patch?: Record<string, unknown>;
+    conversation_id?: string;
+    skill_run_id?: string;
 }
 
 type MemoryRow = {
@@ -36,12 +47,66 @@ type MemoryRow = {
     expires_at?: string | null;
 };
 
+type MemoryItemRow = {
+    id: string;
+    category: string;
+    content: string;
+    scope: string;
+    memory_type: string;
+    status: string;
+    metadata?: Record<string, unknown> | null;
+    importance?: number | null;
+    confidence?: number | null;
+    source_type?: string | null;
+    source_id?: string | null;
+    created_by?: string | null;
+    last_used_at?: string | null;
+    expires_at?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+};
+
 const ALLOWED_CATEGORIES = new Set([
     "work_context",
     "preferences",
     "history",
     "top_of_mind",
     "user_defined"
+]);
+
+const MEMORY_ITEM_SCOPES = new Set([
+    "user",
+    "company",
+    "org"
+]);
+
+const MEMORY_ITEM_TYPES = new Set([
+    "explicit",
+    "inferred",
+    "policy"
+]);
+
+const MEMORY_ITEM_STATUSES = new Set([
+    "draft",
+    "approved",
+    "active",
+    "expired",
+    "rejected"
+]);
+
+const MEMORY_ITEM_SOURCE_TYPES = new Set([
+    "conversation",
+    "skill_run",
+    "manual",
+    "system",
+    "import",
+    "other"
+]);
+
+const MEMORY_ITEM_CREATED_BY = new Set([
+    "user",
+    "ai",
+    "system"
 ]);
 
 const CATEGORY_TIER_MAP: Record<string, string> = {
@@ -63,6 +128,24 @@ const CATEGORY_IMPORTANCE_MAP: Record<string, number> = {
 function normalizeCategory(category?: string): string {
     if (!category) return "user_defined";
     return ALLOWED_CATEGORIES.has(category) ? category : "user_defined";
+}
+
+function normalizeEnum(value: string | undefined, allowed: Set<string>, fallback: string): string {
+    if (!value) return fallback;
+    return allowed.has(value) ? value : fallback;
+}
+
+function clamp01(value: number | undefined, fallback: number): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    return Math.min(1, Math.max(0, value));
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function validateUUID(value: string | undefined, field: string): string {
+    const trimmed = value?.trim();
+    if (!trimmed) throw new Error(`${field} is required`);
+    if (!UUID_RE.test(trimmed)) throw new Error(`${field} must be a valid UUID`);
+    return trimmed;
 }
 
 function resolveTier(category: string): string {
@@ -193,7 +276,21 @@ Deno.serve(async (req: Request) => {
         }
 
         const body = await req.json() as MemoryRequest;
-        const { action, company_id, query, limit = 10, before, after, category } = body;
+        const {
+            action,
+            company_id,
+            query,
+            limit = 10,
+            before,
+            after,
+            category,
+            status,
+            memory_id,
+            memory,
+            patch,
+            conversation_id,
+            skill_run_id
+        } = body;
 
         let result: Record<string, unknown> = {};
 
@@ -412,6 +509,173 @@ Deno.serve(async (req: Request) => {
                     edit_type: "remove",
                     content: memory.content
                 });
+
+                result = { success: true };
+                break;
+            }
+
+            case "get_memory_items": {
+                if (!company_id) {
+                    throw new Error("company_id is required");
+                }
+
+                let itemsQuery = supabase
+                    .from("memory_items")
+                    .select("*")
+                    .eq("user_id", user.id)
+                    .eq("company_id", company_id)
+                    .order("updated_at", { ascending: false });
+
+                if (category) {
+                    itemsQuery = itemsQuery.eq("category", normalizeCategory(category));
+                }
+                if (status) {
+                    itemsQuery = itemsQuery.eq("status", status);
+                }
+
+                const { data: items, error } = await itemsQuery;
+                if (error) throw error;
+
+                result = { items: (items || []) as MemoryItemRow[] };
+                break;
+            }
+
+            case "add_memory_item": {
+                if (!company_id) {
+                    throw new Error("company_id is required");
+                }
+
+                const memoryPayload = memory ?? {};
+                const content = typeof memoryPayload.content === "string" ? memoryPayload.content.trim() : "";
+                if (!content) throw new Error("content is required");
+
+                const normalizedCategory = normalizeCategory(memoryPayload.category as string | undefined);
+                const scope = normalizeEnum(memoryPayload.scope as string | undefined, MEMORY_ITEM_SCOPES, "company");
+                const memoryType = normalizeEnum(memoryPayload.memory_type as string | undefined, MEMORY_ITEM_TYPES, "explicit");
+                const memoryStatus = normalizeEnum(memoryPayload.status as string | undefined, MEMORY_ITEM_STATUSES, "active");
+                const sourceType = normalizeEnum(memoryPayload.source_type as string | undefined, MEMORY_ITEM_SOURCE_TYPES, "manual");
+                const createdBy = normalizeEnum(memoryPayload.created_by as string | undefined, MEMORY_ITEM_CREATED_BY, "user");
+                const importance = clamp01(memoryPayload.importance as number | undefined, 0.7);
+                const confidence = clamp01(memoryPayload.confidence as number | undefined, 0.7);
+                const metadata = (memoryPayload.metadata && typeof memoryPayload.metadata === "object") ? memoryPayload.metadata : {};
+
+                const { data: newItem, error: addError } = await supabase
+                    .from("memory_items")
+                    .insert({
+                        user_id: user.id,
+                        company_id,
+                        category: normalizedCategory,
+                        scope,
+                        memory_type: memoryType,
+                        status: memoryStatus,
+                        content,
+                        metadata,
+                        importance,
+                        confidence,
+                        source_type: sourceType,
+                        source_id: memoryPayload.source_id ?? null,
+                        created_by: createdBy,
+                        expires_at: memoryPayload.expires_at ?? null
+                    })
+                    .select()
+                    .single();
+
+                if (addError) throw addError;
+
+                result = { success: true, item: newItem };
+                break;
+            }
+
+            case "update_memory_item": {
+                const memoryId = validateUUID(memory_id, "memory_id");
+
+                const patchData = patch ?? {};
+                const updatePayload: Record<string, unknown> = {};
+
+                if (typeof patchData.content === "string") {
+                    const trimmed = patchData.content.trim();
+                    if (!trimmed) throw new Error("content cannot be empty");
+                    updatePayload.content = trimmed;
+                }
+                if (patchData.category) {
+                    updatePayload.category = normalizeCategory(patchData.category as string);
+                }
+                if (patchData.scope) {
+                    updatePayload.scope = normalizeEnum(patchData.scope as string, MEMORY_ITEM_SCOPES, "company");
+                }
+                if (patchData.memory_type) {
+                    updatePayload.memory_type = normalizeEnum(patchData.memory_type as string, MEMORY_ITEM_TYPES, "explicit");
+                }
+                if (patchData.status) {
+                    updatePayload.status = normalizeEnum(patchData.status as string, MEMORY_ITEM_STATUSES, "active");
+                }
+                if (patchData.source_type) {
+                    updatePayload.source_type = normalizeEnum(patchData.source_type as string, MEMORY_ITEM_SOURCE_TYPES, "manual");
+                }
+                if (patchData.created_by) {
+                    updatePayload.created_by = normalizeEnum(patchData.created_by as string, MEMORY_ITEM_CREATED_BY, "user");
+                }
+                if (patchData.importance !== undefined) {
+                    updatePayload.importance = clamp01(patchData.importance as number, 0.7);
+                }
+                if (patchData.confidence !== undefined) {
+                    updatePayload.confidence = clamp01(patchData.confidence as number, 0.7);
+                }
+                if (patchData.metadata && typeof patchData.metadata === "object") {
+                    updatePayload.metadata = patchData.metadata;
+                }
+                if (patchData.source_id !== undefined) {
+                    updatePayload.source_id = patchData.source_id as string | null;
+                }
+                if (patchData.expires_at !== undefined) {
+                    updatePayload.expires_at = patchData.expires_at as string | null;
+                }
+
+                if (Object.keys(updatePayload).length === 0) {
+                    throw new Error("No valid fields to update");
+                }
+
+                const { data: updatedItem, error: updateError } = await supabase
+                    .from("memory_items")
+                    .update(updatePayload)
+                    .eq("id", memoryId)
+                    .eq("user_id", user.id)
+                    .select()
+                    .single();
+
+                if (updateError) throw updateError;
+
+                result = { success: true, item: updatedItem };
+                break;
+            }
+
+            case "remove_memory_item": {
+                const memoryId = validateUUID(memory_id, "memory_id");
+
+                const { error: removeError } = await supabase
+                    .from("memory_items")
+                    .delete()
+                    .eq("id", memoryId)
+                    .eq("user_id", user.id);
+
+                if (removeError) throw removeError;
+
+                result = { success: true };
+                break;
+            }
+
+            case "log_memory_usage": {
+                const memoryId = validateUUID(memory_id, "memory_id");
+
+                const { error: logError } = await supabase
+                    .from("memory_usage")
+                    .insert({
+                        memory_id: memoryId,
+                        skill_run_id: skill_run_id ?? null,
+                        conversation_id: conversation_id ?? null
+                    });
+
+                if (logError) throw logError;
 
                 result = { success: true };
                 break;

@@ -29,6 +29,14 @@
             "destination": "/terms.html"
         },
         {
+            "source": "/dpa",
+            "destination": "/dpa.html"
+        },
+        {
+            "source": "/security",
+            "destination": "/security.html"
+        },
+        {
             "source": "/manifest",
             "destination": "/manifest.html"
         }

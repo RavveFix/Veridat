@@ -3,7 +3,7 @@
 /// <reference path="../functions/types/deno.d.ts" />
 
 import { createLogger } from "./LoggerService.ts";
-import type { CreateInvoiceArgs, FileData, GeminiResponse, ToolCall } from "./GeminiService.ts";
+import type { CreateInvoiceArgs, FileData, GeminiResponse, ToolCall, WebSearchArgs } from "./GeminiService.ts";
 import { SYSTEM_INSTRUCTION } from "./GeminiService.ts";
 
 const logger = createLogger("openai");
@@ -73,6 +73,32 @@ const tools: OpenAITool[] = [
       name: "get_articles",
       description: "Hämtar lista på artiklar från Fortnox. Används för att slå upp artikelnummer och priser.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Söker upp uppdaterad, officiell information om svensk redovisning. Använd när frågan är tidskänslig eller regelstyrd.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Sökfråga för att hitta officiella källor om svensk bokföring/moms/lagar.",
+          },
+          max_results: {
+            type: "number",
+            description: "Max antal resultat (1-8, standard 5).",
+          },
+          recency_days: {
+            type: "number",
+            description: "Begränsa till senaste N dagar (t.ex. 365).",
+          },
+        },
+        required: ["query"],
+        additionalProperties: true,
+      },
     },
   },
 ];
@@ -151,6 +177,27 @@ function toToolCall(name: string, args: unknown): ToolCall | null {
     const normalized = normalizeCreateInvoiceArgs(args);
     if (!normalized) return null;
     return { tool: "create_invoice", args: normalized };
+  }
+
+  if (name === "web_search") {
+    if (!isRecord(args)) return null;
+    const rawQuery = args.query;
+    const query = typeof rawQuery === "string" ? rawQuery.trim() : "";
+    if (!query) return null;
+    const rawMax = args.max_results;
+    const rawRecency = args.recency_days;
+    const max_results = typeof rawMax === "number"
+      ? Math.min(Math.max(rawMax, 1), 8)
+      : undefined;
+    const recency_days = typeof rawRecency === "number"
+      ? Math.min(Math.max(rawRecency, 1), 3650)
+      : undefined;
+    const payload: WebSearchArgs = {
+      query,
+      ...(typeof max_results === "number" ? { max_results } : {}),
+      ...(typeof recency_days === "number" ? { recency_days } : {}),
+    };
+    return { tool: "web_search", args: payload };
   }
 
   return null;

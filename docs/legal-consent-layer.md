@@ -207,7 +207,7 @@ WHERE id = '<user_id>';
 
 ## Future Enhancements
 
-- [x] Email confirmation with consent summary
+- [ ] Email confirmation with consent summary
 - [x] Version tracking for terms (re-consent on updates)
 - [ ] Admin dashboard for consent analytics
 - [ ] Multi-language support for legal text
@@ -222,51 +222,8 @@ WHERE id = '<user_id>';
 - Version displayed in consent modal footer
 
 ### Email Confirmation
-- Created Supabase Edge Function `send-consent-email`
-- Professional Swedish email template (HTML + plain text)
-- Automatic email sent after consent acceptance
-- Non-blocking: email failures don't prevent user access
-- Tracks `consent_email_sent` status in profiles table
-
-### Email Integration: Resend
-
-**Status:** ✅ **Fully Integrated & Deployed**
-
-The platform uses [Resend](https://resend.com) for sending consent confirmation emails.
-
-#### Configuration
-
-**Resend API Key:**
-Stored securely in Supabase secrets:
-```bash
-supabase secrets set RESEND_API_KEY=re_xxxxx
-```
-
-**From Address:**
-Currently using Resend's test domain: `Veridat <onboarding@resend.dev>`
-
-**Production Recommendation:**
-For production, verify your own domain in Resend:
-1. Add domain in Resend dashboard
-2. Configure DNS records
-3. Update Edge Function: Change `from` address to `noreply@yourdomain.com`
-4. Redeploy: `supabase functions deploy send-consent-email`
-
-#### Email Flow
-
-1. User accepts terms in `LegalConsentModal`
-2. Profile updated in database (authenticated mode)
-3. Edge Function `send-consent-email` invoked
-4. Resend API sends professionally formatted email
-5. Database updated with `consent_email_sent: true`
-6. User receives email confirmation within seconds
-
-**Email Template Features:**
-- Branded with Veridat gradient design
-- Includes full consent summary (name, email, date, version)
-- Links to terms and privacy policy
-- GDPR rights information
-- Fully responsive HTML + plain text fallback
+- Consent-mejl är inaktiverat (e-post borttaget).
+- Om e-post återinförs behövs ny leverantör och uppdaterad funktion.
 
 ### Production Deployment: Vercel
 
@@ -343,8 +300,6 @@ All internal redirects updated to use clean paths:
 
 ### Technical Details
 - Version constant: `src/constants/termsVersion.ts`
-- Email templates: `src/utils/emailTemplates.ts`
-- Edge Function: `supabase/functions/send-consent-email/`
 - Migration: `20251201000001_add_terms_versioning.sql`
 - Deployment config: `vercel.json`
 
@@ -355,13 +310,6 @@ All internal redirects updated to use clean paths:
 - [x] `terms_versions` table created with initial version 1.0.0
 - [x] `profiles` table extended with version tracking fields
 
-**Email Service:**
-- [x] Resend account created
-- [x] API key stored in Supabase secrets
-- [x] Edge Function deployed with Resend integration
-- [x] Email template tested and working
-- [ ] Custom domain verified (optional, using test domain for now)
-
 **Hosting:**
 - [x] Vercel configuration created
 - [x] Clean URLs configured with rewrites
@@ -370,58 +318,4 @@ All internal redirects updated to use clean paths:
 
 ### Monitoring & Maintenance
 
-**Check Email Sending:**
-```bash
-# View Edge Function logs
-https://supabase.com/dashboard/project/[project-id]/functions
-```
-
-**Query Email Status:**
-```sql
--- Users who haven't received confirmation email
-SELECT id, full_name, has_accepted_terms, consent_email_sent
-FROM profiles
-WHERE has_accepted_terms = true 
-  AND (consent_email_sent = false OR consent_email_sent IS NULL);
-
--- Email delivery rate
-SELECT 
-  COUNT(*) as total_consents,
-  SUM(CASE WHEN consent_email_sent THEN 1 ELSE 0 END) as emails_sent,
-  ROUND(100.0 * SUM(CASE WHEN consent_email_sent THEN 1 ELSE 0 END) / COUNT(*), 2) as delivery_rate
-FROM profiles
-WHERE has_accepted_terms = true;
-```
-
-**Version Tracking:**
-```sql
--- Users on outdated terms version
-SELECT id, full_name, terms_version, terms_accepted_at
-FROM profiles
-WHERE terms_version != '1.0.0' OR terms_version IS NULL
-ORDER BY terms_accepted_at DESC;
-```
-
-### Updating Terms in Production
-
-When you need to update terms or privacy policy:
-
-1. **Update the legal documents:**
-   - Edit `/terms.html` or `/privacy.html`
-   - Review changes thoroughly
-
-2. **Increment version:**
-   - Open `src/constants/termsVersion.ts`
-   - Change `CURRENT_TERMS_VERSION` to next version (e.g., `"1.1.0"`)
-   - Add entry to `VERSION_HISTORY` with change summary
-
-3. **Deploy:**
-   - Commit and push to Vercel
-   - All users will be prompted to re-consent on next login
-
-4. **Monitor:**
-   - Watch Edge Function logs for email delivery
-   - Query database for re-consent completion rates
-   - Ensure users can still access the platform
-
-**Important:** All existing users will need to re-consent. Plan accordingly and communicate changes if significant.
+- Övervaka consent-flöden via applikationsloggar och Supabase-profiler.

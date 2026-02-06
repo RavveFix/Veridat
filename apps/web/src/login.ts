@@ -3,6 +3,7 @@ import './styles/main.css'; // Shared styles
 import './landing/styles/landing.css'; // Landing specific styles (for animations etc)
 import { logger } from './services/LoggerService';
 import { CURRENT_TERMS_VERSION } from './constants/termsVersion';
+import { LEGAL_DOCS, REQUIRED_LEGAL_DOCS, type LegalDocType } from './constants/legalDocs';
 
 // Initialize Supabase client
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -75,6 +76,7 @@ async function initLogin() {
             localStorage.removeItem('user_full_name_local');
             localStorage.removeItem('terms_accepted_at_local');
             localStorage.removeItem('terms_version_local');
+            localStorage.removeItem('legal_acceptances_local');
             localStorage.removeItem('consent_sync_pending');
         }
     } catch {
@@ -86,13 +88,14 @@ async function initLogin() {
     const emailInput = document.getElementById('email') as HTMLInputElement;
     const messageEl = document.getElementById('message') as HTMLDivElement;
     const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+    const consentTerms = document.getElementById('consent-terms') as HTMLInputElement | null;
 
     if (!loginForm) {
         logger.error('Login form not found!');
         return;
     }
 
-    // Handle form submission (click-through consent - no checkbox needed)
+    // Handle form submission (explicit checkbox consent required)
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         logger.debug('Login form submitted');
@@ -120,12 +123,30 @@ async function initLogin() {
             return;
         }
 
+        if (!consentTerms?.checked) {
+            logger.warn('Missing required legal consents', { missingDocs: [LEGAL_DOCS.terms.label, LEGAL_DOCS.privacy.label] });
+            if (messageEl) {
+                messageEl.textContent = 'Du måste godkänna användarvillkor och integritetspolicy för att fortsätta.';
+                messageEl.classList.add('error');
+            }
+            return;
+        }
+
+        const acceptedAt = new Date().toISOString();
+        const acceptedDocs: LegalDocType[] = [...REQUIRED_LEGAL_DOCS];
+
         // Save pending registration to localStorage (will sync to DB after magic link callback)
-        // Click-through consent: by submitting, user accepts terms
         localStorage.setItem('has_accepted_terms_local', 'true');
         localStorage.setItem('user_full_name_local', fullName);
-        localStorage.setItem('terms_accepted_at_local', new Date().toISOString());
+        localStorage.setItem('terms_accepted_at_local', acceptedAt);
         localStorage.setItem('terms_version_local', CURRENT_TERMS_VERSION);
+        localStorage.setItem('legal_acceptances_local', JSON.stringify({
+            acceptedAt,
+            version: CURRENT_TERMS_VERSION,
+            docs: acceptedDocs,
+            dpaAuthorized: false,
+            userAgent: navigator.userAgent
+        }));
 
         // Disable button and show loading state
         if (submitBtn) {
