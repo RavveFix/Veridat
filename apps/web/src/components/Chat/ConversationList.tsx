@@ -36,7 +36,6 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
     // Force re-render when deletion state changes (since currentlyDeleting is module-level)
     const [, setRenderKey] = useState(0);
     const triggerUpdate = () => {
-        console.log('[DELETE] Triggering re-render, currentlyDeleting:', currentlyDeleting);
         setRenderKey(k => k + 1);
     };
 
@@ -243,11 +242,8 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
         // Double-click protection: check both UI state and pending set
         if (currentlyDeleting === id || pendingDeletions.has(id)) {
-            console.log('[DELETE] Already deleting, skipping:', id);
             return;
         }
-
-        console.log('[DELETE] Starting delete for:', id);
 
         // Mark as pending BEFORE any async work
         pendingDeletions.add(id);
@@ -261,7 +257,6 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
             const updated = prev.filter(c => c.id !== id);
             const cacheKey = activeCompanyId || 'all';
             conversationCache.set(cacheKey, updated);
-            console.log('[DELETE] Optimistically removed, remaining:', updated.length);
             return updated;
         });
 
@@ -279,7 +274,6 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
             if (error) throw error;
 
-            console.log('[DELETE] API success for:', id);
             showToast('Konversationen raderades', 'success');
             
             // Clear loading state IMMEDIATELY on success

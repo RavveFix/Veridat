@@ -300,14 +300,19 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
 
     // Handle chat errors (must be before conditional returns)
     useEffect(() => {
+        let errorTimer: ReturnType<typeof setTimeout>;
         const handleError = (e: CustomEvent) => {
             setIsThinking(false);
             setErrorMessage(e.detail?.message || 'Ett fel uppstod');
-            setTimeout(() => setErrorMessage(null), 5000);
+            clearTimeout(errorTimer);
+            errorTimer = setTimeout(() => setErrorMessage(null), 15000);
         };
 
         window.addEventListener('chat-error', handleError as EventListener);
-        return () => window.removeEventListener('chat-error', handleError as EventListener);
+        return () => {
+            window.removeEventListener('chat-error', handleError as EventListener);
+            clearTimeout(errorTimer);
+        };
     }, []);
 
     // Handle rate limit banner (429)
@@ -328,7 +333,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         };
 
         const handleStreamingChunk = (e: CustomEvent<{ chunk: string; isNewResponse?: boolean }>) => {
-            console.log('📥 [ChatHistory] Received chunk:', e.detail.chunk?.substring(0, 50));
             setIsThinking(false); // Hide typing indicator once text starts
 
             if (e.detail.isNewResponse) {
@@ -586,8 +590,13 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             {errorMessage && (
                 <div class="message ai-message error-message" style="animation: fadeIn 0.3s ease;">
                     <div class="avatar" style="background: var(--error-color, #ef4444);">!</div>
-                    <div class="bubble" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3);">
-                        <p style="color: var(--error-color, #ef4444); margin: 0;">{errorMessage}</p>
+                    <div class="bubble" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); position: relative;">
+                        <p style="color: var(--error-color, #ef4444); margin: 0; padding-right: 24px;">{errorMessage}</p>
+                        <button
+                            onClick={() => setErrorMessage(null)}
+                            style="position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--error-color, #ef4444); cursor: pointer; padding: 0; font-size: 16px; line-height: 1; opacity: 0.7;"
+                            aria-label="Stäng"
+                        >&times;</button>
                     </div>
                 </div>
             )}

@@ -340,12 +340,7 @@ class ChatServiceClass {
 
             // Check if it's a streaming response
             const contentType = response.headers.get('Content-Type');
-            const llmProvider = response.headers.get('X-LLM-Provider');
-            console.log('🔍 [ChatService] Response received - Content-Type:', contentType);
-            console.log('🔍 [ChatService] Response status:', response.status, 'ok:', response.ok);
-            console.log('🔍 [ChatService] X-LLM-Provider header:', llmProvider);
             if (contentType?.includes('text/event-stream')) {
-                console.log('✅ [ChatService] Starting SSE streaming...');
                 const reader = response.body?.getReader();
                 if (!reader) throw new Error('No response body');
 
@@ -374,7 +369,6 @@ class ChatServiceClass {
                                 };
                                 if (data.text) {
                                     fullText += data.text;
-                                    console.log('📡 [ChatService] Streaming chunk:', data.text.substring(0, 50));
                                     if (onStreamingChunk) onStreamingChunk(data.text);
                                 }
                                 if (data.toolCall) {
@@ -383,7 +377,6 @@ class ChatServiceClass {
                                 // Capture used memories for transparency
                                 if (data.usedMemories && Array.isArray(data.usedMemories)) {
                                     usedMemories = data.usedMemories;
-                                    console.log('🧠 [ChatService] Received usedMemories:', usedMemories.length);
                                 }
                             } catch {
                                 logger.warn('Failed to parse SSE data', { dataStr });
@@ -412,9 +405,7 @@ class ChatServiceClass {
             }
 
             // Fallback for non-streaming response
-            console.log('⚠️ [ChatService] Non-streaming fallback - Content-Type was:', contentType);
             const data = await response.json();
-            console.log('📦 [ChatService] Received JSON response:', data?.type);
             window.dispatchEvent(new CustomEvent('chat-refresh'));
             return data as GeminiResponse;
 

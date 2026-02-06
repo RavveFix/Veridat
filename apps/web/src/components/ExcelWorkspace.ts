@@ -1123,10 +1123,6 @@ export class ExcelWorkspace {
                         });
                     }
 
-                    console.log('[Veridat] Sales items:', salesItems);
-                    console.log('[Veridat] Cost items:', costItems);
-                    console.log('[Veridat] Summary:', summary);
-
                     const totalOutgoing = outgoing25 + outgoing12 + outgoing6;
                     const netVat = totalOutgoing - incoming;
 

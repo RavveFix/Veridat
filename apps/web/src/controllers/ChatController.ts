@@ -439,7 +439,6 @@ export class ChatController {
                 // Use the new Claude-inspired artifact UI
                 this.excelWorkspace?.openExcelArtifact(resolvedUrl, name, () => {
                     // TODO: Re-analyze the file if user clicks "Analysera moms"
-                    console.log('Re-analysis requested for:', name);
                 });
             })();
         }) as EventListener);
@@ -770,7 +769,6 @@ export class ChatController {
                     vatContext,
                     (chunk) => {
                         didStream = true;
-                        console.log('🎯 [ChatController] Dispatching chunk:', chunk.substring(0, 50));
                         // Mark first chunk so UI knows to reset streaming message
                         window.dispatchEvent(new CustomEvent('chat-streaming-chunk', {
                             detail: { chunk, isNewResponse: isFirstChunk }
@@ -781,9 +779,7 @@ export class ChatController {
                 );
 
                 if (!didStream) {
-                    console.log('⚠️ [ChatController] No streaming occurred, using fallback');
                     if (response?.type === 'text' && typeof response.data === 'string' && response.data.trim()) {
-                        console.log('📦 [ChatController] Fallback dispatch:', response.data.substring(0, 50));
                         window.dispatchEvent(new CustomEvent('chat-streaming-chunk', {
                             detail: { chunk: response.data, isNewResponse: true }
                         }));
@@ -823,7 +819,12 @@ export class ChatController {
                 }
 
                 logger.error('Failed to send message to Gemini', error);
-                uiController.showError('Kunde inte skicka meddelandet. Kontrollera din anslutning och försök igen.');
+                const isNetworkError = error instanceof TypeError || (error instanceof Error && error.message.includes('ätverksfel'));
+                uiController.showError(
+                    isNetworkError
+                        ? 'Ingen internetanslutning. Kontrollera din anslutning och försök igen.'
+                        : 'Något gick fel. Försök igen om en stund.'
+                );
                 restoreButton();
                 conversationController.resetToWelcomeState();
             }

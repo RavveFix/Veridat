@@ -28,7 +28,6 @@ export const StreamingText: FunctionComponent<StreamingTextProps> = ({ content }
 
     // Update text content directly in DOM (bypasses React re-render cycle)
     useEffect(() => {
-        console.log('✍️ [StreamingText] Content updated:', content?.substring(0, 50));
         if (textRef.current) {
             textRef.current.textContent = sanitizeStreamingText(content);
         }
