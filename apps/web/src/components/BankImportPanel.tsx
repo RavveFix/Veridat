@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { companyService } from '../services/CompanyService';
 import { bankImportService } from '../services/BankImportService';
 import type { BankImport, BankImportMapping, BankTransaction } from '../types/bank';
+import { BANK_PROFILES, detectBankFromHeaders, getFieldSynonyms, type BankProfile } from '../utils/bankProfiles';
 
 type CsvPreview = {
     headers: string[];
@@ -159,18 +160,23 @@ function findHeader(headers: string[], synonyms: string[]): string | undefined {
     return headers[index];
 }
 
-function guessMapping(headers: string[]): BankImportMapping {
+function guessMapping(headers: string[], profile?: BankProfile | null): BankImportMapping {
+    const getSynonyms = (field: keyof BankProfile['headers'], fallback: string[]): string[] => {
+        if (profile) return getFieldSynonyms(profile, field);
+        return fallback;
+    };
+
     const mapping: BankImportMapping = {
-        date: findHeader(headers, REQUIRED_FIELDS.date),
-        description: findHeader(headers, REQUIRED_FIELDS.description),
-        amount: findHeader(headers, REQUIRED_FIELDS.amount),
-        inflow: findHeader(headers, REQUIRED_FIELDS.inflow),
-        outflow: findHeader(headers, REQUIRED_FIELDS.outflow),
-        counterparty: findHeader(headers, OPTIONAL_FIELDS.counterparty),
-        reference: findHeader(headers, OPTIONAL_FIELDS.reference),
-        ocr: findHeader(headers, OPTIONAL_FIELDS.ocr),
-        currency: findHeader(headers, OPTIONAL_FIELDS.currency),
-        account: findHeader(headers, OPTIONAL_FIELDS.account)
+        date: findHeader(headers, getSynonyms('date', REQUIRED_FIELDS.date)),
+        description: findHeader(headers, getSynonyms('description', REQUIRED_FIELDS.description)),
+        amount: findHeader(headers, getSynonyms('amount', REQUIRED_FIELDS.amount)),
+        inflow: findHeader(headers, getSynonyms('inflow', REQUIRED_FIELDS.inflow)),
+        outflow: findHeader(headers, getSynonyms('outflow', REQUIRED_FIELDS.outflow)),
+        counterparty: findHeader(headers, getSynonyms('counterparty', OPTIONAL_FIELDS.counterparty)),
+        reference: findHeader(headers, getSynonyms('reference', OPTIONAL_FIELDS.reference)),
+        ocr: findHeader(headers, getSynonyms('ocr', OPTIONAL_FIELDS.ocr)),
+        currency: findHeader(headers, getSynonyms('currency', OPTIONAL_FIELDS.currency)),
+        account: findHeader(headers, getSynonyms('account', OPTIONAL_FIELDS.account))
     };
 
     if (mapping.amount) {
@@ -421,11 +427,31 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
     const [actionError, setActionError] = useState<string | null>(null);
     const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
     const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+    const [aiSuggestions, setAiSuggestions] = useState<Map<string, string>>(new Map());
+    const [aiLoadingId, setAiLoadingId] = useState<string | null>(null);
+    const [selectedBank, setSelectedBank] = useState<string | null>(null);
+    const [detectedBank, setDetectedBank] = useState<BankProfile | null>(null);
+
+    const activeProfile = useMemo(() => {
+        if (selectedBank === 'auto' || selectedBank === null) return detectedBank;
+        return BANK_PROFILES.find(p => p.id === selectedBank) ?? null;
+    }, [selectedBank, detectedBank]);
 
     useEffect(() => {
         if (!preview) return;
-        setMapping(guessMapping(preview.headers));
+        const detected = detectBankFromHeaders(preview.headers);
+        setDetectedBank(detected);
+        if (!selectedBank || selectedBank === 'auto') {
+            setSelectedBank('auto');
+        }
+        setMapping(guessMapping(preview.headers, detected));
     }, [preview]);
+
+    // Re-map when user manually switches bank
+    useEffect(() => {
+        if (!preview || !selectedBank || selectedBank === 'auto') return;
+        setMapping(guessMapping(preview.headers, activeProfile));
+    }, [selectedBank]);
 
     const missingMapping = useMemo(() => {
         const missing: string[] = [];
@@ -747,6 +773,62 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
         });
     };
 
+    const handleAiSuggestion = async (tx: BankTransaction) => {
+        setAiLoadingId(tx.id);
+        try {
+            const { data: session } = await supabase.auth.getSession();
+            const accessToken = session?.session?.access_token;
+            if (!accessToken) {
+                setAiSuggestions(prev => {
+                    const next = new Map(prev);
+                    next.set(tx.id, 'Du maste vara inloggad.');
+                    return next;
+                });
+                return;
+            }
+
+            const prompt = `Du ar en svensk bokforingsexpert. Foreslå BAS-konto och momssats for denna banktransaktion. Svara kort, max 2 rader.\n\nDatum: ${tx.date}\nBeskrivning: ${tx.description}\nBelopp: ${tx.amount} SEK${tx.counterparty ? `\nMotpart: ${tx.counterparty}` : ''}${tx.reference ? `\nReferens: ${tx.reference}` : ''}`;
+
+            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({
+                    message: prompt,
+                    skipHistory: true
+                })
+            });
+
+            if (!response.ok) {
+                setAiSuggestions(prev => {
+                    const next = new Map(prev);
+                    next.set(tx.id, 'Kunde inte hamta AI-forslag.');
+                    return next;
+                });
+                return;
+            }
+
+            const result = await response.json();
+            const suggestion = result.reply || result.message || 'Inget forslag.';
+            setAiSuggestions(prev => {
+                const next = new Map(prev);
+                next.set(tx.id, suggestion);
+                return next;
+            });
+        } catch (err) {
+            console.error('AI suggestion failed', err);
+            setAiSuggestions(prev => {
+                const next = new Map(prev);
+                next.set(tx.id, 'Ett fel uppstod.');
+                return next;
+            });
+        } finally {
+            setAiLoadingId(null);
+        }
+    };
+
     const mappingOptions = preview?.headers || [];
     const visibleMatches = useMemo(() => {
         if (!matches) return null;
@@ -754,7 +836,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
     }, [matches, dismissedIds]);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <button
                     type="button"
@@ -772,21 +854,23 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                     Tillbaka
                 </button>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    Importera kontoutdrag från Handelsbanken (CSV).
+                    Importera kontoutdrag (CSV) och matcha mot Fortnox.
                 </span>
             </div>
 
-            <div style={{
-                padding: '1rem',
-                borderRadius: '12px',
-                border: '1px solid var(--glass-border)',
-                background: 'rgba(255, 255, 255, 0.04)'
+            {/* Bank selector */}
+            <div className="panel-card panel-card--no-hover" style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
                     <div>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>CSV-mall (Handelsbanken)</div>
+                        <div className="panel-section-title" style={{ margin: 0 }}>Välj bank</div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                            Semikolonseparerad, decimal-komma, datumformat YYYY-MM-DD.
+                            {activeProfile
+                                ? `${activeProfile.name}: ${activeProfile.description}`
+                                : 'Välj bank eller låt oss auto-detektera från filen.'}
                         </div>
                     </div>
                     <a
@@ -805,13 +889,60 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                         Ladda ner mall
                     </a>
                 </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setSelectedBank('auto');
+                            if (preview) {
+                                const detected = detectBankFromHeaders(preview.headers);
+                                setDetectedBank(detected);
+                                setMapping(guessMapping(preview.headers, detected));
+                            }
+                        }}
+                        style={{
+                            height: '34px',
+                            padding: '0 0.8rem',
+                            borderRadius: '10px',
+                            border: '1px solid var(--glass-border)',
+                            background: (!selectedBank || selectedBank === 'auto') ? 'rgba(14, 165, 233, 0.18)' : 'transparent',
+                            color: (!selectedBank || selectedBank === 'auto') ? '#0ea5e9' : 'var(--text-secondary)',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center'
+                        }}
+                    >
+                        Auto-detektera{detectedBank && selectedBank === 'auto' ? ` (${detectedBank.name})` : ''}
+                    </button>
+                    {BANK_PROFILES.map(profile => (
+                        <button
+                            key={profile.id}
+                            type="button"
+                            onClick={() => setSelectedBank(profile.id)}
+                            style={{
+                                height: '34px',
+                                padding: '0 0.8rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--glass-border)',
+                                background: selectedBank === profile.id ? 'rgba(14, 165, 233, 0.18)' : 'transparent',
+                                color: selectedBank === profile.id ? '#0ea5e9' : 'var(--text-secondary)',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center'
+                            }}
+                        >
+                            {profile.name}
+                        </button>
+                    ))}
+                </div>
             </div>
 
-            <div style={{
-                padding: '1rem',
-                borderRadius: '12px',
-                border: '1px dashed var(--glass-border)',
-                background: 'rgba(255, 255, 255, 0.02)'
+            <div className="panel-card panel-card--no-hover" style={{
+                border: '1px dashed var(--surface-border)'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                     <input
@@ -826,7 +957,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                         style={{ color: 'var(--text-secondary)' }}
                     />
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        Välj din bankfil för förhandsvisning.
+                        Välj din bankfil for forhandsvisning.
                     </span>
                 </div>
                 {filename && (
@@ -850,17 +981,13 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
             )}
 
             {preview && (
-                <div style={{
-                    padding: '1rem',
-                    borderRadius: '12px',
-                    border: '1px solid var(--glass-border)',
-                    background: 'rgba(255, 255, 255, 0.04)',
+                <div className="panel-card panel-card--no-hover" style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.75rem'
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Förhandsvisning</div>
+                        <div className="panel-section-title" style={{ margin: 0 }}>Förhandsvisning</div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                             {preview.totalRows} transaktioner • Avgränsare: "{preview.delimiter}"
                         </div>
@@ -874,7 +1001,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                         display: 'grid',
                         gap: '0.75rem'
                     }}>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Kolumnmappning</div>
+                        <div className="panel-section-title" style={{ margin: 0 }}>Kolumnmappning</div>
                         <div style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                             <label style={{ display: 'grid', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                 Bokföringsdag
@@ -1046,17 +1173,13 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
             )}
 
             {preview && (
-                <div style={{
-                    padding: '1rem',
-                    borderRadius: '12px',
-                    border: '1px solid var(--glass-border)',
-                    background: 'rgba(255, 255, 255, 0.04)',
+                <div className="panel-card panel-card--no-hover" style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.75rem'
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Matchningsförslag</div>
+                        <div className="panel-section-title" style={{ margin: 0 }}>Matchningsförslag</div>
                         <button
                             type="button"
                             onClick={handleMatchSuggestions}
@@ -1165,9 +1288,26 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                                             </span>
                                                         </div>
                                                     ) : (
-                                                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                                                            {result.note || 'Ingen match'}
-                                                        </span>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                                                                {result.note || 'Ingen match'}
+                                                            </span>
+                                                            {aiSuggestions.has(result.transaction.id) && (
+                                                                <div style={{
+                                                                    padding: '0.4rem 0.6rem',
+                                                                    borderRadius: '8px',
+                                                                    background: 'rgba(168, 85, 247, 0.1)',
+                                                                    border: '1px solid rgba(168, 85, 247, 0.2)',
+                                                                    fontSize: '0.75rem',
+                                                                    color: 'var(--text-primary)',
+                                                                    lineHeight: 1.4,
+                                                                    maxWidth: '300px'
+                                                                }}>
+                                                                    <span style={{ fontWeight: 600, color: '#a855f7', fontSize: '0.7rem' }}>AI-forslag: </span>
+                                                                    {aiSuggestions.get(result.transaction.id)}
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     )}
                                                 </td>
                                                 <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -1212,7 +1352,30 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                                             )}
                                                         </div>
                                                     ) : (
-                                                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>Manuell</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void handleAiSuggestion(result.transaction)}
+                                                            disabled={aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id)}
+                                                            style={{
+                                                                height: '30px',
+                                                                padding: '0 0.75rem',
+                                                                borderRadius: '8px',
+                                                                border: '1px solid var(--glass-border)',
+                                                                background: aiSuggestions.has(result.transaction.id)
+                                                                    ? 'rgba(168, 85, 247, 0.12)'
+                                                                    : 'transparent',
+                                                                color: '#a855f7',
+                                                                fontSize: '0.72rem',
+                                                                fontWeight: 600,
+                                                                cursor: aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id) ? 'not-allowed' : 'pointer'
+                                                            }}
+                                                        >
+                                                            {aiLoadingId === result.transaction.id
+                                                                ? 'Tanker...'
+                                                                : aiSuggestions.has(result.transaction.id)
+                                                                    ? 'Foreslaget'
+                                                                    : 'AI-forslag'}
+                                                        </button>
                                                     )}
                                                 </td>
                                             </tr>

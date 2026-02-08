@@ -336,23 +336,21 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
         // Store tokens in database
         const supabaseAdmin = createClient(supabaseInternalUrl, supabaseServiceKey);
 
-        // Upsert - delete existing and insert new
-        await supabaseAdmin
+        // Atomic upsert — uses UNIQUE(user_id) constraint
+        const { error: upsertError } = await supabaseAdmin
             .from('fortnox_tokens')
-            .delete()
-            .eq('user_id', userId);
-
-        const { error: insertError } = await supabaseAdmin
-            .from('fortnox_tokens')
-            .insert({
+            .upsert({
                 user_id: userId,
                 access_token,
                 refresh_token,
-                expires_at: expiresAt
-            });
+                expires_at: expiresAt,
+                last_refresh_at: null,
+                refresh_count: 0,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' });
 
-        if (insertError) {
-            logger.error('Failed to store tokens', insertError);
+        if (upsertError) {
+            logger.error('Failed to store tokens', upsertError);
             return Response.redirect(`${appUrl}?fortnox_error=storage_failed`, 302);
         }
 

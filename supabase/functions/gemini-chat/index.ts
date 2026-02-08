@@ -924,6 +924,7 @@ interface RequestBody {
     model?: string | null;
     titleContext?: string | null;
     assistantMode?: 'skill_assist' | null;
+    stream?: boolean;
 }
 
 // Proper type for VAT report context instead of 'any'
@@ -1103,7 +1104,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        let { action, message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext, model, titleContext, assistantMode }: RequestBody = await req.json();
+        let { action, message, fileData, fileDataPages, documentText, history, conversationId, companyId, fileUrl, fileName, vatReportContext, model, titleContext, assistantMode, stream: streamParam }: RequestBody = await req.json();
         const hasFileAttachment = Boolean(fileData || fileDataPages || documentText || fileUrl || fileName);
         const isSkillAssist = assistantMode === 'skill_assist';
         
@@ -1574,12 +1575,13 @@ ANVÄNDARFRÅGA:
         }
 
         // Provider switch (default: Gemini)
-        const primaryImage = fileData?.mimeType?.startsWith('image/') ? fileData : undefined;
+        const isSupportedFile = fileData?.mimeType?.startsWith('image/') || fileData?.mimeType === 'application/pdf';
+        const primaryFile = isSupportedFile ? fileData : undefined;
         const imagePages = (fileDataPages || []).filter((p) => p?.mimeType?.startsWith('image/') && !!p.data);
-        const geminiFileData = primaryImage || (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
+        const geminiFileData = primaryFile || (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
         const disableTools = isSkillAssist || shouldSkipHistorySearch(message) || hasFileAttachment;
 
-        const forceNonStreaming = isSkillAssist;
+        const forceNonStreaming = isSkillAssist || streamParam === false;
 
         // Handle Gemini Streaming
         if (provider === 'gemini' && !forceNonStreaming) {

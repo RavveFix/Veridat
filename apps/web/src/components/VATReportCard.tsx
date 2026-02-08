@@ -10,6 +10,7 @@ import { TransactionsList } from './vat/TransactionsList';
 import { JournalEntriesList } from './vat/JournalEntriesList';
 import { WarningsPanel } from './vat/WarningsPanel';
 import { FortnoxSyncStatusPanel, type FortnoxSyncStatus } from './vat/FortnoxSyncStatusPanel';
+import { getFortnoxErrorMessage } from '../utils/fortnoxErrors';
 
 type TabId = 'summary' | 'transactions' | 'journal';
 
@@ -42,6 +43,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
     const [fortnoxLoading, setFortnoxLoading] = useState(false);
     const [fortnoxError, setFortnoxError] = useState<string | null>(null);
     const [fortnoxStatusLoading, setFortnoxStatusLoading] = useState(false);
+    const [voucherSeries, setVoucherSeries] = useState('A');
 
     // Listen for tab change events from ExcelWorkspace
     useEffect(() => {
@@ -101,6 +103,16 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
     const handleFortnoxExport = async () => {
         if (!reportId || fortnoxLoading) return;
 
+        // Duplicate prevention: confirm if already exported
+        if (fortnoxStatus.status === 'success' && fortnoxStatus.fortnoxDocumentNumber) {
+            const ok = window.confirm(
+                `Denna rapport är redan exporterad till Fortnox ` +
+                `(Verifikat ${fortnoxStatus.fortnoxVoucherSeries || 'A'}-${fortnoxStatus.fortnoxDocumentNumber}). ` +
+                `Vill du exportera igen?`
+            );
+            if (!ok) return;
+        }
+
         setFortnoxLoading(true);
         setFortnoxError(null);
 
@@ -112,6 +124,16 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                 const { data: session } = await supabase.auth.getSession();
                 if (!session?.session?.access_token) {
                     throw new Error('Inte inloggad');
+                }
+
+                // Check Fortnox token exists
+                const { data: tokenData } = await supabase
+                    .from('fortnox_tokens')
+                    .select('expires_at')
+                    .maybeSingle();
+
+                if (!tokenData) {
+                    throw new Error('Fortnox är inte anslutet. Gå till Integrationer för att ansluta.');
                 }
 
                 // Build voucher data from journal entries
@@ -136,7 +158,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                             voucher: {
                                 Description: `Momsredovisning ${data.period}`,
                                 TransactionDate: new Date().toISOString().split('T')[0],
-                                VoucherSeries: 'A',
+                                VoucherSeries: voucherSeries,
                                 VoucherRows: voucherRows,
                             },
                         },
@@ -152,7 +174,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                 setFortnoxStatus({
                     status: 'success',
                     fortnoxDocumentNumber: String(result.Voucher?.VoucherNumber || ''),
-                    fortnoxVoucherSeries: result.Voucher?.VoucherSeries || 'A',
+                    fortnoxVoucherSeries: result.Voucher?.VoucherSeries || voucherSeries,
                     syncedAt: new Date().toISOString(),
                 });
             }
@@ -161,7 +183,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
             await fetchFortnoxSyncStatus(reportId);
         } catch (error) {
             console.error('Fortnox export failed:', error);
-            setFortnoxError(error instanceof Error ? error.message : 'Export misslyckades');
+            setFortnoxError(getFortnoxErrorMessage(error));
             setFortnoxStatus(prev => ({ ...prev, status: 'failed' }));
         } finally {
             setFortnoxLoading(false);
@@ -350,12 +372,37 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                                 <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Hämtar Fortnox-status...</span>
                             </div>
                         ) : (
-                            <FortnoxSyncStatusPanel
-                                status={fortnoxStatus}
-                                loading={fortnoxLoading}
-                                error={fortnoxError}
-                                onExport={handleFortnoxExport}
-                            />
+                            <>
+                                {fortnoxStatus.status !== 'success' && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                                        <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                                            Verifikationsserie:
+                                        </label>
+                                        <select
+                                            value={voucherSeries}
+                                            onChange={(e) => setVoucherSeries((e.target as HTMLSelectElement).value)}
+                                            style={{
+                                                padding: '0.35rem 0.5rem',
+                                                borderRadius: '6px',
+                                                border: '1px solid var(--glass-border)',
+                                                background: 'var(--surface-primary)',
+                                                color: 'var(--text-primary)',
+                                                fontSize: '0.85rem',
+                                            }}
+                                        >
+                                            {['A', 'B', 'C', 'D', 'E'].map(s => (
+                                                <option key={s} value={s}>{s}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+                                <FortnoxSyncStatusPanel
+                                    status={fortnoxStatus}
+                                    loading={fortnoxLoading}
+                                    error={fortnoxError}
+                                    onExport={handleFortnoxExport}
+                                />
+                            </>
                         )}
                     </div>
                 )}

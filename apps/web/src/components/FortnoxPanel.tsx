@@ -103,16 +103,44 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             return;
         }
 
-        const text = (message || '').toLowerCase();
-        if (text.includes('2003275') || text.includes('leverantörsregister')) {
-            setScopeStatus('missing');
-            setScopeMessage('Saknar behörighet för leverantörsregister i Fortnox. Kontrollera modul/rättighet och koppla om.');
+        if (!message) {
+            setScopeStatus('unknown');
+            setScopeMessage('Kunde inte verifiera behörigheter');
             return;
         }
-        const scopeMissing = text.includes('behörighet') || text.includes('scope') || text.includes('2000663');
-        if (scopeMissing) {
+
+        const text = message.toLowerCase();
+
+        // Match on Fortnox error codes first (most reliable)
+        const scopeErrors: Record<string, string> = {
+            '2003275': 'Saknar behörighet för Leverantörsregister. Kontrollera modul i Fortnox och koppla om.',
+            '2000663': 'Saknar behörighet för Leverantör/Leverantörsfaktura. Uppdatera scopes och koppla om.',
+            '2000664': 'Saknar behörighet för Leverantörsfaktura. Uppdatera scopes och koppla om.',
+        };
+
+        for (const [code, msg] of Object.entries(scopeErrors)) {
+            if (text.includes(code)) {
+                setScopeStatus('missing');
+                setScopeMessage(msg);
+                return;
+            }
+        }
+
+        // Keyword fallback — less reliable but catches edge cases
+        const hasAuthKeyword = text.includes('behörighet') || text.includes('scope')
+            || text.includes('permission') || text.includes('forbidden');
+        const hasNegation = text.includes('saknar') || text.includes('missing')
+            || text.includes('denied') || text.includes('403');
+
+        if (hasAuthKeyword && hasNegation) {
             setScopeStatus('missing');
-            setScopeMessage('Saknar behörighet för Leverantör/Leverantörsfaktura. Uppdatera behörigheter och koppla om Fortnox.');
+            setScopeMessage('Saknar nödvändiga behörigheter i Fortnox. Kontrollera scopes och koppla om.');
+            return;
+        }
+
+        if (text.includes('401') || text.includes('unauthorized')) {
+            setScopeStatus('missing');
+            setScopeMessage('Fortnox-sessionen har gått ut. Koppla om i Integrationer.');
             return;
         }
 
@@ -371,7 +399,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
     const activeLoading = isSupplierView ? loadingSupplier : loadingCustomer;
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+        <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <button
                     type="button"
@@ -393,63 +421,39 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 </span>
             </div>
 
-            <div style={{
+            <div className="panel-stagger" style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
                 gap: '0.75rem'
             }}>
-                <div style={{
-                    padding: '0.9rem',
-                    borderRadius: '12px',
-                    border: '1px solid var(--glass-border)',
-                    background: 'rgba(255, 255, 255, 0.04)'
-                }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Förfallna</div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>{summary.overdue}</div>
+                <div className="panel-card panel-card--no-hover">
+                    <div className="panel-label">Förfallna</div>
+                    <div className="panel-stat panel-stat--neutral">{summary.overdue}</div>
                 </div>
-                <div style={{
-                    padding: '0.9rem',
-                    borderRadius: '12px',
-                    border: '1px solid var(--glass-border)',
-                    background: 'rgba(255, 255, 255, 0.04)'
-                }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{summary.unbookedLabel}</div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>{summary.unbooked}</div>
+                <div className="panel-card panel-card--no-hover">
+                    <div className="panel-label">{summary.unbookedLabel}</div>
+                    <div className="panel-stat panel-stat--neutral">{summary.unbooked}</div>
                 </div>
-                <div style={{
-                    padding: '0.9rem',
-                    borderRadius: '12px',
-                    border: '1px solid var(--glass-border)',
-                    background: 'rgba(255, 255, 255, 0.04)'
-                }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Totalt</div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>{summary.total}</div>
+                <div className="panel-card panel-card--no-hover">
+                    <div className="panel-label">Totalt</div>
+                    <div className="panel-stat panel-stat--neutral">{summary.total}</div>
                 </div>
-                <div style={{
-                    padding: '0.9rem',
-                    borderRadius: '12px',
-                    border: '1px solid var(--glass-border)',
-                    background: 'rgba(255, 255, 255, 0.04)'
-                }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Senast uppdaterad</div>
+                <div className="panel-card panel-card--no-hover">
+                    <div className="panel-label">Senast uppdaterad</div>
                     <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                         {lastUpdated ? formatDate(lastUpdated) : '—'}
                     </div>
                 </div>
             </div>
 
-            <div style={{
-                padding: '0.75rem 1rem',
-                borderRadius: '12px',
-                border: '1px solid var(--glass-border)',
-                background: 'rgba(255, 255, 255, 0.03)',
+            <div className="panel-card panel-card--no-hover" style={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '0.6rem'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Behörighetsstatus</div>
+                        <div className="panel-label">Behörighetsstatus</div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{scopeMessage}</div>
                     </div>
                     <span style={{
@@ -474,7 +478,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Attestbehörighet</div>
+                        <div className="panel-label">Attestbehörighet</div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{attestMessage}</div>
                     </div>
                     <span style={{
@@ -503,11 +507,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)',
                 gap: '1rem'
             }}>
-                <div style={{
-                    padding: '1rem',
-                    borderRadius: '12px',
-                    border: '1px solid var(--glass-border)',
-                    background: 'rgba(255, 255, 255, 0.04)',
+                <div className="panel-card panel-card--no-hover" style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.75rem',
@@ -515,7 +515,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                            <div className="panel-section-title" style={{ margin: 0 }}>
                                 {isSupplierView ? 'Leverantörsfakturor' : 'Kundfakturor'}
                             </div>
                             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -740,17 +740,13 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                     </div>
                 </div>
 
-                <div style={{
-                    padding: '1rem',
-                    borderRadius: '12px',
-                    border: '1px solid var(--glass-border)',
-                    background: 'rgba(255, 255, 255, 0.04)',
+                <div className="panel-card panel-card--no-hover" style={{
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.75rem'
                 }}>
                     <div>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Copilot</div>
+                        <div className="panel-section-title" style={{ margin: 0 }}>Copilot</div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                             Påminnelser och smarta förslag baserade på Fortnox-data.
                         </div>

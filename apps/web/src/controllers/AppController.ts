@@ -129,6 +129,9 @@ export class AppController {
             await conversationController.startNewChat();
         }
 
+        // Handle Fortnox OAuth callback params (redirect from Fortnox)
+        this.handleFortnoxOAuthCallback();
+
         // Auto-focus input
         uiController.focusInput();
 
@@ -136,6 +139,54 @@ export class AppController {
         uiController.hideLoader();
 
         logger.debug('AppController.init() complete');
+    }
+
+    /**
+     * Checks for Fortnox OAuth redirect query params and shows feedback.
+     * Called after route handling so the user sees the result of their OAuth flow.
+     */
+    private handleFortnoxOAuthCallback(): void {
+        const params = new URLSearchParams(window.location.search);
+        const connected = params.get('fortnox_connected');
+        const error = params.get('fortnox_error');
+
+        if (!connected && !error) return;
+
+        if (connected === 'true') {
+            this.showToast('Fortnox ansluten!', 'success');
+            // Refresh connection status and preload data
+            fortnoxContextService.checkConnection().then((status) => {
+                if (status === 'connected') {
+                    fortnoxContextService.preloadData();
+                }
+            });
+        } else if (error) {
+            const errorMessages: Record<string, string> = {
+                'missing_params': 'OAuth-parametrar saknas',
+                'state_expired': 'OAuth-sessionen har gått ut, försök igen',
+                'invalid_state': 'Ogiltig säkerhetskod, försök igen',
+                'state_secret_missing': 'Serverkonfigurationsfel',
+                'token_exchange_failed': 'Kunde inte hämta token från Fortnox',
+                'storage_failed': 'Kunde inte spara token i databasen',
+                'callback_failed': 'OAuth-anslutning misslyckades',
+            };
+            const message = errorMessages[error] || decodeURIComponent(error);
+            this.showToast(`Fortnox-fel: ${message}`, 'error');
+        }
+
+        // Clean URL to remove OAuth params
+        window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    private showToast(message: string, type: 'success' | 'error'): void {
+        const existingToast = document.querySelector('.toast-inline');
+        if (existingToast) existingToast.remove();
+
+        const toast = document.createElement('div');
+        toast.className = `toast-inline ${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
     }
 
     private async handleLegalConsent(): Promise<boolean> {

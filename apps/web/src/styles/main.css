@@ -5561,3 +5561,133 @@ h1 {
     width: 60px;
     height: 60px;
 }
+
+/* ==========================================================================
+   PANEL DESIGN SYSTEM — Shared classes for all tool panels
+   ========================================================================== */
+
+/* Stagger fade-in for panel children */
+@keyframes panelFadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Pulse for urgent items (count > 0) */
+@keyframes urgentPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35); }
+    50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+}
+
+/* --- Panel Card --- */
+.panel-card {
+    padding: 1.25rem;
+    border-radius: 16px;
+    border: 1px solid var(--surface-border);
+    background: var(--surface-1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.2s ease;
+}
+
+.panel-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    border-color: var(--surface-border-strong);
+}
+
+.panel-card--interactive {
+    cursor: pointer;
+}
+
+.panel-card--interactive:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.panel-card--gradient {
+    background: linear-gradient(135deg, var(--surface-1) 0%, var(--surface-2) 100%);
+}
+
+.panel-card--no-hover:hover {
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* --- Section Title --- */
+.panel-section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: var(--font-display);
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.panel-section-title::before {
+    content: '';
+    width: 3px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--accent-gradient);
+    flex-shrink: 0;
+}
+
+/* --- Stat Number --- */
+.panel-stat {
+    font-size: 1.75rem;
+    font-weight: 800;
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+
+.panel-stat--positive { color: var(--status-success); }
+.panel-stat--negative { color: var(--status-danger); }
+.panel-stat--neutral { color: var(--text-primary); }
+.panel-stat--muted { color: var(--text-secondary); }
+
+/* --- Stagger animation --- */
+.panel-stagger > * {
+    animation: panelFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.panel-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.panel-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.panel-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.panel-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.panel-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.panel-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.panel-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.panel-stagger > *:nth-child(8) { animation-delay: 420ms; }
+
+/* --- Icon Container --- */
+.panel-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* --- Label --- */
+.panel-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* --- Dark mode overrides --- */
+[data-theme="dark"] .panel-card {
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+[data-theme="dark"] .panel-card:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}

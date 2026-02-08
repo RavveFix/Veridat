@@ -2,6 +2,9 @@
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { createLogger } from './LoggerService.ts';
+import { classifyFortnoxError, FortnoxTimeoutError, FortnoxApiError } from './FortnoxErrors.ts';
+import { retryWithBackoff } from './RetryService.ts';
+import { FortnoxRateLimitService } from './FortnoxRateLimitService.ts';
 import type {
     FortnoxCustomerListResponse,
     FortnoxArticleListResponse,
@@ -48,6 +51,7 @@ export class FortnoxService {
     private authUrl: string = 'https://apps.fortnox.se/oauth-v1/token';
     private supabase: SupabaseClient;
     private userId: string;
+    private rateLimiter = new FortnoxRateLimitService();
 
     constructor(config: FortnoxConfig, supabaseClient: SupabaseClient, userId: string) {
         this.clientId = config.clientId;
@@ -90,24 +94,50 @@ export class FortnoxService {
 
     /**
      * Refreshes the access token using the refresh token.
-     * Updates the database with the new tokens.
+     * Uses optimistic locking (updated_at check) to prevent race conditions
+     * when multiple concurrent requests trigger a refresh simultaneously.
      */
     async refreshAccessToken(refreshToken: string, rowId: string): Promise<string> {
         try {
+            // 1. Read current updated_at for optimistic lock
+            const { data: currentRow } = await this.supabase
+                .from('fortnox_tokens')
+                .select('updated_at, refresh_count')
+                .eq('id', rowId)
+                .single();
+
+            const previousUpdatedAt = currentRow?.updated_at;
+            const refreshCount = (currentRow?.refresh_count ?? 0) + 1;
+
+            // 2. Exchange refresh token with Fortnox
             const credentials = btoa(`${this.clientId}:${this.clientSecret}`);
 
             const params = new URLSearchParams();
             params.append('grant_type', 'refresh_token');
             params.append('refresh_token', refreshToken);
 
-            const response = await fetch(this.authUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Authorization': `Basic ${credentials}`
-                },
-                body: params
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+            let response: Response;
+            try {
+                response = await fetch(this.authUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Authorization': `Basic ${credentials}`
+                    },
+                    body: params,
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+                    throw new FortnoxTimeoutError();
+                }
+                throw fetchError;
+            }
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -118,25 +148,39 @@ export class FortnoxService {
             const { access_token, refresh_token, expires_in } = data;
 
             // Calculate new expiration time
+            const now = new Date().toISOString();
             const newExpiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
-            // Update DB with new tokens
-            const { error: updateError } = await this.supabase
+            // 3. Update DB with optimistic lock (only if no concurrent refresh)
+            const { data: updateResult, error: updateError } = await this.supabase
                 .from('fortnox_tokens')
                 .update({
                     access_token: access_token,
                     refresh_token: refresh_token, // Fortnox rotates refresh tokens!
                     expires_at: newExpiresAt,
-                    updated_at: new Date().toISOString()
+                    last_refresh_at: now,
+                    refresh_count: refreshCount,
+                    updated_at: now,
                 })
-                .eq('id', rowId);
+                .eq('id', rowId)
+                .eq('updated_at', previousUpdatedAt) // Optimistic lock
+                .select('access_token')
+                .maybeSingle();
 
-            if (updateError) {
-                logger.error("Failed to update tokens in DB", updateError);
-                // We still return the access token so the current request succeeds,
-                // but the next one might fail if DB isn't updated.
+            if (updateError || !updateResult) {
+                // Concurrent refresh detected — another process already updated the token.
+                // Fetch the latest token from DB and use that instead.
+                logger.info('Concurrent token refresh detected, using latest token');
+                const { data: latestToken } = await this.supabase
+                    .from('fortnox_tokens')
+                    .select('access_token')
+                    .eq('user_id', this.userId)
+                    .single();
+
+                return latestToken?.access_token ?? access_token;
             }
 
+            logger.info('Token refreshed successfully', { refreshCount });
             return access_token;
         } catch (error) {
             logger.error("Error refreshing Fortnox token", error);
@@ -145,9 +189,13 @@ export class FortnoxService {
     }
 
     /**
-     * Generic method to make authenticated requests to Fortnox
+     * Generic method to make authenticated requests to Fortnox.
+     * Includes 30 s timeout and automatic retry with exponential backoff
+     * for transient errors (429, 500, 502, 503, 504).
      */
     async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+        await this.rateLimiter.waitIfNeeded();
+
         const token = await this.getAccessToken();
 
         const url = `${this.baseUrl}${endpoint}`;
@@ -157,17 +205,35 @@ export class FortnoxService {
             ...options.headers
         };
 
-        const response = await fetch(url, {
-            ...options,
-            headers
+        return retryWithBackoff(async () => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers,
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw classifyFortnoxError(new Error(errorText), response.status);
+                }
+
+                return await response.json();
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error instanceof FortnoxApiError) throw error;
+                if (error instanceof Error && error.name === 'AbortError') {
+                    throw new FortnoxTimeoutError();
+                }
+                throw classifyFortnoxError(
+                    error instanceof Error ? error : new Error(String(error)),
+                );
+            }
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Fortnox API Error: ${response.status} ${errorText}`);
-        }
-
-        return await response.json();
     }
 
     async getCustomers(): Promise<FortnoxCustomerListResponse> {
@@ -481,18 +547,30 @@ export class FortnoxService {
             endpoint += `?financialyear=${financialYear}`;
         }
 
-        // SIE endpoint returns raw text, not JSON - use raw fetch
+        // SIE endpoint returns raw text, not JSON - use raw fetch with timeout
         const token = await this.getAccessToken();
         const url = `${this.baseUrl}${endpoint}`;
-        const response = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-            },
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+        let response: Response;
+        try {
+            response = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new FortnoxTimeoutError();
+            }
+            throw error;
+        }
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Fortnox SIE Export Error: ${response.status} ${errorText}`);
+            throw classifyFortnoxError(new Error(errorText), response.status);
         }
 
         const content = await response.text();

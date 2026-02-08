@@ -13,6 +13,10 @@ import { ModalWrapper } from './ModalWrapper';
 import { BankImportPanel } from './BankImportPanel';
 import { AgencyPanel } from './AgencyPanel';
 import { FortnoxPanel } from './FortnoxPanel';
+import { BookkeepingRulesPanel } from './BookkeepingRulesPanel';
+import { ReconciliationView } from './ReconciliationView';
+import { InvoiceInboxPanel } from './InvoiceInboxPanel';
+import { DashboardPanel } from './DashboardPanel';
 
 interface IntegrationsModalProps {
     onClose: () => void;
@@ -29,7 +33,7 @@ const INTEGRATIONS_CONFIG: Omit<Integration, 'status'>[] = [
     {
         id: 'visma',
         name: 'Visma',
-        description: 'Ekonomisystem och lonesystem',
+        description: 'Ekonomisystem och lönesystem',
         icon: 'visma'
     },
     {
@@ -50,7 +54,7 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
     const [error, setError] = useState<string | null>(null);
     const [abortController, setAbortController] = useState<AbortController | null>(null);
     const [loadingTimeout, setLoadingTimeout] = useState(false);
-    const [activeTool, setActiveTool] = useState<'bank-import' | 'agency' | 'fortnox-panel' | null>(null);
+    const [activeTool, setActiveTool] = useState<'bank-import' | 'agency' | 'fortnox-panel' | 'bookkeeping-rules' | 'reconciliation' | 'invoice-inbox' | 'dashboard' | null>(null);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -336,12 +340,25 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
         return icons[iconId] || '?';
     }
 
+    if (activeTool === 'dashboard') {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Översikt"
+                subtitle="Din bokföringsöversikt på ett ställe."
+                maxWidth="1400px"
+            >
+                <DashboardPanel onBack={() => setActiveTool(null)} onNavigate={(tool) => setActiveTool(tool as typeof activeTool)} />
+            </ModalWrapper>
+        );
+    }
+
     if (activeTool === 'bank-import') {
         return (
             <ModalWrapper
                 onClose={onClose}
                 title="Bankimport (CSV)"
-                subtitle="Importera kontoutdrag från Handelsbanken och förhandsvisa matchning."
+                subtitle="Importera kontoutdrag och matcha mot Fortnox-fakturor."
                 maxWidth="1200px"
             >
                 <BankImportPanel onBack={() => setActiveTool(null)} />
@@ -358,6 +375,48 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                 maxWidth="1200px"
             >
                 <AgencyPanel onBack={() => setActiveTool(null)} />
+            </ModalWrapper>
+        );
+    }
+
+    if (activeTool === 'reconciliation') {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Bankavstämning"
+                subtitle="Översikt och periodstatus för bankavstämning."
+                maxWidth="1200px"
+            >
+                <ReconciliationView
+                    onBack={() => setActiveTool(null)}
+                    onOpenBankImport={() => setActiveTool('bank-import')}
+                />
+            </ModalWrapper>
+        );
+    }
+
+    if (activeTool === 'bookkeeping-rules') {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Bokföringsregler"
+                subtitle="Hantera automatiska konteringsregler baserade på tidigare bokföringar."
+                maxWidth="1200px"
+            >
+                <BookkeepingRulesPanel onBack={() => setActiveTool(null)} />
+            </ModalWrapper>
+        );
+    }
+
+    if (activeTool === 'invoice-inbox') {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Fakturainkorg"
+                subtitle="Ladda upp leverantörsfakturor, AI-extrahera och exportera till Fortnox."
+                maxWidth="1200px"
+            >
+                <InvoiceInboxPanel onBack={() => setActiveTool(null)} />
             </ModalWrapper>
         );
     }
@@ -540,6 +599,40 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                     <div style={{ display: 'grid', gap: '0.75rem' }}>
                         <button
                             type="button"
+                            onClick={() => setActiveTool('dashboard')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '1rem',
+                                padding: '0.9rem 1rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer',
+                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                            }}
+                        >
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>Översikt</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Dashboard med ekonomisk status, deadlines och snabbåtgärder.
+                                </div>
+                            </div>
+                            <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '999px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                            }}>
+                                Nytt
+                            </span>
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => setActiveTool('fortnox-panel')}
                             style={{
                                 display: 'flex',
@@ -574,6 +667,40 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                         </button>
                         <button
                             type="button"
+                            onClick={() => setActiveTool('invoice-inbox')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '1rem',
+                                padding: '0.9rem 1rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer',
+                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                            }}
+                        >
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>Fakturainkorg</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Ladda upp leverantörsfakturor (PDF/bild), AI-extrahera och exportera till Fortnox.
+                                </div>
+                            </div>
+                            <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '999px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                            }}>
+                                Nytt
+                            </span>
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => setActiveTool('bank-import')}
                             style={{
                                 display: 'flex',
@@ -592,7 +719,7 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Bankimport (CSV)</div>
                                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Importera kontoutdrag från Handelsbanken och skapa matchningsförslag.
+                                    Importera kontoutdrag (Handelsbanken, SEB, Nordea, Swedbank) och matcha mot fakturor.
                                 </div>
                             </div>
                             <span style={{
@@ -607,6 +734,74 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                             </span>
                         </button>
 
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('reconciliation')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '1rem',
+                                padding: '0.9rem 1rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer',
+                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                            }}
+                        >
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>Bankavstämning</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Översikt per period, markera månader som avstämda.
+                                </div>
+                            </div>
+                            <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '999px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                            }}>
+                                Nytt
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('bookkeeping-rules')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '1rem',
+                                padding: '0.9rem 1rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer',
+                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                            }}
+                        >
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>Bokföringsregler</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Visa och hantera automatiska konteringsregler (leverantör → konto).
+                                </div>
+                            </div>
+                            <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '999px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                            }}>
+                                Nytt
+                            </span>
+                        </button>
                         <button
                             type="button"
                             onClick={() => setActiveTool('agency')}
