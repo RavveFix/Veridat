@@ -1,10 +1,11 @@
-import * as XLSX from 'xlsx';
 import type { VATReportData } from '../types/vat';
+import { logger } from '../services/LoggerService';
 
 type SheetRow = Array<string | number | null>;
 type SheetData = SheetRow[];
 
 export async function generateExcelFile(data: VATReportData): Promise<void> {
+    const XLSX = await import('xlsx');
     const { period, company, sales, costs, vat, journal_entries, summary } = data;
 
     // Create workbook
@@ -99,10 +100,10 @@ export function copyReportToClipboard(data: VATReportData): void {
 
     navigator.clipboard.writeText(text)
         .then(() => {
-            console.log('Report copied to clipboard');
+            logger.debug('Report copied to clipboard');
         })
         .catch(err => {
-            console.error('Failed to copy:', err);
+            logger.error('Failed to copy report to clipboard', err);
         });
 }
 

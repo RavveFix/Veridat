@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { supabase } from '../lib/supabase';
 import { companyService } from '../services/CompanyService';
 import { fileService } from '../services/FileService';
+import { logger } from '../services/LoggerService';
 
 // =============================================================================
 // TYPES
@@ -273,7 +274,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 // Auto-extract after upload
                 void extractInvoiceData(newItem);
             } catch (err) {
-                console.error('Upload failed:', err);
+                logger.error('Upload failed:', err);
                 setError(`Kunde inte ladda upp ${file.name}.`);
             }
         }
@@ -413,7 +414,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
 
             setSuccessMsg(`Faktura från "${extracted.supplierName || item.fileName}" extraherad.`);
         } catch (err) {
-            console.error('AI extraction failed:', err);
+            logger.error('AI extraction failed:', err);
             setError('AI-extraktion misslyckades. Försök igen eller fyll i manuellt.');
         } finally {
             setExtractingId(null);
@@ -492,7 +493,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
 
             setSuccessMsg(`Faktura ${item.invoiceNumber} exporterad till Fortnox${givenNumber ? ` (Nr ${givenNumber})` : ''}.`);
         } catch (err) {
-            console.error('Fortnox export failed:', err);
+            logger.error('Fortnox export failed:', err);
             setError(err instanceof Error ? err.message : 'Fortnox-export misslyckades.');
         } finally {
             setExportingId(null);
@@ -603,7 +604,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
 
             setSuccessMsg(`${invoices.length} fakturor hämtade från Fortnox.`);
         } catch (err) {
-            console.error('Fortnox sync failed:', err);
+            logger.error('Fortnox sync failed:', err);
             setError(err instanceof Error ? err.message : 'Kunde inte synka från Fortnox.');
         } finally {
             setSyncing(false);
@@ -656,7 +657,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
             ));
             setSuccessMsg(`Faktura ${item.invoiceNumber || item.fortnoxGivenNumber} bokförd i Fortnox.`);
         } catch (err) {
-            console.error('Fortnox booking failed:', err);
+            logger.error('Fortnox booking failed:', err);
             setError(err instanceof Error ? err.message : 'Bokföring misslyckades.');
         } finally {
             setBookingId(null);
@@ -702,7 +703,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
             ));
             setSuccessMsg(`Faktura ${item.invoiceNumber || item.fortnoxGivenNumber} attesterad.`);
         } catch (err) {
-            console.error('Fortnox approval failed:', err);
+            logger.error('Fortnox approval failed:', err);
             setError(err instanceof Error ? err.message : 'Attestering misslyckades.');
         } finally {
             setBookingId(null);
@@ -761,7 +762,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 i.id === item.id ? { ...i, aiReviewNote: reviewText } : i
             ));
         } catch (err) {
-            console.error('AI review failed:', err);
+            logger.error('AI review failed:', err);
             setError('AI-granskning misslyckades.');
         } finally {
             setReviewingId(null);

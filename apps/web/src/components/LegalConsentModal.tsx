@@ -173,7 +173,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
 
             onAccepted(fullName.trim());
         } catch (err: unknown) {
-            console.error('Error accepting terms:', err);
+            logger.error('Error accepting terms', err);
             setError('Kunde inte spara ditt godkännande. Försök igen.');
         } finally {
             setIsAccepting(false);

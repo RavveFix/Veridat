@@ -3,6 +3,7 @@ import type { VATReportData } from '../types/vat';
 import { generateExcelFile, copyReportToClipboard } from '../utils/excelExport';
 import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
+import { logger } from '../services/LoggerService';
 import { BorderBeam } from '@/registry/magicui/border-beam';
 import { ValidationBadges } from './vat/ValidationBadges';
 import { VATDetails } from './vat/VATDetails';
@@ -93,7 +94,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                 });
             }
         } catch (error) {
-            console.error('Failed to fetch Fortnox sync status:', error);
+            logger.error('Failed to fetch Fortnox sync status:', error);
             setFortnoxError('Kunde inte hämta Fortnox-status');
         } finally {
             setFortnoxStatusLoading(false);
@@ -182,7 +183,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
             // Refresh status after export
             await fetchFortnoxSyncStatus(reportId);
         } catch (error) {
-            console.error('Fortnox export failed:', error);
+            logger.error('Fortnox export failed:', error);
             setFortnoxError(getFortnoxErrorMessage(error));
             setFortnoxStatus(prev => ({ ...prev, status: 'failed' }));
         } finally {
@@ -205,7 +206,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                 setDownloadSuccess(false);
             }, 2000);
         } catch (error) {
-            console.error('Excel generation failed:', error);
+            logger.error('Excel generation failed:', error);
             setDownloadError(true);
             setTimeout(() => {
                 setDownloadLoading(false);

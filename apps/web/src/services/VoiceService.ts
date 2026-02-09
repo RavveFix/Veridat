@@ -1,3 +1,5 @@
+import { logger } from './LoggerService';
+
 interface SpeechRecognitionEvent extends Event {
     resultIndex: number;
     results: SpeechRecognitionResultList;
@@ -41,7 +43,7 @@ export class VoiceService {
             return;
         }
 
-        console.warn('Web Speech API not supported in this browser.');
+        logger.warn('Web Speech API not supported in this browser.');
     }
 
     private getSpeechRecognitionCtor(): (new () => SpeechRecognition) | null {
@@ -91,7 +93,7 @@ export class VoiceService {
         };
 
         recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-            console.error('Speech recognition error', event.error);
+            logger.error('Speech recognition error', event.error);
             this.isListening = false;
             this.notifyStateChange();
             this.stopAudioAnalysis();
@@ -115,7 +117,7 @@ export class VoiceService {
 
             this.analyzeAudio();
         } catch (error) {
-            console.error('Failed to start audio analysis:', error);
+            logger.error('Failed to start audio analysis', error);
         }
     }
 
@@ -174,7 +176,7 @@ export class VoiceService {
             try {
                 this.recognition.start();
             } catch (e) {
-                console.error('Failed to start recognition:', e);
+                logger.error('Failed to start recognition', e);
             }
         }
     }

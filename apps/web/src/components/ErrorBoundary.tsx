@@ -1,4 +1,5 @@
 import { Component, ComponentChildren } from 'preact';
+import { logger } from '../services/LoggerService';
 
 /**
  * Sanitizes error messages to prevent information disclosure.
@@ -58,8 +59,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
 
     componentDidCatch(error: Error, errorInfo: { componentStack?: string }) {
-        console.error('[ErrorBoundary] Caught error:', error.message);
-        console.error('[ErrorBoundary] Component stack:', errorInfo.componentStack);
+        logger.error('[ErrorBoundary] Caught error', error);
+        logger.error('[ErrorBoundary] Component stack', errorInfo.componentStack);
     }
 
     handleRetry = () => {

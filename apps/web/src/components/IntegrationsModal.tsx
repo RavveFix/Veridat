@@ -9,6 +9,7 @@ import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import type { Integration, IntegrationStatus } from '../types/integrations';
 import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
+import { logger } from '../services/LoggerService';
 import { ModalWrapper } from './ModalWrapper';
 import { BankImportPanel } from './BankImportPanel';
 import { AgencyPanel } from './AgencyPanel';
@@ -109,7 +110,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             );
 
             if (tokenError && tokenError.code !== 'PGRST116') {
-                console.error('Error checking Fortnox status:', tokenError);
+                logger.error('Error checking Fortnox status:', tokenError);
             }
 
             // Fire-and-forget: sync Fortnox profile to memory on connection
@@ -126,7 +127,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                             },
                             body: JSON.stringify({ action: 'sync_profile', companyId })
                         }
-                    ).catch((err) => console.warn('Fortnox profile sync skipped:', err));
+                    ).catch((err) => logger.warn('Fortnox profile sync skipped:', err));
                 }
             }
 
@@ -161,7 +162,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
             setIntegrations(integrationsWithStatus);
         } catch (err) {
-            console.error('Error loading integrations:', err);
+            logger.error('Error loading integrations:', err);
 
             // Check if component was aborted (unmounted)
             if (abortController?.signal.aborted) {
@@ -225,7 +226,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             // Redirect to Fortnox OAuth
             window.location.href = authorizationUrl;
         } catch (err) {
-            console.error('Error connecting to Fortnox:', err);
+            logger.error('Error connecting to Fortnox:', err);
 
             if (err instanceof TimeoutError) {
                 setError('Tidsgränsen nåddes vid anslutning. Försök igen.');
@@ -274,7 +275,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             // Refresh the list
             await loadIntegrationStatus();
         } catch (err) {
-            console.error('Error disconnecting Fortnox:', err);
+            logger.error('Error disconnecting Fortnox:', err);
 
             if (err instanceof TimeoutError) {
                 setError('Tidsgränsen nåddes vid bortkoppling. Försök igen.');

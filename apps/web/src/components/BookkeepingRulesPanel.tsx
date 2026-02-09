@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
+import { logger } from '../services/LoggerService';
 import { companyService } from '../services/CompanyService';
 
 interface ExpensePatternRow {
@@ -76,13 +77,13 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
 
             if (queryError) {
                 setError('Kunde inte hämta bokföringsregler.');
-                console.error('Load patterns error:', queryError);
+                logger.error('Load patterns error:', queryError);
                 return;
             }
 
             setPatterns((data || []) as ExpensePatternRow[]);
         } catch (err) {
-            console.error('Load patterns failed:', err);
+            logger.error('Load patterns failed:', err);
             setError('Ett fel uppstod vid hämtning av regler.');
         } finally {
             setLoading(false);
@@ -110,7 +111,7 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
 
             setPatterns(prev => prev.filter(p => p.id !== id));
         } catch (err) {
-            console.error('Delete pattern failed:', err);
+            logger.error('Delete pattern failed:', err);
             setError('Ett fel uppstod vid borttagning.');
         } finally {
             setDeletingId(null);

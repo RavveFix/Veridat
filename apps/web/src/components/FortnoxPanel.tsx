@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
+import { logger } from '../services/LoggerService';
 import { CopilotPanel } from './CopilotPanel';
 
 interface FortnoxPanelProps {
@@ -213,7 +214,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             setLastUpdated(new Date().toISOString());
             updateScopeStatus(undefined, true);
         } catch (err) {
-            console.error('Failed to load Fortnox invoices', err);
+            logger.error('Failed to load Fortnox invoices', err);
             setSupplierError('Ett fel uppstod vid hämtning av Fortnox-data.');
             updateScopeStatus('unknown');
         } finally {
@@ -268,7 +269,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 updateScopeStatus(undefined, true);
             }
         } catch (err) {
-            console.error('Failed to load Fortnox customer invoices', err);
+            logger.error('Failed to load Fortnox customer invoices', err);
             setCustomerError('Ett fel uppstod vid hämtning av Fortnox-data.');
             if (scopeStatus !== 'missing') {
                 updateScopeStatus('unknown');
@@ -327,7 +328,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 await loadSupplierInvoices({ filter: 'authorizepending', target: 'pending' });
             }
         } catch (err) {
-            console.error('Failed to approve supplier invoice', err);
+            logger.error('Failed to approve supplier invoice', err);
             setSupplierError('Ett fel uppstod vid attestering.');
         } finally {
             setActionLoadingId(null);

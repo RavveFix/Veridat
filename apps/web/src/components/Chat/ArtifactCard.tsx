@@ -2,6 +2,7 @@ import { FunctionComponent } from 'preact';
 import { useState } from 'preact/hooks';
 import type { VATReportData } from '../../types/vat';
 import { generateExcelFile, copyReportToClipboard } from '../../utils/excelExport';
+import { logger } from '../../services/LoggerService';
 
 export type ArtifactType = 'excel' | 'vat' | 'pdf' | 'code' | 'table' | 'generic';
 
@@ -181,7 +182,7 @@ export const VATArtifact: FunctionComponent<VATArtifactProps> = ({
                 setDownloadSuccess(false);
             }, 2000);
         } catch (error) {
-            console.error('Excel generation failed:', error);
+            logger.error('Excel generation failed:', error);
             setDownloadLoading(false);
         }
     };

@@ -44,7 +44,6 @@ export default defineConfig({
             output: {
                 manualChunks: {
                     'vendor-ui': ['@heroui/react', 'framer-motion'],
-                    'vendor-xlsx': ['xlsx'],
                     'vendor-supabase': ['@supabase/supabase-js'],
                 },
             },

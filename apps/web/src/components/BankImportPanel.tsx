@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { companyService } from '../services/CompanyService';
 import { bankImportService } from '../services/BankImportService';
+import { logger } from '../services/LoggerService';
 import type { BankImport, BankImportMapping, BankTransaction } from '../types/bank';
 import { BANK_PROFILES, detectBankFromHeaders, getFieldSynonyms, type BankProfile } from '../utils/bankProfiles';
 
@@ -537,7 +538,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
             }
             setPreview(parsed);
         } catch (err) {
-            console.error('CSV parse failed', err);
+            logger.error('CSV parse failed', err);
             setError('Ett fel uppstod vid läsning av CSV-filen.');
             setPreview(null);
         }
@@ -568,7 +569,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
             bankImportService.saveImport(companyId, importData);
             setSaveMessage(`Import sparad (${normalizedTransactions.length} transaktioner).`);
         } catch (err) {
-            console.error('Failed to save import', err);
+            logger.error('Failed to save import', err);
             setError('Kunde inte spara importen.');
         } finally {
             setSaving(false);
@@ -644,7 +645,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 setMatchError(errors.join(' '));
             }
         } catch (err) {
-            console.error('Match suggestions failed', err);
+            logger.error('Match suggestions failed', err);
             setMatchError('Ett fel uppstod vid matchning.');
         } finally {
             setMatching(false);
@@ -758,7 +759,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 return next;
             });
         } catch (err) {
-            console.error('Approve match failed', err);
+            logger.error('Approve match failed', err);
             setActionError('Ett fel uppstod vid bokning.');
         } finally {
             setActionLoadingId(null);
@@ -818,7 +819,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 return next;
             });
         } catch (err) {
-            console.error('AI suggestion failed', err);
+            logger.error('AI suggestion failed', err);
             setAiSuggestions(prev => {
                 const next = new Map(prev);
                 next.set(tx.id, 'Ett fel uppstod.');

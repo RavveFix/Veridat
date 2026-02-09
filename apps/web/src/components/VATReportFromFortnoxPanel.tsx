@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
+import { logger } from '../services/LoggerService';
 import type { VATReportData } from '../types/vat';
 import { VATReportCard } from './VATReportCard';
 
@@ -62,7 +63,7 @@ export function VATReportFromFortnoxPanel({ onBack }: VATReportFromFortnoxPanelP
             setInvoices(result.invoices || []);
             setSupplierInvoices(result.supplierInvoices || []);
         } catch (err) {
-            console.error('VAT report fetch error:', err);
+            logger.error('VAT report fetch error:', err);
             setError(err instanceof Error ? err.message : 'Ett oväntat fel uppstod.');
         } finally {
             setLoading(false);

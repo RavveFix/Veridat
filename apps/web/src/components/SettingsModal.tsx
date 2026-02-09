@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
+import { logger } from '../services/LoggerService';
 import { CURRENT_TERMS_VERSION } from '../constants/termsVersion';
 import type { User } from '@supabase/supabase-js';
 import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
@@ -101,7 +102,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                 dailyReset: data.daily_reset ?? null
             });
         } catch (error) {
-            console.error('Error loading usage data:', error);
+            logger.error('Error loading usage data:', error);
             setUsage(null);
 
             if (error instanceof TimeoutError) {
@@ -150,7 +151,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
             // Load usage data (another 10s timeout)
             await loadUsage(currentUser.id);
         } catch (error) {
-            console.error('Error loading settings data:', error);
+            logger.error('Error loading settings data:', error);
 
             // Check if component was aborted (unmounted)
             if (abortController?.signal.aborted) {
@@ -193,7 +194,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
             // Clear success message after 3 seconds
             setTimeout(() => setMessage(null), 3000);
         } catch (error) {
-            console.error('Error updating profile:', error);
+            logger.error('Error updating profile:', error);
 
             if (error instanceof TimeoutError) {
                 setMessage({ type: 'error', text: 'Tidsgränsen nåddes. Försök igen.' });

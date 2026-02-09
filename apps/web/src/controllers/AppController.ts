@@ -42,6 +42,7 @@ export class AppController {
     private integrationsCleanup: (() => void) | null = null;
     private settingsListenerAttached = false;
     private integrationsListenerAttached = false;
+    private boundCopilotToolListener: EventListener | null = null;
     private lastActiveAt = Date.now();
     private resumeInProgress = false;
 
@@ -521,7 +522,7 @@ export class AppController {
      * Listens for copilot-open-tool events and opens IntegrationsModal with the requested tool.
      */
     private setupCopilotToolListener(): void {
-        window.addEventListener('copilot-open-tool', ((e: CustomEvent<{ tool: string }>) => {
+        this.boundCopilotToolListener = ((e: CustomEvent<{ tool: string }>) => {
             const tool = e.detail?.tool;
             if (!tool) return;
 
@@ -544,7 +545,8 @@ export class AppController {
                     }
                 }
             });
-        }) as EventListener);
+        }) as EventListener;
+        window.addEventListener('copilot-open-tool', this.boundCopilotToolListener);
     }
 
     private setupNewChatButton(): void {

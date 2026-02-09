@@ -1,6 +1,7 @@
 import { FunctionComponent } from 'preact';
 import { useEffect, useState, useMemo } from 'preact/hooks';
 import { supabase } from '../../lib/supabase';
+import { logger } from '../../services/LoggerService';
 import { FetchErrorFallback } from '../ErrorBoundary';
 
 interface Conversation {
@@ -195,7 +196,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
             setConversations(typedData);
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Kunde inte ladda konversationer';
-            console.error('Error fetching conversations:', error);
+            logger.error('Error fetching conversations:', error);
             setFetchError(errorMsg);
         } finally {
             setLoading(false);
@@ -281,7 +282,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
             currentlyDeleting = null;
             triggerUpdate();
         } catch (error) {
-            console.error('[DELETE] Error:', error);
+            logger.error('[DELETE] Error:', error);
             showToast('Kunde inte ta bort konversationen', 'error');
 
             // Rollback: restore previous state on error - reset ALL state immediately

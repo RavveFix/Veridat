@@ -30,6 +30,9 @@ export class FortnoxSidebar {
     private isOpen = false;
     private toggleBtn: HTMLButtonElement | null = null;
     private copilotRenderer = new CopilotNotificationsRenderer();
+    private boundEntityChanged: EventListener | null = null;
+    private boundConnectionChanged: EventListener | null = null;
+    private boundEscapeKey: ((e: KeyboardEvent) => void) | null = null;
 
     init(containerId: string): void {
         this.container = document.getElementById(containerId);
@@ -309,22 +312,25 @@ export class FortnoxSidebar {
         this.container?.querySelector('.fortnox-sidebar-close')?.addEventListener('click', () => this.close());
 
         // Listen for entity changes
-        fortnoxContextService.addEventListener('entity-changed', ((e: Event) => {
+        this.boundEntityChanged = ((e: Event) => {
             const entity = (e as CustomEvent<FortnoxEntity | null>).detail;
             this.updateEntity(entity);
             if (entity && !this.isOpen) this.open();
-        }) as EventListener);
+        }) as EventListener;
+        fortnoxContextService.addEventListener('entity-changed', this.boundEntityChanged);
 
         // Listen for connection changes
-        fortnoxContextService.addEventListener('connection-changed', ((e: Event) => {
+        this.boundConnectionChanged = ((e: Event) => {
             const status = (e as CustomEvent<FortnoxConnectionStatus>).detail;
             this.updateConnectionStatus(status);
-        }) as EventListener);
+        }) as EventListener;
+        fortnoxContextService.addEventListener('connection-changed', this.boundConnectionChanged);
 
         // Escape key closes sidebar
-        document.addEventListener('keydown', (e) => {
+        this.boundEscapeKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && this.isOpen) this.close();
-        });
+        };
+        document.addEventListener('keydown', this.boundEscapeKey);
     }
 
     private handleQuickAction(action: string, entity: FortnoxEntity): void {
@@ -391,6 +397,18 @@ export class FortnoxSidebar {
 
     destroy(): void {
         this.close();
+        if (this.boundEntityChanged) {
+            fortnoxContextService.removeEventListener('entity-changed', this.boundEntityChanged);
+            this.boundEntityChanged = null;
+        }
+        if (this.boundConnectionChanged) {
+            fortnoxContextService.removeEventListener('connection-changed', this.boundConnectionChanged);
+            this.boundConnectionChanged = null;
+        }
+        if (this.boundEscapeKey) {
+            document.removeEventListener('keydown', this.boundEscapeKey);
+            this.boundEscapeKey = null;
+        }
         if (this.container) this.container.innerHTML = '';
     }
 }

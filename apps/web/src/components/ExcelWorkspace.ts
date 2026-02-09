@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import type * as XLSXTypes from 'xlsx';
 import DOMPurify from 'dompurify';
 import type { ExcelPanelElements, ExcelWorkspaceOptions } from '../types/excel';
 import type { VATReportData } from '../types/vat';
@@ -8,6 +8,15 @@ import { ExcelArtifact, type ExcelSheet, type ExcelArtifactProps } from './Excel
 import { mountPreactComponent } from './preact-adapter';
 import { logger } from '../services/LoggerService';
 import { buildAnalysisSummary } from '../utils/analysisSummary';
+
+/** Lazy-load xlsx to reduce initial bundle size (~300KB) */
+let _xlsxModule: typeof import('xlsx') | null = null;
+async function getXLSX(): Promise<typeof import('xlsx')> {
+    if (!_xlsxModule) {
+        _xlsxModule = await import('xlsx');
+    }
+    return _xlsxModule;
+}
 
 /**
  * ExcelWorkspace - Handles parsing and displaying Excel files using SheetJS
@@ -19,7 +28,7 @@ import { buildAnalysisSummary } from '../utils/analysisSummary';
  * - Smooth slide-in/slide-out animations
  */
 export type ArtifactContent =
-    | { type: 'excel'; workbook: XLSX.WorkBook; filename: string }
+    | { type: 'excel'; workbook: XLSXTypes.WorkBook; filename: string }
     | { type: 'vat_report'; data: VATReportData; fileUrl?: string; filePath?: string; fileBucket?: string };
 
 /**
@@ -33,7 +42,7 @@ export type PanelState =
     | 'error';
 
 export class ExcelWorkspace {
-    private currentWorkbook: XLSX.WorkBook | null = null;
+    private currentWorkbook: XLSXTypes.WorkBook | null = null;
     private currentFile: string | null = null;
     private currentContent: ArtifactContent | null = null;
     private panelState: PanelState = 'closed';
@@ -220,7 +229,8 @@ export class ExcelWorkspace {
 
             const arrayBuffer = await response.arrayBuffer();
 
-            // Parse the Excel file with SheetJS
+            // Parse the Excel file with SheetJS (lazy-loaded)
+            const XLSX = await getXLSX();
             this.currentWorkbook = XLSX.read(arrayBuffer, { type: 'array' });
             this.currentFile = filename;
 
@@ -229,13 +239,13 @@ export class ExcelWorkspace {
 
             // Display the first sheet
             if (this.currentWorkbook.SheetNames.length > 0) {
-                this.displaySheet(this.currentWorkbook.SheetNames[0]);
+                await this.displaySheet(this.currentWorkbook.SheetNames[0]);
             } else {
                 this.elements.container.innerHTML = '<div class="excel-error">Inga flikar hittades i denna Excel-fil.</div>';
             }
 
         } catch (error) {
-            console.error('Error opening Excel file:', error);
+            logger.error('Error opening Excel file', error);
             const errorMessage = error instanceof Error ? error.message : 'Okänt fel';
             this.elements.container.innerHTML = `<div class="excel-error">Kunde inte ladda Excel-filen: ${this.escapeHtml(errorMessage)}</div>`;
 
@@ -283,7 +293,8 @@ export class ExcelWorkspace {
 
             const arrayBuffer = await response.arrayBuffer();
 
-            // Parse the Excel file with SheetJS
+            // Parse the Excel file with SheetJS (lazy-loaded)
+            const XLSX = await getXLSX();
             this.currentWorkbook = XLSX.read(arrayBuffer, { type: 'array' });
             this.currentFile = filename;
 
@@ -350,7 +361,7 @@ export class ExcelWorkspace {
             logger.debug('Excel artifact opened', { filename, sheets: sheets.length, rows: previewRows.length, state: this.panelState });
 
         } catch (error) {
-            console.error('Error opening Excel artifact:', error);
+            logger.error('Error opening Excel artifact', error);
             const errorMessage = error instanceof Error ? error.message : 'Okänt fel';
             this.elements.container.innerHTML = `<div class="excel-error">Kunde inte ladda Excel-filen: ${this.escapeHtml(errorMessage)}</div>`;
 
@@ -412,9 +423,10 @@ export class ExcelWorkspace {
     /**
      * Update the ExcelArtifact status (e.g., when analysis starts)
      */
-    updateArtifactStatus(status: ExcelArtifactProps['status']): void {
+    async updateArtifactStatus(status: ExcelArtifactProps['status']): Promise<void> {
         // Re-mount with updated status
         if (this.currentWorkbook && this.currentFile) {
+            const XLSX = await getXLSX();
             const sheets: ExcelSheet[] = this.currentWorkbook.SheetNames.map(name => {
                 const worksheet = this.currentWorkbook!.Sheets[name];
                 const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
@@ -489,7 +501,7 @@ export class ExcelWorkspace {
                 tab.setAttribute('aria-selected', 'true');
 
                 // Display the selected sheet
-                this.displaySheet(sheetName);
+                void this.displaySheet(sheetName);
 
                 // Call sheet change callback if provided
                 if (this.options.onSheetChange) {
@@ -506,7 +518,7 @@ export class ExcelWorkspace {
      *
      * @param sheetName - Name of the sheet to display
      */
-    private displaySheet(sheetName: string): void {
+    private async displaySheet(sheetName: string): Promise<void> {
         if (!this.currentWorkbook) {
             this.setVatReportMode(false);
             this.elements.container.innerHTML = '<div class="excel-error">Ingen arbetsbok laddad.</div>';
@@ -522,6 +534,7 @@ export class ExcelWorkspace {
         }
 
         // Convert worksheet to HTML table
+        const XLSX = await getXLSX();
         const htmlTable = XLSX.utils.sheet_to_html(worksheet, {
             id: 'excel-table',
             editable: false
@@ -858,6 +871,7 @@ export class ExcelWorkspace {
         hintsEl.innerHTML = hints.map(hint => `<span class="preflight-hint">${this.escapeHtml(hint)}</span>`).join('');
 
         try {
+            const XLSX = await getXLSX();
             const arrayBuffer = await file.arrayBuffer();
             const workbook = XLSX.read(arrayBuffer, { type: 'array' });
             const sheetNames = workbook.SheetNames || [];
@@ -1349,7 +1363,7 @@ export class ExcelWorkspace {
 
             logger.debug('VAT report opened in panel (Preact)', { period: data.period, skipSave, state: this.panelState });
         } catch (error) {
-            console.error('Error opening VAT report:', error);
+            logger.error('Error opening VAT report', error);
             const errorMessage = error instanceof Error ? error.message : 'Okänt fel';
             this.elements.container.innerHTML = `<div class="excel-error">Kunde inte visa momsrapporten: ${this.escapeHtml(errorMessage)}</div>`;
 

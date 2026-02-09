@@ -1,6 +1,7 @@
 import { FunctionComponent } from 'preact';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'preact/hooks';
 import { supabase } from '../../lib/supabase';
+import { logger } from '../../services/LoggerService';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
 import { FetchErrorFallback } from '../ErrorBoundary';
@@ -165,7 +166,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         } catch (error) {
             if (fetchId !== fetchVersionRef.current) return;
             const errorMsg = error instanceof Error ? error.message : 'Kunde inte ladda meddelanden';
-            console.error('Error fetching messages:', error);
+            logger.error('Error fetching messages', error);
             setFetchError(errorMsg);
             window.dispatchEvent(new CustomEvent('chat-messages-loaded', {
                 detail: {
