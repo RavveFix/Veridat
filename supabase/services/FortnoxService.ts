@@ -141,6 +141,30 @@ export class FortnoxService {
 
             if (!response.ok) {
                 const errorText = await response.text();
+
+                // If invalid_grant, another concurrent request may have already refreshed.
+                // Re-read the DB — if a newer token exists, use it instead of failing.
+                if (response.status === 400 && errorText.includes('invalid_grant')) {
+                    logger.info('invalid_grant — checking if another process already refreshed');
+                    const { data: latestRow } = await this.supabase
+                        .from('fortnox_tokens')
+                        .select('access_token, expires_at')
+                        .eq('user_id', this.userId)
+                        .single();
+
+                    if (latestRow) {
+                        const latestExpiry = new Date(latestRow.expires_at).getTime();
+                        if (latestExpiry > Date.now() + 60_000) {
+                            // Another process already refreshed — use the new token
+                            logger.info('Found valid token from concurrent refresh');
+                            return latestRow.access_token;
+                        }
+                    }
+
+                    // Token is truly invalid — user needs to re-authenticate
+                    throw new Error('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
+                }
+
                 throw new Error(`Failed to refresh token: ${response.status} ${errorText}`);
             }
 

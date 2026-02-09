@@ -92,6 +92,9 @@ export class AppController {
         // Setup integrations button
         this.setupIntegrationsButton();
 
+        // Setup copilot tool event listener
+        this.setupCopilotToolListener();
+
         // Setup new chat button
         this.setupNewChatButton();
 
@@ -512,6 +515,36 @@ export class AppController {
             this.integrationsListenerAttached = true;
             logger.debug('Integrations button listener attached');
         }
+    }
+
+    /**
+     * Listens for copilot-open-tool events and opens IntegrationsModal with the requested tool.
+     */
+    private setupCopilotToolListener(): void {
+        window.addEventListener('copilot-open-tool', ((e: CustomEvent<{ tool: string }>) => {
+            const tool = e.detail?.tool;
+            if (!tool) return;
+
+            // Clean up previous instance if exists
+            if (this.integrationsCleanup) {
+                this.integrationsCleanup();
+                this.integrationsCleanup = null;
+            }
+
+            this.integrationsCleanup = mountModal({
+                containerId: 'integrations-modal-container',
+                Component: IntegrationsModal,
+                props: {
+                    initialTool: tool,
+                    onClose: () => {
+                        if (this.integrationsCleanup) {
+                            this.integrationsCleanup();
+                            this.integrationsCleanup = null;
+                        }
+                    }
+                }
+            });
+        }) as EventListener);
     }
 
     private setupNewChatButton(): void {

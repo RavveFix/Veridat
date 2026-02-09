@@ -17,9 +17,11 @@ import { BookkeepingRulesPanel } from './BookkeepingRulesPanel';
 import { ReconciliationView } from './ReconciliationView';
 import { InvoiceInboxPanel } from './InvoiceInboxPanel';
 import { DashboardPanel } from './DashboardPanel';
+import { VATReportFromFortnoxPanel } from './VATReportFromFortnoxPanel';
 
 interface IntegrationsModalProps {
     onClose: () => void;
+    initialTool?: string;
 }
 
 // Integration definitions - easily extensible
@@ -47,14 +49,14 @@ const INTEGRATIONS_CONFIG: Omit<Integration, 'status'>[] = [
 // Which integrations are available vs coming soon
 const AVAILABLE_INTEGRATIONS = ['fortnox'];
 
-export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
+export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalProps) {
     const [integrations, setIntegrations] = useState<Integration[]>([]);
     const [loading, setLoading] = useState(true);
     const [connecting, setConnecting] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [abortController, setAbortController] = useState<AbortController | null>(null);
     const [loadingTimeout, setLoadingTimeout] = useState(false);
-    const [activeTool, setActiveTool] = useState<'bank-import' | 'agency' | 'fortnox-panel' | 'bookkeeping-rules' | 'reconciliation' | 'invoice-inbox' | 'dashboard' | null>(null);
+    const [activeTool, setActiveTool] = useState<'bank-import' | 'agency' | 'fortnox-panel' | 'bookkeeping-rules' | 'reconciliation' | 'invoice-inbox' | 'dashboard' | 'vat-report' | null>(initialTool as any ?? null);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -421,6 +423,19 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
         );
     }
 
+    if (activeTool === 'vat-report') {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Momsdeklaration"
+                subtitle="Momsrapport baserad på din Fortnox-bokföring."
+                maxWidth="1200px"
+            >
+                <VATReportFromFortnoxPanel onBack={() => setActiveTool(null)} />
+            </ModalWrapper>
+        );
+    }
+
     if (activeTool === 'fortnox-panel') {
         return (
             <ModalWrapper
@@ -618,6 +633,40 @@ export function IntegrationsModal({ onClose }: IntegrationsModalProps) {
                                 <div style={{ fontWeight: 600 }}>Översikt</div>
                                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                     Dashboard med ekonomisk status, deadlines och snabbåtgärder.
+                                </div>
+                            </div>
+                            <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '999px',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10b981',
+                                fontSize: '0.7rem',
+                                fontWeight: 600
+                            }}>
+                                Nytt
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTool('vat-report')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '1rem',
+                                padding: '0.9rem 1rem',
+                                borderRadius: '10px',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer',
+                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                            }}
+                        >
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 600 }}>Momsdeklaration</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Hämta momsrapport direkt från Fortnox med intäkter, kostnader och momsavräkning.
                                 </div>
                             </div>
                             <span style={{

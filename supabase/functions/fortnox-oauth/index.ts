@@ -28,7 +28,6 @@ const FORTNOX_SCOPES = [
     'customer',
     'article',
     'invoice',
-    'payment',
     'bookkeeping',
     'companyinformation',
     'supplier',
@@ -237,7 +236,7 @@ async function handleInitiate(userId: string, supabaseUrl: string, corsHeaders: 
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('access_type', 'offline');
 
-    logger.info('Generated Fortnox authorization URL', { userId });
+    logger.info('Generated Fortnox authorization URL', { userId, redirectUri });
 
     return new Response(
         JSON.stringify({

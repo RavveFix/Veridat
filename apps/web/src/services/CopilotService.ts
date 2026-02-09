@@ -407,6 +407,7 @@ class CopilotServiceClass extends EventTarget {
                 : `Momsdeklaration för ${month} ska lämnas senast den 12:e (${daysLeft} dagar kvar).`,
             severity: daysLeft <= 3 ? 'critical' : 'warning',
             prompt: 'Hjälp mig förbereda momsdeklarationen för denna period.',
+            action: 'vat-report',
             createdAt: new Date().toISOString(),
             read: false,
         });

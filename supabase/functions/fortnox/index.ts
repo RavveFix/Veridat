@@ -602,6 +602,190 @@ Deno.serve(async (req: Request) => {
                 break;
             }
 
+            // ================================================================
+            // VAT REPORT — fetches individual invoices for exact VAT breakdown
+            // ================================================================
+            case 'getVATReport': {
+                // 1. Fetch company info + financial years + invoice lists in parallel
+                type InvList = { Invoices: Array<{ DocumentNumber: number; CustomerName?: string; CustomerNumber: string; InvoiceDate?: string; Total?: number; Booked?: boolean; Cancelled?: boolean }> };
+                type SuppInvList = { SupplierInvoices: Array<{ GivenNumber: number; SupplierNumber: string; InvoiceDate: string; Total: number; VAT?: number; Booked: boolean }> };
+
+                const [vatCompanyResp, vatYearsResp] = await Promise.all([
+                    fortnoxService.getCompanyInfo(),
+                    fortnoxService.getFinancialYears(),
+                ]);
+                const vatCompany = vatCompanyResp.CompanyInformation;
+                const currentFY = vatYearsResp.FinancialYears?.[0];
+                const fyFrom = currentFY?.FromDate || `${new Date().getFullYear()}-01-01`;
+                const fyTo = currentFY?.ToDate || `${new Date().getFullYear()}-12-31`;
+
+                // 2. Fetch invoice lists + supplier invoices
+                const [invoicesResp, suppInvResp] = await Promise.all([
+                    fortnoxService.request<InvList>(
+                        `/invoices?fromdate=${fyFrom}&todate=${fyTo}&limit=500`
+                    ).catch(() => ({ Invoices: [] as InvList['Invoices'] })),
+                    fortnoxService.request<SuppInvList>(
+                        `/supplierinvoices?fromdate=${fyFrom}&todate=${fyTo}&limit=500`
+                    ).catch(() => ({ SupplierInvoices: [] as SuppInvList['SupplierInvoices'] })),
+                ]);
+
+                const allInvoices = (invoicesResp?.Invoices || []).filter(inv => !inv.Cancelled);
+                const suppInvoices = suppInvResp?.SupplierInvoices || [];
+
+                // 3. Fetch each invoice individually for exact Net/VAT/Total breakdown
+                type InvDetail = { Invoice: { DocumentNumber: number; CustomerName?: string; InvoiceDate?: string; Net?: number; Total?: number; TotalVAT?: number; VATIncluded?: boolean; Booked?: boolean; InvoiceRows?: Array<{ AccountNumber?: number; Price?: number; VAT?: number }> } };
+                type SuppInvDetail = { SupplierInvoice: { GivenNumber: number; SupplierName?: string; InvoiceDate?: string; Total: number; VAT?: number; Booked: boolean } };
+
+                const invDetails: Array<{ nr: number; customer: string; date: string; net: number; vat: number; total: number; booked: boolean }> = [];
+                for (let i = 0; i < allInvoices.length; i += 4) {
+                    const batch = allInvoices.slice(i, i + 4);
+                    const results = await Promise.all(
+                        batch.map(inv =>
+                            fortnoxService.request<InvDetail>(`/invoices/${inv.DocumentNumber}`).catch(() => null)
+                        )
+                    );
+                    for (const r of results) {
+                        if (r?.Invoice) {
+                            const inv = r.Invoice;
+                            invDetails.push({
+                                nr: inv.DocumentNumber,
+                                customer: inv.CustomerName || '',
+                                date: inv.InvoiceDate || '',
+                                net: Number(inv.Net) || 0,
+                                vat: Number(inv.TotalVAT) || 0,
+                                total: Number(inv.Total) || 0,
+                                booked: inv.Booked || false,
+                            });
+                        }
+                    }
+                }
+
+                // Fetch supplier invoice details
+                const suppDetails: Array<{ nr: number; supplier: string; date: string; net: number; vat: number; total: number; booked: boolean }> = [];
+                for (let i = 0; i < suppInvoices.length; i += 4) {
+                    const batch = suppInvoices.slice(i, i + 4);
+                    const results = await Promise.all(
+                        batch.map(inv =>
+                            fortnoxService.request<SuppInvDetail>(`/supplierinvoices/${inv.GivenNumber}`).catch(() => null)
+                        )
+                    );
+                    for (const r of results) {
+                        if (r?.SupplierInvoice) {
+                            const inv = r.SupplierInvoice;
+                            const vatAmt = Number(inv.VAT) || 0;
+                            const total = Number(inv.Total) || 0;
+                            suppDetails.push({
+                                nr: inv.GivenNumber,
+                                supplier: inv.SupplierName || '',
+                                date: inv.InvoiceDate || '',
+                                net: total - vatAmt,
+                                vat: vatAmt,
+                                total,
+                                booked: inv.Booked || false,
+                            });
+                        }
+                    }
+                }
+
+                // 4. Calculate totals from invoice data (ALL invoices, not just booked)
+                const totalRevNet = invDetails.reduce((s, inv) => s + inv.net, 0);
+                const totalRevVat = invDetails.reduce((s, inv) => s + inv.vat, 0);
+                const totalCostNet = suppDetails.reduce((s, inv) => s + inv.net, 0);
+                const totalCostVat = suppDetails.reduce((s, inv) => s + inv.vat, 0);
+
+                // 5. Group revenue by VAT rate (derive rate from vat/net ratio)
+                const revenueByRate: Record<number, { net: number; vat: number }> = {};
+                for (const inv of invDetails) {
+                    const rate = inv.net > 0 ? Math.round((inv.vat / inv.net) * 100) : 0;
+                    if (!revenueByRate[rate]) revenueByRate[rate] = { net: 0, vat: 0 };
+                    revenueByRate[rate].net += inv.net;
+                    revenueByRate[rate].vat += inv.vat;
+                }
+
+                const vatSales: Array<{ description: string; net: number; vat: number; rate: number }> = [];
+                for (const [rateStr, amounts] of Object.entries(revenueByRate)) {
+                    const rate = Number(rateStr);
+                    const label = rate === 0 ? 'Momsfri försäljning' : `Försäljning ${rate}% moms`;
+                    vatSales.push({ description: label, net: amounts.net, vat: amounts.vat, rate });
+                }
+                vatSales.sort((a, b) => b.rate - a.rate);
+
+                // 6. Group costs by VAT rate
+                const costsByRate: Record<number, { net: number; vat: number }> = {};
+                for (const inv of suppDetails) {
+                    const rate = inv.net > 0 ? Math.round((inv.vat / inv.net) * 100) : 0;
+                    if (!costsByRate[rate]) costsByRate[rate] = { net: 0, vat: 0 };
+                    costsByRate[rate].net += inv.net;
+                    costsByRate[rate].vat += inv.vat;
+                }
+
+                const vatCosts: Array<{ description: string; net: number; vat: number; rate: number }> = [];
+                for (const [rateStr, amounts] of Object.entries(costsByRate)) {
+                    const rate = Number(rateStr);
+                    const label = rate === 0 ? 'Momsfria kostnader' : `Inköp med ${rate}% moms`;
+                    vatCosts.push({ description: label, net: amounts.net, vat: amounts.vat, rate });
+                }
+                vatCosts.sort((a, b) => b.rate - a.rate);
+
+                // 7. VAT summary
+                const outgoing25 = revenueByRate[25]?.vat || 0;
+                const outgoing12 = revenueByRate[12]?.vat || 0;
+                const outgoing6 = revenueByRate[6]?.vat || 0;
+                const incomingVat = totalCostVat;
+                const netVat = totalRevVat - incomingVat;
+
+                const vatSummaryData = {
+                    outgoing_25: outgoing25, outgoing_12: outgoing12, outgoing_6: outgoing6,
+                    incoming: incomingVat, net: netVat,
+                    ...(netVat >= 0 ? { to_pay: netVat } : { to_refund: Math.abs(netVat) }),
+                };
+
+                // 8. Journal entries (momsavräkningsverifikat)
+                const vatJournal: Array<{ account: string; name: string; debit: number; credit: number }> = [];
+                if (outgoing25 > 0) vatJournal.push({ account: '2611', name: 'Utgående moms 25%', debit: outgoing25, credit: 0 });
+                if (outgoing12 > 0) vatJournal.push({ account: '2621', name: 'Utgående moms 12%', debit: outgoing12, credit: 0 });
+                if (outgoing6 > 0) vatJournal.push({ account: '2631', name: 'Utgående moms 6%', debit: outgoing6, credit: 0 });
+                if (incomingVat > 0) vatJournal.push({ account: '2641', name: 'Ingående moms', debit: 0, credit: incomingVat });
+                vatJournal.push({ account: '2650', name: 'Momsredovisning', debit: netVat < 0 ? Math.abs(netVat) : 0, credit: netVat >= 0 ? netVat : 0 });
+
+                const debitSum = vatJournal.reduce((s, j) => s + j.debit, 0);
+                const creditSum = vatJournal.reduce((s, j) => s + j.credit, 0);
+                const balanced = Math.abs(debitSum - creditSum) < 0.01;
+
+                // 9. Warnings
+                const warnings: string[] = [];
+                const unbookedCount = invDetails.filter(i => !i.booked).length;
+                if (unbookedCount > 0) warnings.push(`${unbookedCount} faktura(or) är ännu inte bokförda`);
+                if (invDetails.length === 0 && suppDetails.length === 0) warnings.push('Inga fakturor hittades i perioden');
+
+                result = {
+                    type: 'vat_report',
+                    data: {
+                        type: 'vat_report',
+                        period: `${fyFrom} – ${fyTo}`,
+                        company: { name: vatCompany.CompanyName, org_number: vatCompany.OrganizationNumber },
+                        summary: { total_income: totalRevNet, total_costs: totalCostNet, result: totalRevNet - totalCostNet },
+                        sales: vatSales, costs: vatCosts, vat: vatSummaryData,
+                        journal_entries: vatJournal,
+                        validation: {
+                            is_valid: balanced && unbookedCount === 0,
+                            errors: balanced ? [] : ['Momsavräkning är inte balanserad'],
+                            warnings,
+                        },
+                    },
+                    invoices: invDetails,
+                    supplierInvoices: suppDetails,
+                };
+
+                logger.info('VAT report generated', {
+                    company: vatCompany.CompanyName,
+                    invoices: invDetails.length, unbookedCount,
+                    suppInvoices: suppDetails.length,
+                    totalRevNet, totalRevVat, totalCostNet, totalCostVat,
+                });
+                break;
+            }
+
             default:
                 throw new Error(`Unknown action: ${action}`);
         }
