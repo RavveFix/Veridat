@@ -42,7 +42,7 @@ Detailed documentation is split into focused modules:
 |--------|---------|
 | [Architecture](.claude/docs/01-architecture.md) | Service layer, file routing, Edge Functions, database |
 | [Development](.claude/docs/02-development.md) | Local setup, commands, testing |
-| [Deployment](.claude/docs/03-deployment.md) | Railway, Supabase, Vercel workflows |
+| [Deployment](.claude/docs/03-deployment.md) | Supabase, Vercel workflows |
 | [Security](.claude/docs/04-security.md) | CORS, RLS, rate limiting, secrets |
 | [Testing](.claude/docs/05-testing.md) | Unit tests, API verification, E2E |
 | [Debugging](.claude/docs/06-debugging.md) | Common issues, troubleshooting |
@@ -65,7 +65,9 @@ Text → gemini-chat → Gemini AI
 ### Edge Functions
 - `gemini-chat` - Main chat, PDF analysis
 - `analyze-excel-ai` - Excel analysis (Monta: deterministic, Other: OpenAI mapping)
-- `fortnox` - Accounting operations
+- `fortnox` - Accounting operations (invoices, VAT report, company info)
+- `fortnox-oauth` - OAuth 2.0 flow with HMAC state signing
+- `memory-generator` - AI memory generation from conversations
 
 ### Services
 - `GeminiService` - AI interactions
@@ -87,14 +89,16 @@ Text → gemini-chat → Gemini AI
 ### Supabase Secrets
 ```bash
 supabase secrets set GEMINI_API_KEY=...
-supabase secrets set OPENAI_API_KEY=...  # For column mapping
+supabase secrets set OPENAI_API_KEY=...          # For column mapping
 supabase secrets set FORTNOX_CLIENT_ID=...
 supabase secrets set FORTNOX_CLIENT_SECRET=...
+supabase secrets set FORTNOX_OAUTH_STATE_SECRET=... # HMAC signing for OAuth CSRF
 ```
 
 ### Frontend (.env)
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_SENTRY_DSN` (optional — Sentry error tracking)
 
 ---
 
@@ -143,7 +147,7 @@ Development workflow commands:
 
 - Swedish language for all user-facing content
 - BAS account plan for bookkeeping
-- LocalStorage for frontend data (no Supabase auth yet)
+- Supabase Auth with magic link (OTP) + RLS on all tables
 - Rate limiting defaults to 'anonymous' for unauthenticated users
 
 ---
@@ -152,13 +156,16 @@ Development workflow commands:
 
 - [x] Edge Functions deployed (Supabase)
 - [x] Security fixes (CORS, timing attacks)
+- [x] **Supabase Auth** (magic link + RLS + GDPR consent)
 - [x] **Supabase Realtime Sync** (live chat updates)
 - [x] **Monta Deterministic Parser** (100% accuracy for EV charging)
 - [x] **Swedish Accounting Services** (öresavrundning, BAS-konton, journalposter)
 - [x] **Zero VAT Validation** (ML 3:30a compliance)
-- [x] **Python API removed** (all logic now in Edge Functions)
-- [ ] Production frontend (Vercel)
-- [ ] E2E testing
+- [x] **Fortnox Integration** (OAuth 2.0, VAT report, invoices, token refresh)
+- [x] **Sentry error tracking** (frontend)
+- [x] **CI pipeline** (lint + test + build)
+- [x] Production frontend (Vercel)
+- [ ] E2E testing (Playwright — minimal coverage)
 
 ---
 

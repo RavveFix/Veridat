@@ -5,9 +5,19 @@
  * All business logic has been extracted to controllers in src/controllers/.
  */
 
+import * as Sentry from '@sentry/browser';
 import { appController } from './controllers/AppController';
 import { logger } from './services/LoggerService';
 import { companyManager } from './services/CompanyService';
+
+// Initialize Sentry error tracking (production only)
+if (import.meta.env.PROD && import.meta.env.VITE_SENTRY_DSN) {
+    Sentry.init({
+        dsn: import.meta.env.VITE_SENTRY_DSN,
+        environment: import.meta.env.MODE,
+        tracesSampleRate: 0.1,
+    });
+}
 
 // Styles
 import './styles/main.css';

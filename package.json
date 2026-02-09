@@ -44,6 +44,7 @@
   "dependencies": {
     "@heroui/react": "^2.8.7",
     "@preact/preset-vite": "^2.10.2",
+    "@sentry/browser": "^10.38.0",
     "@supabase/supabase-js": "^2.39.0",
     "@types/dompurify": "^3.0.5",
     "clsx": "^2.1.1",

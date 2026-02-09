@@ -28,6 +28,7 @@ export default defineConfig({
         // Keep the build output in the repo root for existing deploy configs.
         outDir: resolve(__dirname, '../../dist'),
         emptyOutDir: true,
+        sourcemap: true,
         rollupOptions: {
             input: {
                 main: resolve(__dirname, 'index.html'),
