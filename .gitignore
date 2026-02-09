@@ -53,6 +53,9 @@ env/
 *.pem
 *.key
 *.cert
+
+# Exceptions: SQL migrations may contain "token", "secret" etc. in filenames
+!supabase/migrations/*.sql
 *session*continuation*.md
 docs/*security*.md
 
