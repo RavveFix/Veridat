@@ -16,6 +16,7 @@ import { bankImportService } from '../services/BankImportService';
 import { copilotService } from '../services/CopilotService';
 import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
 import { companyService } from '../services/CompanyService';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 // =============================================================================
 // TYPES
@@ -35,6 +36,7 @@ interface DashboardData {
     unbookedCount: number;
     pendingInvoices: number;
     unreconciledCount: number;
+    guardianAlertCount: number;
     monthStatuses: MonthBadge[];
     deadlines: Deadline[];
 }
@@ -77,19 +79,22 @@ function aggregateDashboardData(companyId: string): DashboardData {
     const notifications = copilotService.getNotifications();
     const overdueCount = notifications.filter(n => n.type === 'overdue_invoice').length;
     const unbookedCount = notifications.filter(n => n.type === 'unbooked_invoice').length;
+    const guardianAlertCount = notifications.filter(n =>
+        n.type === 'guardian_alert' && (n.severity === 'critical' || n.severity === 'warning')
+    ).length;
 
     let pendingInvoices = 0;
     try {
-        const inboxRaw = localStorage.getItem('veridat_invoice_inbox');
+        const inboxRaw = localStorage.getItem(STORAGE_KEYS.invoiceInbox);
         if (inboxRaw) {
             const inboxStore = JSON.parse(inboxRaw) as Record<string, Array<{ status: string }>>;
-            pendingInvoices = (inboxStore[companyId] || []).filter(i => i.status === 'ny').length;
+            pendingInvoices = (inboxStore[companyId] || []).filter(i => i.status === 'ny' || i.status === 'granskad').length;
         }
     } catch { /* ignore */ }
 
     let reconciledSet = new Set<string>();
     try {
-        const reconRaw = localStorage.getItem('veridat_reconciled_periods');
+        const reconRaw = localStorage.getItem(STORAGE_KEYS.reconciledPeriods);
         if (reconRaw) {
             const reconStore = JSON.parse(reconRaw) as Record<string, string[]>;
             reconciledSet = new Set(reconStore[companyId] || []);
@@ -121,7 +126,19 @@ function aggregateDashboardData(companyId: string): DashboardData {
     const fortnoxStatus = fortnoxContextService.getConnectionStatus();
     const deadlines = computeDeadlines(companyId);
 
-    return { resultat, momssaldo, banksaldo, fortnoxStatus, overdueCount, unbookedCount, pendingInvoices, unreconciledCount, monthStatuses, deadlines };
+    return {
+        resultat,
+        momssaldo,
+        banksaldo,
+        fortnoxStatus,
+        overdueCount,
+        unbookedCount,
+        pendingInvoices,
+        unreconciledCount,
+        guardianAlertCount,
+        monthStatuses,
+        deadlines
+    };
 }
 
 function computeDeadlines(companyId: string): Deadline[] {
@@ -150,7 +167,7 @@ function computeDeadlines(companyId: string): Deadline[] {
     });
 
     try {
-        const inboxRaw = localStorage.getItem('veridat_invoice_inbox');
+        const inboxRaw = localStorage.getItem(STORAGE_KEYS.invoiceInbox);
         if (inboxRaw) {
             const inboxStore = JSON.parse(inboxRaw) as Record<string, Array<{ dueDate: string; supplierName: string; status: string }>>;
             for (const inv of (inboxStore[companyId] || [])) {
@@ -196,6 +213,7 @@ const MONTH_COLORS: Record<string, { dot: string; bg: string; border: string }> 
 const STATUS_CONFIGS = [
     { key: 'overdue', icon: 'alert-circle', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)', label: 'Förfallna fakturor', nav: 'fortnox-panel' },
     { key: 'unbooked', icon: 'file-text', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', label: 'Obokförda fakturor', nav: 'fortnox-panel' },
+    { key: 'guardian', icon: 'shield-alert', color: '#f97316', bg: 'rgba(249, 115, 22, 0.1)', label: 'Guardian-larm', nav: 'fortnox-panel' },
     { key: 'inbox', icon: 'inbox', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', label: 'Väntande i inkorgen', nav: 'invoice-inbox' },
     { key: 'unrecon', icon: 'check-circle', color: '#0ea5e9', bg: 'rgba(14, 165, 233, 0.1)', label: 'Ej avstämda perioder', nav: 'reconciliation' },
 ] as const;
@@ -224,12 +242,13 @@ export const DashboardPanel: FunctionComponent<DashboardPanelProps> = ({ onNavig
         return () => copilotService.removeEventListener('copilot-updated', handler as EventListener);
     }, [refresh]);
 
-    const hasAnyData = data.resultat !== null || data.banksaldo !== 0 || data.pendingInvoices > 0 || data.overdueCount > 0;
-    const allClear = hasAnyData && data.overdueCount === 0 && data.unbookedCount === 0 && data.pendingInvoices === 0 && data.unreconciledCount === 0;
+    const hasAnyData = data.resultat !== null || data.banksaldo !== 0 || data.pendingInvoices > 0 || data.overdueCount > 0 || data.guardianAlertCount > 0;
+    const allClear = hasAnyData && data.overdueCount === 0 && data.unbookedCount === 0 && data.pendingInvoices === 0 && data.unreconciledCount === 0 && data.guardianAlertCount === 0;
 
     const statusCounts: Record<string, number> = {
         overdue: data.overdueCount,
         unbooked: data.unbookedCount,
+        guardian: data.guardianAlertCount,
         inbox: data.pendingInvoices,
         unrecon: data.unreconciledCount,
     };
@@ -530,6 +549,7 @@ const StatusIcon: FunctionComponent<{ type: string }> = ({ type }) => {
     switch (type) {
         case 'alert-circle': return <svg {...props}><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>;
         case 'file-text': return <svg {...props}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>;
+        case 'shield-alert': return <svg {...props}><path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6l7-4z" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>;
         case 'inbox': return <svg {...props}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" /></svg>;
         case 'check-circle': return <svg {...props}><path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>;
         default: return null;

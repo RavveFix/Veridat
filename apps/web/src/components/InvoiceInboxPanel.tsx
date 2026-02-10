@@ -11,12 +11,15 @@ import { supabase } from '../lib/supabase';
 import { companyService } from '../services/CompanyService';
 import { fileService } from '../services/FileService';
 import { logger } from '../services/LoggerService';
+import { STORAGE_KEYS } from '../constants/storageKeys';
+import { getFortnoxList, getFortnoxObject } from '../utils/fortnoxResponse';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
 type InvoiceStatus = 'ny' | 'granskad' | 'bokford' | 'betald';
+type FortnoxSyncStatus = 'not_exported' | 'exported' | 'booked' | 'attested';
 
 type InvoiceSource = 'upload' | 'fortnox';
 
@@ -43,6 +46,7 @@ interface InvoiceInboxItem {
     basAccountName: string;
     currency: string;
     // Fortnox
+    fortnoxSyncStatus: FortnoxSyncStatus;
     fortnoxSupplierNumber: string;
     fortnoxGivenNumber: number | null;
     fortnoxBooked: boolean;
@@ -61,7 +65,7 @@ interface InvoiceInboxPanelProps {
 // CONSTANTS
 // =============================================================================
 
-const STORAGE_KEY = 'veridat_invoice_inbox';
+const STORAGE_KEY = STORAGE_KEYS.invoiceInbox;
 
 const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string; bg: string }> = {
     ny: { label: 'Ny', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },
@@ -71,6 +75,12 @@ const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string; bg: s
 };
 
 const ALL_STATUSES: InvoiceStatus[] = ['ny', 'granskad', 'bokford', 'betald'];
+const FORTNOX_SYNC_STATUS_LABELS: Record<FortnoxSyncStatus, string> = {
+    not_exported: 'Ej exporterad',
+    exported: 'Exporterad',
+    booked: 'Bokförd i Fortnox',
+    attested: 'Attesterad i Fortnox',
+};
 
 // =============================================================================
 // HELPERS
@@ -80,17 +90,55 @@ function generateId(): string {
     return `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function generateIdempotencyKey(
+    action: string,
+    companyId: string,
+    item: Pick<InvoiceInboxItem, 'id' | 'invoiceNumber' | 'fortnoxGivenNumber'>
+): string {
+    const resource = item.fortnoxGivenNumber ?? item.invoiceNumber ?? item.id;
+    return `invoice_inbox:${companyId}:${action}:${String(resource)}`;
+}
+
+function inferFortnoxSyncStatus(item: Partial<InvoiceInboxItem>): FortnoxSyncStatus {
+    if (item.fortnoxSyncStatus) {
+        return item.fortnoxSyncStatus;
+    }
+
+    if (!item.fortnoxGivenNumber) {
+        return 'not_exported';
+    }
+
+    if (item.fortnoxBooked) {
+        return 'booked';
+    }
+
+    return 'exported';
+}
+
+function normalizeStatus(status: InvoiceStatus | undefined, fortnoxSyncStatus: FortnoxSyncStatus): InvoiceStatus {
+    const nextStatus = status || 'ny';
+    if (nextStatus === 'bokford' && (fortnoxSyncStatus === 'not_exported' || fortnoxSyncStatus === 'exported')) {
+        return 'granskad';
+    }
+    return nextStatus;
+}
+
 function loadInbox(companyId: string): InvoiceInboxItem[] {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return [];
         const store = JSON.parse(raw) as Record<string, Partial<InvoiceInboxItem>[]>;
-        return (store[companyId] || []).map(item => ({
-            ...item,
-            source: item.source || 'upload',
-            fortnoxBalance: item.fortnoxBalance ?? null,
-            aiReviewNote: item.aiReviewNote || '',
-        })) as InvoiceInboxItem[];
+        return (store[companyId] || []).map(item => {
+            const fortnoxSyncStatus = inferFortnoxSyncStatus(item);
+            return {
+                ...item,
+                source: item.source || 'upload',
+                status: normalizeStatus(item.status, fortnoxSyncStatus),
+                fortnoxSyncStatus,
+                fortnoxBalance: item.fortnoxBalance ?? null,
+                aiReviewNote: item.aiReviewNote || '',
+            } as InvoiceInboxItem;
+        });
     } catch {
         return [];
     }
@@ -261,6 +309,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                     basAccountName: '',
                     currency: 'SEK',
                     fortnoxSupplierNumber: '',
+                    fortnoxSyncStatus: 'not_exported',
                     fortnoxGivenNumber: null,
                     fortnoxBooked: false,
                     fortnoxBalance: null,
@@ -469,7 +518,10 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                     body: JSON.stringify({
                         action: 'exportSupplierInvoice',
                         companyId,
-                        payload: { invoice: supplierInvoice },
+                        payload: {
+                            idempotencyKey: generateIdempotencyKey('export_supplier_invoice', companyId, item),
+                            invoice: supplierInvoice,
+                        },
                     }),
                 }
             );
@@ -480,18 +532,25 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
             }
 
             const result = await response.json();
-            const givenNumber = result?.data?.SupplierInvoice?.GivenNumber;
+            const supplierInvoiceResult = getFortnoxObject<{ GivenNumber?: number | string }>(result, 'SupplierInvoice');
+            const givenNumberRaw = supplierInvoiceResult?.GivenNumber;
+            const givenNumber = typeof givenNumberRaw === 'number'
+                ? givenNumberRaw
+                : typeof givenNumberRaw === 'string'
+                    ? Number(givenNumberRaw)
+                    : null;
+            const hasGivenNumber = typeof givenNumber === 'number' && Number.isFinite(givenNumber);
 
             updateItems(prev => prev.map(i => {
                 if (i.id !== item.id) return i;
                 return {
                     ...i,
-                    status: 'bokford' as InvoiceStatus,
-                    fortnoxGivenNumber: givenNumber || null,
+                    fortnoxGivenNumber: hasGivenNumber ? givenNumber : null,
+                    fortnoxSyncStatus: hasGivenNumber ? 'exported' : i.fortnoxSyncStatus,
                 };
             }));
 
-            setSuccessMsg(`Faktura ${item.invoiceNumber} exporterad till Fortnox${givenNumber ? ` (Nr ${givenNumber})` : ''}.`);
+            setSuccessMsg(`Faktura ${item.invoiceNumber} exporterad till Fortnox${hasGivenNumber ? ` (Nr ${givenNumber})` : ''}.`);
         } catch (err) {
             logger.error('Fortnox export failed:', err);
             setError(err instanceof Error ? err.message : 'Fortnox-export misslyckades.');
@@ -533,11 +592,20 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
 
             if (!response.ok) {
                 const errData = await response.json().catch(() => null);
+                if (response.status === 403) {
+                    throw new Error('Saknar behörighet i Fortnox — koppla om med leverantörs-behörighet i Integrationer.');
+                }
+                if (response.status === 401) {
+                    throw new Error('Fortnox-sessionen har gått ut — koppla om i Integrationer.');
+                }
+                if (response.status === 429) {
+                    throw new Error('För många anrop till Fortnox — vänta en stund och försök igen.');
+                }
                 throw new Error(errData?.error || `Kunde inte hämta fakturor (${response.status})`);
             }
 
             const result = await response.json();
-            const invoices = result?.data?.SupplierInvoices || result?.SupplierInvoices || [];
+            const invoices = getFortnoxList<Record<string, unknown>>(result, 'SupplierInvoices');
 
             if (invoices.length === 0) {
                 setSuccessMsg('Inga leverantörsfakturor hittades i Fortnox.');
@@ -553,17 +621,33 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 const updatedPrev = [...prev];
 
                 for (const inv of invoices) {
-                    const gn = inv.GivenNumber;
+                    const gnValue = inv.GivenNumber;
+                    const gn = typeof gnValue === 'number'
+                        ? gnValue
+                        : typeof gnValue === 'string'
+                            ? Number(gnValue)
+                            : NaN;
+                    if (!Number.isFinite(gn)) continue;
+                    const fortnoxBooked = inv.Booked === true;
+                    const nextSyncStatus: FortnoxSyncStatus = fortnoxBooked ? 'booked' : 'exported';
+
                     if (existingGivenNumbers.has(gn)) {
                         // Update existing
                         const idx = updatedPrev.findIndex(i => i.fortnoxGivenNumber === gn);
                         if (idx >= 0) {
                             updatedPrev[idx] = {
                                 ...updatedPrev[idx],
-                                fortnoxBooked: inv.Booked || false,
-                                fortnoxBalance: typeof inv.Balance === 'number' ? inv.Balance : null,
-                                totalAmount: typeof inv.Total === 'number' ? inv.Total : updatedPrev[idx].totalAmount,
-                                status: inv.Booked ? 'bokford' : updatedPrev[idx].status,
+                                supplierName: typeof inv.SupplierName === 'string' && inv.SupplierName
+                                    ? inv.SupplierName
+                                    : updatedPrev[idx].supplierName,
+                                fortnoxBooked,
+                                fortnoxSyncStatus: nextSyncStatus,
+                                fortnoxBalance: inv.Balance != null ? Number(inv.Balance) : null,
+                                totalAmount: inv.Total != null ? Number(inv.Total) : updatedPrev[idx].totalAmount,
+                                vatAmount: inv.VAT != null ? Number(inv.VAT) : updatedPrev[idx].vatAmount,
+                                status: fortnoxBooked
+                                    ? (updatedPrev[idx].status === 'betald' ? 'betald' : 'bokford')
+                                    : normalizeStatus(updatedPrev[idx].status, nextSyncStatus),
                             };
                         }
                     } else {
@@ -573,25 +657,28 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                             fileUrl: '',
                             filePath: '',
                             fileBucket: '',
-                            uploadedAt: inv.InvoiceDate || new Date().toISOString(),
-                            status: inv.Booked ? 'bokford' : 'ny',
+                            uploadedAt: typeof inv.InvoiceDate === 'string' && inv.InvoiceDate
+                                ? inv.InvoiceDate
+                                : new Date().toISOString(),
+                            status: fortnoxBooked ? 'bokford' : 'ny',
                             source: 'fortnox',
-                            supplierName: '',
+                            supplierName: typeof inv.SupplierName === 'string' ? inv.SupplierName : '',
                             supplierOrgNr: '',
-                            invoiceNumber: inv.InvoiceNumber || '',
-                            invoiceDate: inv.InvoiceDate || '',
-                            dueDate: inv.DueDate || '',
-                            totalAmount: typeof inv.Total === 'number' ? inv.Total : null,
-                            vatAmount: typeof inv.VAT === 'number' ? inv.VAT : null,
+                            invoiceNumber: typeof inv.InvoiceNumber === 'string' ? inv.InvoiceNumber : '',
+                            invoiceDate: typeof inv.InvoiceDate === 'string' ? inv.InvoiceDate : '',
+                            dueDate: typeof inv.DueDate === 'string' ? inv.DueDate : '',
+                            totalAmount: inv.Total != null ? Number(inv.Total) : null,
+                            vatAmount: inv.VAT != null ? Number(inv.VAT) : null,
                             vatRate: null,
-                            ocrNumber: inv.OCR || '',
+                            ocrNumber: typeof inv.OCR === 'string' ? inv.OCR : '',
                             basAccount: '',
                             basAccountName: '',
-                            currency: inv.Currency || 'SEK',
-                            fortnoxSupplierNumber: inv.SupplierNumber || '',
+                            currency: typeof inv.Currency === 'string' && inv.Currency ? inv.Currency : 'SEK',
+                            fortnoxSupplierNumber: typeof inv.SupplierNumber === 'string' ? inv.SupplierNumber : '',
+                            fortnoxSyncStatus: nextSyncStatus,
                             fortnoxGivenNumber: gn,
-                            fortnoxBooked: inv.Booked || false,
-                            fortnoxBalance: typeof inv.Balance === 'number' ? inv.Balance : null,
+                            fortnoxBooked,
+                            fortnoxBalance: inv.Balance != null ? Number(inv.Balance) : null,
                             aiExtracted: false,
                             aiRawResponse: '',
                             aiReviewNote: '',
@@ -642,7 +729,10 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                     body: JSON.stringify({
                         action: 'bookSupplierInvoice',
                         companyId,
-                        payload: { givenNumber: item.fortnoxGivenNumber },
+                        payload: {
+                            givenNumber: item.fortnoxGivenNumber,
+                            idempotencyKey: generateIdempotencyKey('book_supplier_invoice', companyId, item),
+                        },
                     }),
                 }
             );
@@ -652,9 +742,15 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 throw new Error(errData?.error || `Bokföring misslyckades (${response.status})`);
             }
 
-            updateItems(prev => prev.map(i =>
-                i.id === item.id ? { ...i, fortnoxBooked: true, status: 'bokford' as InvoiceStatus } : i
-            ));
+            updateItems(prev => prev.map(i => {
+                if (i.id !== item.id) return i;
+                return {
+                    ...i,
+                    fortnoxBooked: true,
+                    fortnoxSyncStatus: 'booked',
+                    status: i.status === 'betald' ? 'betald' : 'bokford',
+                };
+            }));
             setSuccessMsg(`Faktura ${item.invoiceNumber || item.fortnoxGivenNumber} bokförd i Fortnox.`);
         } catch (err) {
             logger.error('Fortnox booking failed:', err);
@@ -688,7 +784,10 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                     body: JSON.stringify({
                         action: 'approveSupplierInvoiceBookkeep',
                         companyId,
-                        payload: { givenNumber: item.fortnoxGivenNumber },
+                        payload: {
+                            givenNumber: item.fortnoxGivenNumber,
+                            idempotencyKey: generateIdempotencyKey('approve_supplier_invoice_bookkeep', companyId, item),
+                        },
                     }),
                 }
             );
@@ -698,9 +797,15 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 throw new Error(errData?.error || `Attestering misslyckades (${response.status})`);
             }
 
-            updateItems(prev => prev.map(i =>
-                i.id === item.id ? { ...i, fortnoxBooked: true, status: 'bokford' as InvoiceStatus } : i
-            ));
+            updateItems(prev => prev.map(i => {
+                if (i.id !== item.id) return i;
+                return {
+                    ...i,
+                    fortnoxBooked: true,
+                    fortnoxSyncStatus: 'attested',
+                    status: i.status === 'betald' ? 'betald' : 'bokford',
+                };
+            }));
             setSuccessMsg(`Faktura ${item.invoiceNumber || item.fortnoxGivenNumber} attesterad.`);
         } catch (err) {
             logger.error('Fortnox approval failed:', err);
@@ -725,15 +830,46 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 return;
             }
 
-            const prompt = `Granska denna leverantörsfaktura och ge en kort bedömning (max 2 meningar):
+            const prompt = `Granska denna leverantörsfaktura och föreslå BAS-konto. Svara kort (max 3 meningar).
+
+FAKTURA:
 - Leverantör: ${item.supplierName || item.fortnoxSupplierNumber || 'okänd'}
 - Fakturanr: ${item.invoiceNumber}
 - Belopp: ${item.totalAmount} ${item.currency}
 - Moms: ${item.vatAmount ?? 'okänd'} (${item.vatRate ?? '?'}%)
-- BAS-konto: ${item.basAccount} ${item.basAccountName}
+- Nuvarande BAS-konto: ${item.basAccount ? `${item.basAccount} ${item.basAccountName}` : 'ej satt'}
 - Förfallodatum: ${item.dueDate}
 
-Är kontosättningen rimlig? Om BAS-konto saknas eller verkar fel, föreslå rätt konto.`;
+VÄLJ KONTO FRÅN DENNA LISTA (BAS 2024) — gissa inte:
+
+Tillgångar: 1210 Maskiner/inventarier | 1240 Bilar
+Varuinköp: 4010 Varuinköp | 4515 Inköp EU | 4516 Import | 4531 Tjänsteimport | 4600 Legoarbeten
+Lokal: 5010 Hyra | 5020 El | 5060 Städning | 5070 Reparation
+Förbruk: 5400 Förbrukningsinventarier | 5460 Material
+Fordon: 5611 Drivmedel | 5615 Billeasing
+Resa: 5800 Resekostnader | 5810 Biljetter | 5820 Hotell | 5831 Traktamente inr. | 5832 Traktamente utr.
+Mark: 5910 Annonsering | 5930 Reklamtrycksaker
+Repr: 6071 Avdragsgill | 6072 Ej avdragsgill
+Kontor: 6110 Kontorsmaterial | 6211 Telefon | 6212 Mobil | 6230 Internet | 6250 Porto
+Försk: 6310 Företagsförsäkring | 6340 Leasing | 6350 Bilförsäkring
+Tjänster: 6420 Frakter | 6423 Löneadmin | 6530 Redovisning | 6540 IT/SaaS
+6550 Konsultarvoden | 6560 Serviceavg (Swish/Klarna) | 6570 Bank
+6580 Advokat/juridik | 6590 Övriga tjänster | 6800 Inhyrd personal
+Övrigt: 6910 Utbildning | 6980 Föreningsavgifter
+Finans: 8400 Ränta | 8420 Dröjsmålsränta | 8430 Valutakursförlust
+
+REGLER (BAS 2024):
+- Ekonomibyrå/redovisningskonsult/bokslut/revision → 6530
+- Programvara/SaaS/hosting → 6540
+- Övrig konsult (management, strategi, teknik) → 6550
+- Advokat/juridik → 6580
+- Bemanningsföretag/inhyrd personal → 6800
+- Swish/Klarna/Stripe → 6560 (INTE 6570)
+- Dröjsmålsränta → 8420 (INTE 8400)
+- EU-varuinköp → 4515 + omvänd moms
+- OBS: 6520 = Ritningskostnader — INTE redovisning!
+
+Föreslå korrekt kontering med debet/kredit.`;
 
             const response = await fetch(
                 `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`,
@@ -1089,6 +1225,9 @@ function InvoiceCard({
     const statusCfg = STATUS_CONFIG[item.status];
     const overdue = item.status !== 'betald' && isOverdue(item.dueDate);
     const dueSoon = !overdue && item.status !== 'betald' && isDueSoon(item.dueDate);
+    const hasFortnoxInvoice = Boolean(item.fortnoxGivenNumber);
+    const canBookInFortnox = hasFortnoxInvoice && (item.fortnoxSyncStatus === 'exported' || item.fortnoxSyncStatus === 'not_exported');
+    const canApproveInFortnox = hasFortnoxInvoice && item.fortnoxSyncStatus !== 'attested';
 
     return (
         <div className="panel-card panel-card--no-hover" style={{
@@ -1108,6 +1247,19 @@ function InvoiceCard({
                 }}>
                     {statusCfg.label}
                 </span>
+
+                {hasFortnoxInvoice && (
+                    <span style={{
+                        padding: '0.15rem 0.5rem',
+                        borderRadius: '999px',
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                        background: 'rgba(59, 130, 246, 0.15)',
+                        color: '#3b82f6',
+                    }}>
+                        {FORTNOX_SYNC_STATUS_LABELS[item.fortnoxSyncStatus]}
+                    </span>
+                )}
 
                 {/* Source badge */}
                 {item.source === 'fortnox' && (
@@ -1287,7 +1439,7 @@ function InvoiceCard({
                 )}
 
                 {/* Fortnox actions for synced invoices */}
-                {item.source === 'fortnox' && item.fortnoxGivenNumber && !item.fortnoxBooked && (
+                {canBookInFortnox && (
                     <ActionButton
                         label={isBooking ? 'Bokför...' : 'Bokför i Fortnox'}
                         color="#10b981"
@@ -1295,7 +1447,7 @@ function InvoiceCard({
                         onClick={onBook}
                     />
                 )}
-                {item.source === 'fortnox' && item.fortnoxGivenNumber && (
+                {canApproveInFortnox && (
                     <ActionButton
                         label={isBooking ? 'Attesterar...' : 'Attestera'}
                         color="#10b981"

@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 
 const MAILPIT_URL = process.env.MAILPIT_URL || 'http://127.0.0.1:54324';
@@ -106,17 +106,54 @@ const waitForMagicLink = async (request: APIRequestContext, email: string, timeo
     throw new Error(`Timed out waiting for magic link to ${email}`);
 };
 
+const acceptLegalConsentModalIfVisible = async (page: Page, fullName: string): Promise<void> => {
+    const continueButton = page.getByRole('button', { name: 'Godkänn & Fortsätt' });
+    const visibleNow = await continueButton.isVisible().catch(() => false);
+    if (!visibleNow) {
+        const appeared = await continueButton
+            .waitFor({ state: 'visible', timeout: 5_000 })
+            .then(() => true)
+            .catch(() => false);
+        if (!appeared) return;
+    }
+
+    const nameInput = page.getByPlaceholder('T.ex. Anna Andersson');
+    if (await nameInput.isVisible().catch(() => false)) {
+        await nameInput.fill(fullName);
+    }
+
+    const consentCheckbox = page.getByRole('checkbox', {
+        name: 'Jag godkänner Användarvillkor och Integritetspolicy.',
+    });
+    await expect(consentCheckbox).toBeVisible({ timeout: 10_000 });
+    await consentCheckbox.check();
+    await expect(continueButton).toBeEnabled({ timeout: 10_000 });
+    await continueButton.click();
+    await expect(continueButton).toBeHidden({ timeout: 15_000 });
+};
+
 test('search modal shows results from memory-service', async ({ page, request }) => {
     const email = `e2e+${Date.now()}@example.com`;
+    const fullName = 'E2E Test';
 
     await page.goto('/login');
-    await page.fill('#full-name', 'E2E Test');
-    await page.fill('#email', email);
-    await page.click('#submit-btn');
+    const shouldUseAdminMagicLink = Boolean(SUPABASE_SERVICE_ROLE_KEY) && !USE_MAILPIT;
 
-    const loginLink = await waitForMagicLink(request, email);
+    let loginLink: string;
+    if (shouldUseAdminMagicLink) {
+        // Avoid double user creation (UI /otp + admin generateLink), which can break on newer GoTrue.
+        loginLink = await generateMagicLink(email);
+    } else {
+        await page.fill('#full-name', fullName);
+        await page.fill('#email', email);
+        await page.check('#consent-terms');
+        await page.click('#submit-btn');
+        loginLink = await waitForMagicLink(request, email);
+    }
+
     await page.goto(loginLink);
     await page.waitForURL('**/app/**', { timeout: 30_000 });
+    await acceptLegalConsentModalIfVisible(page, fullName);
 
     await page.route('**/functions/v1/memory-service', async (route) => {
         const requestData = route.request();
@@ -154,10 +191,19 @@ test('search modal shows results from memory-service', async ({ page, request })
         await route.continue();
     });
 
+    await expect(page.locator('#search-btn')).toBeVisible();
     await page.click('#search-btn');
     const input = page.locator('.search-modal__input');
     await expect(input).toBeVisible();
 
-    await input.fill('moms');
+    // More reliable than `.fill()` here (preact controlled input + debounce)
+    await input.click();
+    await input.pressSequentially('moms', { delay: 30 });
+    await expect(input).toHaveValue('moms');
+
+    // Wait for the debounced backend call to complete (mocked via route below).
+    await page.waitForResponse((resp) =>
+        resp.request().method() === 'POST' && resp.url().includes('/functions/v1/memory-service')
+    );
     await expect(page.locator('.search-modal__result-title')).toContainText('Momsfråga');
 });

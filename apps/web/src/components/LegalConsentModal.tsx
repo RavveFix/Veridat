@@ -27,7 +27,8 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
         terms: false,
         privacy: false,
         security: false,
-        dpa: false
+        dpa: false,
+        systemdoc: false
     });
 
     // Name is always valid if we have it from DB (re-consent scenario)

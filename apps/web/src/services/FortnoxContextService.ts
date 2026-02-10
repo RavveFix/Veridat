@@ -8,6 +8,8 @@
 
 import { supabase } from '../lib/supabase';
 import { logger } from './LoggerService';
+import { getFortnoxList } from '../utils/fortnoxResponse';
+import { isFortnoxEligible, normalizeUserPlan } from './PlanGateService';
 
 // --- Types ---
 
@@ -101,6 +103,24 @@ class FortnoxContextServiceClass extends EventTarget {
                 return 'disconnected';
             }
 
+            const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select('plan')
+                .eq('id', session.user.id)
+                .maybeSingle();
+
+            if (profileError) {
+                logger.warn('Fortnox connection check: failed to load plan', profileError);
+                this.setConnectionStatus('disconnected');
+                return 'disconnected';
+            }
+
+            const plan = normalizeUserPlan((profile as { plan?: unknown } | null)?.plan);
+            if (!isFortnoxEligible(plan)) {
+                this.setConnectionStatus('disconnected');
+                return 'disconnected';
+            }
+
             const { data, error } = await supabase
                 .from('fortnox_tokens')
                 .select('id')
@@ -159,7 +179,7 @@ class FortnoxContextServiceClass extends EventTarget {
             if (!response.ok) return this.customers?.data || [];
 
             const result = await response.json();
-            const customers: FortnoxCustomer[] = (result.data?.Customers ?? result.Customers) || [];
+            const customers = getFortnoxList<FortnoxCustomer>(result, 'Customers');
 
             this.customers = { data: customers, expires: Date.now() + CACHE_TTL_MS };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('customers'));
@@ -193,7 +213,7 @@ class FortnoxContextServiceClass extends EventTarget {
             if (!response.ok) return this.suppliers?.data || [];
 
             const result = await response.json();
-            const suppliers: FortnoxSupplier[] = (result.data?.Suppliers ?? result.Suppliers) || [];
+            const suppliers = getFortnoxList<FortnoxSupplier>(result, 'Suppliers');
 
             this.suppliers = { data: suppliers, expires: Date.now() + CACHE_TTL_MS };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('suppliers'));
@@ -227,7 +247,7 @@ class FortnoxContextServiceClass extends EventTarget {
             if (!response.ok) return this.articles?.data || [];
 
             const result = await response.json();
-            const articles: FortnoxArticle[] = (result.data?.Articles ?? result.Articles) || [];
+            const articles = getFortnoxList<FortnoxArticle>(result, 'Articles');
 
             this.articles = { data: articles, expires: Date.now() + CACHE_TTL_MS };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('articles'));

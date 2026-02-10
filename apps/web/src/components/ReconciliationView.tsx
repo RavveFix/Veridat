@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { bankImportService } from '../services/BankImportService';
 import { companyService } from '../services/CompanyService';
 import type { BankImport, BankTransaction } from '../types/bank';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface ReconciliationViewProps {
     onBack: () => void;
@@ -28,7 +29,7 @@ interface MonthStatus {
     reconciledAt: string | null;
 }
 
-const RECONCILED_KEY = 'veridat_reconciled_periods';
+const RECONCILED_KEY = STORAGE_KEYS.reconciledPeriods;
 
 function loadReconciledPeriods(companyId: string): Set<string> {
     try {
@@ -145,14 +146,17 @@ export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationV
                     type="button"
                     onClick={onBack}
                     style={{
-                        background: 'transparent',
-                        border: '1px solid var(--glass-border)',
+                        background: 'var(--surface-2)',
+                        border: '1px solid var(--surface-border)',
                         borderRadius: '8px',
-                        color: 'var(--text-secondary)',
+                        color: 'var(--text-primary)',
                         padding: '0.4rem 0.75rem',
                         fontSize: '0.8rem',
+                        fontWeight: '600',
                         cursor: 'pointer'
                     }}
+                    onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
+                    onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
                 >
                     Tillbaka
                 </button>
@@ -197,15 +201,18 @@ export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationV
                             type="button"
                             onClick={onOpenBankImport}
                             style={{
-                                padding: '0.5rem 1rem',
+                                padding: '0.6rem 1.25rem',
                                 borderRadius: '8px',
                                 border: 'none',
-                                background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                                background: '#2563eb',
                                 color: '#fff',
                                 fontSize: '0.85rem',
-                                fontWeight: 600,
-                                cursor: 'pointer'
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                boxShadow: 'none'
                             }}
+                            onMouseOver={(e) => (e.currentTarget.style.background = '#1d4ed8')}
+                            onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
                         >
                             Importera bankfil
                         </button>
@@ -280,13 +287,28 @@ export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationV
                                     height: '34px',
                                     padding: '0 0.9rem',
                                     borderRadius: '10px',
-                                    border: '1px solid var(--glass-border)',
-                                    background: month.reconciled ? 'rgba(16, 185, 129, 0.18)' : 'transparent',
-                                    color: month.reconciled ? '#10b981' : 'var(--text-secondary)',
+                                    border: month.reconciled ? 'none' : '1px solid var(--surface-border)',
+                                    background: month.reconciled ? '#10b981' : 'var(--surface-2)',
+                                    color: month.reconciled ? '#fff' : 'var(--text-primary)',
                                     fontSize: '0.78rem',
-                                    fontWeight: 600,
+                                    fontWeight: 700,
                                     cursor: 'pointer',
-                                    whiteSpace: 'nowrap'
+                                    whiteSpace: 'nowrap',
+                                    boxShadow: 'none'
+                                }}
+                                onMouseOver={(e) => {
+                                    if (month.reconciled) {
+                                        e.currentTarget.style.background = '#059669';
+                                    } else {
+                                        e.currentTarget.style.background = 'var(--surface-3)';
+                                    }
+                                }}
+                                onMouseOut={(e) => {
+                                    if (month.reconciled) {
+                                        e.currentTarget.style.background = '#10b981';
+                                    } else {
+                                        e.currentTarget.style.background = 'var(--surface-2)';
+                                    }
                                 }}
                             >
                                 {month.reconciled ? 'Avstämd' : 'Markera som avstämd'}

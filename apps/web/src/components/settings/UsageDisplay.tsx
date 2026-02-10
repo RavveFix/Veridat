@@ -74,7 +74,8 @@ export function UsageDisplay({ usage, usageError, plan, planLimits, formatResetA
                             <div style={{
                                 width: `${Math.min(100, ((usage?.hourlyUsed ?? 0) / planLimits.hourly) * 100)}%`,
                                 height: '100%',
-                                background: 'var(--accent-gradient)'
+                                background: '#2563eb',
+                                borderRadius: '999px'
                             }} />
                         </div>
                         <div style={{ marginTop: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
@@ -93,7 +94,8 @@ export function UsageDisplay({ usage, usageError, plan, planLimits, formatResetA
                             <div style={{
                                 width: `${Math.min(100, ((usage?.dailyUsed ?? 0) / planLimits.daily) * 100)}%`,
                                 height: '100%',
-                                background: 'var(--accent-gradient)'
+                                background: '#2563eb',
+                                borderRadius: '999px'
                             }} />
                         </div>
                         <div style={{ marginTop: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
@@ -106,20 +108,24 @@ export function UsageDisplay({ usage, usageError, plan, planLimits, formatResetA
                             href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20skulle%20vilja%20uppgradera%20till%20Pro%20(199%20kr%2Fm%C3%A5n%2C%2040%20förfrågningar%2Ftimme%2C%20200%2Fdag).%0A%0AMvh"
                             style={{
                                 display: 'block',
-                                marginTop: '1rem',
-                                padding: '0.85rem 1rem',
-                                borderRadius: '99px',
+                                marginTop: '1.25rem',
+                                padding: '0.9rem 1.25rem',
+                                borderRadius: '14px',
                                 textAlign: 'center',
                                 textDecoration: 'none',
-                                fontWeight: '500',
-                                fontSize: '0.9rem',
-                                color: 'var(--text-on-accent)',
-                                background: 'var(--accent-gradient)',
-                                boxShadow: 'var(--accent-glow)',
-                                transition: 'all 0.2s ease'
+                                fontWeight: '600',
+                                fontSize: '0.95rem',
+                                color: '#fff',
+                                background: '#2563eb',
+                                boxShadow: 'none',
+                                border: 'none'
                             }}
-                            onMouseOver={(e) => (e.currentTarget.style.transform = 'translateY(-1px)')}
-                            onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+                            onMouseOver={(e) => {
+                                e.currentTarget.style.background = '#1d4ed8';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.background = '#2563eb';
+                            }}
                         >
                             Uppgradera till Pro (40/t, 200/d)
                         </a>

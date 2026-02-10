@@ -251,10 +251,12 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                         textDecoration: 'none',
                                         fontWeight: 600,
                                         fontSize: '0.9rem',
-                                        color: 'var(--text-on-accent)',
-                                        background: 'var(--accent-gradient)',
-                                        boxShadow: 'var(--accent-glow)'
+                                        color: '#fff',
+                                        background: '#2563eb',
+                                        boxShadow: 'none'
                                     }}
+                                    onMouseOver={(e) => (e.currentTarget.style.background = '#1d4ed8')}
+                                    onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
                                 >
                                     Uppgradera till Pro (40/t, 200/d)
                                 </a>
@@ -332,17 +334,16 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                             padding: '0.85rem',
                                             borderRadius: '99px',
                                             border: 'none',
-                                            background: 'var(--accent-gradient)',
-                                            color: 'var(--text-on-accent)',
-                                            fontWeight: '500',
-                                            fontSize: '0.9rem',
+                                            background: '#2563eb',
+                                            color: '#fff',
+                                            fontWeight: '600',
+                                            fontSize: '0.95rem',
                                             cursor: saving ? 'wait' : 'pointer',
                                             opacity: saving ? 0.7 : 1,
-                                            transition: 'all 0.2s ease',
-                                            boxShadow: 'var(--accent-glow)'
+                                            boxShadow: 'none'
                                         }}
-                                        onMouseOver={(e) => !saving && (e.currentTarget.style.transform = 'translateY(-1px)')}
-                                        onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+                                        onMouseOver={(e) => !saving && (e.currentTarget.style.background = '#1d4ed8')}
+                                        onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
                                     >
                                         {saving ? 'Sparar...' : 'Spara ändringar'}
                                     </button>

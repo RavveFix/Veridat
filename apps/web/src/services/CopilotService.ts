@@ -18,6 +18,9 @@ import { supabase } from '../lib/supabase';
 import { logger } from './LoggerService';
 import { fortnoxContextService } from './FortnoxContextService';
 import { companyService } from './CompanyService';
+import { bankImportService } from './BankImportService';
+import { STORAGE_KEYS } from '../constants/storageKeys';
+import { getFortnoxList } from '../utils/fortnoxResponse';
 
 // =============================================================================
 // TYPES
@@ -33,7 +36,8 @@ export type NotificationType =
     | 'anomaly_amount'
     | 'anomaly_duplicate'
     | 'deadline_reminder'
-    | 'action_suggestion';
+    | 'action_suggestion'
+    | 'guardian_alert';
 
 export type NotificationSeverity = 'critical' | 'warning' | 'info' | 'success';
 export type NotificationCategory = 'varning' | 'insikt' | 'forslag';
@@ -72,11 +76,21 @@ interface CustomerInvoiceSummary {
     Cancelled?: boolean;
 }
 
+interface GuardianAlert {
+    id: string;
+    title: string;
+    description: string;
+    severity: NotificationSeverity;
+    status: 'open' | 'acknowledged' | 'resolved';
+    action_target?: string | null;
+    created_at: string;
+}
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
 
-const STORAGE_KEY = 'veridat_copilot_notifications';
+const STORAGE_KEY = STORAGE_KEYS.copilotNotifications;
 const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NOTIFICATIONS = 20;
 
@@ -171,7 +185,10 @@ class CopilotServiceClass extends EventTarget {
             // 9. Invoice inbox pending
             this.checkInvoiceInbox(newNotifications);
 
-            // 10. Action suggestions
+            // 10. Server-side guardian alerts
+            await this.checkGuardianAlerts(newNotifications);
+
+            // 11. Action suggestions
             this.generateActionSuggestions(newNotifications);
 
         } catch (err) {
@@ -438,16 +455,11 @@ class CopilotServiceClass extends EventTarget {
     private checkBankReconciliation(out: CopilotNotification[]): void {
         try {
             const companyId = companyService.getCurrentId();
-            const raw = localStorage.getItem('veridat_reconciled_periods');
+            const raw = localStorage.getItem(STORAGE_KEYS.reconciledPeriods);
             const reconciledStore = raw ? JSON.parse(raw) as Record<string, string[]> : {};
             const reconciledPeriods = new Set(reconciledStore[companyId] || []);
 
-            // Check bank imports for unreconciled months
-            const importsRaw = localStorage.getItem('veridat_bank_imports');
-            if (!importsRaw) return;
-
-            const importsStore = JSON.parse(importsRaw) as Record<string, Array<{ transactions: Array<{ date: string }> }>>;
-            const imports = importsStore[companyId];
+            const imports = bankImportService.getImports(companyId);
             if (!imports || imports.length === 0) return;
 
             const allPeriods = new Set<string>();
@@ -480,7 +492,7 @@ class CopilotServiceClass extends EventTarget {
     private checkInvoiceInbox(out: CopilotNotification[]): void {
         try {
             const companyId = companyService.getCurrentId();
-            const raw = localStorage.getItem('veridat_invoice_inbox');
+            const raw = localStorage.getItem(STORAGE_KEYS.invoiceInbox);
             if (!raw) return;
 
             const store = JSON.parse(raw) as Record<string, Array<{ status: string; dueDate?: string; totalAmount?: number }>>;
@@ -519,9 +531,7 @@ class CopilotServiceClass extends EventTarget {
         // Check if user has no bank imports yet
         try {
             const companyId = companyService.getCurrentId();
-            const importsRaw = localStorage.getItem('veridat_bank_imports');
-            const importsStore = importsRaw ? JSON.parse(importsRaw) as Record<string, unknown[]> : {};
-            const imports = importsStore[companyId] || [];
+            const imports = bankImportService.getImports(companyId);
 
             if (imports.length === 0 && fortnoxContextService.isConnected()) {
                 out.push({
@@ -539,6 +549,31 @@ class CopilotServiceClass extends EventTarget {
             }
         } catch {
             // Skip
+        }
+    }
+
+    private async checkGuardianAlerts(out: CopilotNotification[]): Promise<void> {
+        const alerts = await this.fetchGuardianAlerts();
+        if (alerts.length === 0) return;
+
+        for (const alert of alerts) {
+            if (alert.status !== 'open') continue;
+            const category: NotificationCategory = alert.severity === 'critical' || alert.severity === 'warning'
+                ? 'varning'
+                : 'insikt';
+
+            out.push({
+                id: `guardian-${alert.id}`,
+                type: 'guardian_alert',
+                category,
+                title: alert.title,
+                description: alert.description,
+                severity: alert.severity,
+                prompt: `${alert.title}\n${alert.description}`,
+                action: alert.action_target || undefined,
+                createdAt: alert.created_at || new Date().toISOString(),
+                read: false,
+            });
         }
     }
 
@@ -562,7 +597,7 @@ class CopilotServiceClass extends EventTarget {
 
             if (!response.ok) return [];
             const result = await response.json();
-            return ((result.data?.SupplierInvoices ?? result.SupplierInvoices) || []) as SupplierInvoiceSummary[];
+            return getFortnoxList<SupplierInvoiceSummary>(result, 'SupplierInvoices');
         } catch {
             return [];
         }
@@ -584,7 +619,35 @@ class CopilotServiceClass extends EventTarget {
 
             if (!response.ok) return [];
             const result = await response.json();
-            return ((result.data?.Invoices ?? result.Invoices) || []) as CustomerInvoiceSummary[];
+            return getFortnoxList<CustomerInvoiceSummary>(result, 'Invoices');
+        } catch {
+            return [];
+        }
+    }
+
+    private async fetchGuardianAlerts(): Promise<GuardianAlert[]> {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return [];
+
+            const response = await fetch(`${this.supabaseUrl}/functions/v1/fortnox-guardian`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                    action: 'list_alerts',
+                    payload: {
+                        limit: 10,
+                        companyId: companyService.getCurrentId(),
+                    },
+                }),
+            });
+
+            if (!response.ok) return [];
+            const result = await response.json();
+            return Array.isArray(result?.alerts) ? (result.alerts as GuardianAlert[]) : [];
         } catch {
             return [];
         }

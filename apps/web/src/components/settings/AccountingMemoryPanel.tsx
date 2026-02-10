@@ -213,16 +213,29 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                     onClick={() => void loadMemories()}
                     disabled={loading}
                     style={{
-                        borderRadius: '999px',
-                        padding: '0.4rem 0.9rem',
+                        borderRadius: '12px',
+                        padding: '0.5rem 1.1rem',
                         border: '1px solid var(--surface-border)',
                         background: 'var(--surface-2)',
                         color: 'var(--text-primary)',
                         cursor: loading ? 'not-allowed' : 'pointer',
-                        boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                        boxShadow: 'none',
+                        fontSize: '0.85rem',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem'
+                    }}
+                    onMouseOver={(e) => {
+                        if (!loading) {
+                            e.currentTarget.style.background = 'var(--surface-3)';
+                        }
+                    }}
+                    onMouseOut={(e) => {
+                        e.currentTarget.style.background = 'var(--surface-2)';
                     }}
                 >
-                    Uppdatera
+                    {loading ? 'Laddar...' : 'Uppdatera'}
                 </button>
             </div>
 
@@ -345,12 +358,21 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                                             onClick={() => void updateStatus(memory.id, 'confirmed')}
                                             disabled={loading}
                                             style={{
-                                                borderRadius: '8px',
-                                                padding: '0.35rem 0.7rem',
-                                                border: '1px solid rgba(56, 189, 248, 0.4)',
-                                                background: 'rgba(56, 189, 248, 0.1)',
-                                                color: 'var(--text-primary)',
-                                                cursor: 'pointer'
+                                                borderRadius: '10px',
+                                                padding: '0.45rem 0.85rem',
+                                                border: 'none',
+                                                background: '#10b981',
+                                                color: '#fff',
+                                                cursor: 'pointer',
+                                                fontSize: '0.85rem',
+                                                fontWeight: '600',
+                                                boxShadow: 'none'
+                                            }}
+                                            onMouseOver={(e) => {
+                                                e.currentTarget.style.background = '#059669';
+                                            }}
+                                            onMouseOut={(e) => {
+                                                e.currentTarget.style.background = '#10b981';
                                             }}
                                         >
                                             Godkänn
@@ -361,12 +383,21 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                                             onClick={() => void updateStatus(memory.id, 'needs_review')}
                                             disabled={loading}
                                             style={{
-                                                borderRadius: '8px',
-                                                padding: '0.35rem 0.7rem',
-                                                border: '1px solid rgba(251, 191, 36, 0.4)',
-                                                background: 'rgba(251, 191, 36, 0.1)',
-                                                color: 'var(--text-primary)',
-                                                cursor: 'pointer'
+                                                borderRadius: '10px',
+                                                padding: '0.45rem 0.85rem',
+                                                border: 'none',
+                                                background: '#f59e0b',
+                                                color: '#fff',
+                                                cursor: 'pointer',
+                                                fontSize: '0.85rem',
+                                                fontWeight: '600',
+                                                boxShadow: 'none'
+                                            }}
+                                            onMouseOver={(e) => {
+                                                e.currentTarget.style.background = '#d97706';
+                                            }}
+                                            onMouseOut={(e) => {
+                                                e.currentTarget.style.background = '#f59e0b';
                                             }}
                                         >
                                             Pausa
@@ -377,12 +408,21 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                                         onClick={() => void deleteMemory(memory.id)}
                                         disabled={loading}
                                         style={{
-                                            borderRadius: '8px',
-                                            padding: '0.35rem 0.7rem',
-                                            border: '1px solid rgba(239, 68, 68, 0.4)',
-                                            background: 'rgba(239, 68, 68, 0.1)',
-                                            color: 'var(--text-primary)',
-                                            cursor: 'pointer'
+                                            borderRadius: '10px',
+                                            padding: '0.45rem 0.85rem',
+                                            border: 'none',
+                                            background: '#ef4444',
+                                            color: '#fff',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85rem',
+                                            fontWeight: '600',
+                                            boxShadow: 'none'
+                                        }}
+                                        onMouseOver={(e) => {
+                                            e.currentTarget.style.background = '#dc2626';
+                                        }}
+                                        onMouseOut={(e) => {
+                                            e.currentTarget.style.background = '#ef4444';
                                         }}
                                     >
                                         Radera

@@ -58,6 +58,7 @@ env/
 !supabase/migrations/*.sql
 *session*continuation*.md
 docs/*security*.md
+security_best_practices_report.md
 
 # Claude Code - Session-specific files (not committed)
 .claude/CLAUDE.local.md
@@ -71,3 +72,6 @@ docs/*security*.md
 .claude/plans/
 .vercel
 .env*.local
+
+# Codex (local agent workspace)
+.codex/

@@ -114,6 +114,15 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
             if (!ok) return;
         }
 
+        // Disclaimer: user must confirm before export
+        const confirmed = window.confirm(
+            'Kontrollera att uppgifterna stämmer innan du exporterar.\n\n' +
+            'Veridat är en AI-assistent — alla bokföringsförslag bör granskas.\n' +
+            'Du som företagare ansvarar för att bokföringen är korrekt.\n\n' +
+            'Vill du exportera till Fortnox?'
+        );
+        if (!confirmed) return;
+
         setFortnoxLoading(true);
         setFortnoxError(null);
 
@@ -155,6 +164,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                         action: 'exportVoucher',
                         companyId: data.company?.org_number || 'unknown',
                         payload: {
+                            idempotencyKey: `vat_export:${reportId}:${data.period}:${voucherSeries}`,
                             vatReportId: reportId,
                             voucher: {
                                 Description: `Momsredovisning ${data.period}`,

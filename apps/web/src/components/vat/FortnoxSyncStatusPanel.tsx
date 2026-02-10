@@ -118,30 +118,35 @@ export const FortnoxSyncStatusPanel: FunctionComponent<FortnoxSyncStatusPanelPro
             )}
 
             {(status.status === null || status.status === 'not_synced' || status.status === 'failed') && (
-                <button
-                    class="btn-fortnox"
-                    onClick={onExport}
-                    disabled={loading}
-                >
-                    {loading ? (
-                        <>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <path d="M12 2a10 10 0 0 1 10 10"></path>
-                            </svg>
-                            Exporterar...
-                        </>
-                    ) : (
-                        <>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                <polyline points="17 8 12 3 7 8"></polyline>
-                                <line x1="12" y1="3" x2="12" y2="15"></line>
-                            </svg>
-                            {status.status === 'failed' ? 'Försök igen' : 'Exportera till Fortnox'}
-                        </>
-                    )}
-                </button>
+                <>
+                    <button
+                        class="btn-fortnox"
+                        onClick={onExport}
+                        disabled={loading}
+                    >
+                        {loading ? (
+                            <>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <path d="M12 2a10 10 0 0 1 10 10"></path>
+                                </svg>
+                                Exporterar...
+                            </>
+                        ) : (
+                            <>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                {status.status === 'failed' ? 'Försök igen' : 'Exportera till Fortnox'}
+                            </>
+                        )}
+                    </button>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary, #888)', marginTop: '0.5rem', textAlign: 'center', lineHeight: '1.4' }}>
+                        AI-genererat förslag — granska innan export.
+                    </div>
+                </>
             )}
         </div>
     );

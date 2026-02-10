@@ -5,11 +5,12 @@
  * Designed to be extensible for multiple integration providers.
  */
 
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import type { Integration, IntegrationStatus } from '../types/integrations';
 import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
 import { logger } from '../services/LoggerService';
+import { isFortnoxEligible, normalizeUserPlan, type UserPlan } from '../services/PlanGateService';
 import { ModalWrapper } from './ModalWrapper';
 import { BankImportPanel } from './BankImportPanel';
 import { AgencyPanel } from './AgencyPanel';
@@ -50,14 +51,50 @@ const INTEGRATIONS_CONFIG: Omit<Integration, 'status'>[] = [
 // Which integrations are available vs coming soon
 const AVAILABLE_INTEGRATIONS = ['fortnox'];
 
+type IntegrationTool =
+    | 'bank-import'
+    | 'agency'
+    | 'fortnox-panel'
+    | 'bookkeeping-rules'
+    | 'reconciliation'
+    | 'invoice-inbox'
+    | 'dashboard'
+    | 'vat-report';
+
+const FORTNOX_LOCKED_TOOLS: IntegrationTool[] = ['fortnox-panel', 'invoice-inbox', 'vat-report'];
+
+function isIntegrationTool(value: unknown): value is IntegrationTool {
+    return typeof value === 'string' && [
+        'bank-import',
+        'agency',
+        'fortnox-panel',
+        'bookkeeping-rules',
+        'reconciliation',
+        'invoice-inbox',
+        'dashboard',
+        'vat-report'
+    ].includes(value);
+}
+
+function isFortnoxTool(tool: IntegrationTool | null | undefined): boolean {
+    return !!tool && FORTNOX_LOCKED_TOOLS.includes(tool);
+}
+
 export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalProps) {
+    const requestedInitialTool = isIntegrationTool(initialTool) ? initialTool : null;
+    const pendingInitialToolRef = useRef<IntegrationTool | null>(requestedInitialTool);
     const [integrations, setIntegrations] = useState<Integration[]>([]);
     const [loading, setLoading] = useState(true);
     const [connecting, setConnecting] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [abortController, setAbortController] = useState<AbortController | null>(null);
     const [loadingTimeout, setLoadingTimeout] = useState(false);
-    const [activeTool, setActiveTool] = useState<'bank-import' | 'agency' | 'fortnox-panel' | 'bookkeeping-rules' | 'reconciliation' | 'invoice-inbox' | 'dashboard' | 'vat-report' | null>(initialTool as any ?? null);
+    const [activeTool, setActiveTool] = useState<IntegrationTool | null>(
+        requestedInitialTool && !isFortnoxTool(requestedInitialTool) ? requestedInitialTool : null
+    );
+    const [userPlan, setUserPlan] = useState<UserPlan>('free');
+    const [planLoaded, setPlanLoaded] = useState(false);
+    const isFortnoxPlanEligible = isFortnoxEligible(userPlan);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -78,9 +115,19 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         };
     }, []);
 
+    function openTool(tool: IntegrationTool): void {
+        if (isFortnoxTool(tool) && !isFortnoxPlanEligible) {
+            setError('Fortnox-funktioner kräver Veridat Pro eller Trial.');
+            return;
+        }
+        setError(null);
+        setActiveTool(tool);
+    }
+
     async function loadIntegrationStatus() {
         setLoading(true);
         setError(null);
+        setPlanLoaded(false);
 
         try {
             // Check Fortnox connection status with timeout (10s for auth)
@@ -91,9 +138,39 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             );
 
             if (!user) {
+                setUserPlan('free');
+                setPlanLoaded(true);
                 setError('Du måste vara inloggad för att hantera integreringar.');
                 setLoading(false);
                 return;
+            }
+
+            const profileQuery = supabase
+                .from('profiles')
+                .select('plan')
+                .eq('id', user.id)
+                .maybeSingle();
+
+            const { data: profile, error: profileError } = await withTimeout(
+                profileQuery,
+                10000,
+                'Tidsgräns för att hämta abonnemang'
+            );
+
+            if (profileError) {
+                logger.error('Error checking plan status:', profileError);
+            }
+
+            const plan = normalizeUserPlan((profile as { plan?: unknown } | null)?.plan);
+            const fortnoxAllowed = isFortnoxEligible(plan);
+            setUserPlan(plan);
+            setPlanLoaded(true);
+
+            if (pendingInitialToolRef.current && isFortnoxTool(pendingInitialToolRef.current)) {
+                if (fortnoxAllowed) {
+                    setActiveTool(pendingInitialToolRef.current);
+                }
+                pendingInitialToolRef.current = null;
             }
 
             // Check if user has Fortnox tokens with timeout (10s for DB query)
@@ -114,7 +191,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             }
 
             // Fire-and-forget: sync Fortnox profile to memory on connection
-            if (fortnoxTokens && user) {
+            if (fortnoxAllowed && fortnoxTokens && user) {
                 const companyId = localStorage.getItem('activeCompanyId');
                 if (companyId) {
                     fetch(
@@ -139,7 +216,11 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
                 if (AVAILABLE_INTEGRATIONS.includes(config.id)) {
                     if (config.id === 'fortnox') {
-                        if (fortnoxTokens) {
+                        if (!fortnoxAllowed) {
+                            status = fortnoxTokens ? 'connected' : 'disconnected';
+                            statusMessage = 'Kräver Pro';
+                            connectedAt = fortnoxTokens?.created_at ?? undefined;
+                        } else if (fortnoxTokens) {
                             status = 'connected';
                             connectedAt = fortnoxTokens.created_at ?? undefined;
                         } else {
@@ -163,6 +244,8 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             setIntegrations(integrationsWithStatus);
         } catch (err) {
             logger.error('Error loading integrations:', err);
+            setUserPlan('free');
+            setPlanLoaded(true);
 
             // Check if component was aborted (unmounted)
             if (abortController?.signal.aborted) {
@@ -183,6 +266,11 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     async function handleConnect(integrationId: string) {
         if (integrationId !== 'fortnox') {
             return; // Only Fortnox is implemented
+        }
+
+        if (!isFortnoxPlanEligible) {
+            setError('Fortnox kräver Veridat Pro eller Trial.');
+            return;
         }
 
         setConnecting(integrationId);
@@ -218,6 +306,9 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
             if (!response.ok) {
                 const errorData = await response.json();
+                if (errorData.errorCode === 'PLAN_REQUIRED' || errorData.error === 'plan_required') {
+                    throw new Error('Fortnox kräver Veridat Pro eller Trial.');
+                }
                 throw new Error(errorData.error || 'Failed to initiate OAuth');
             }
 
@@ -288,6 +379,21 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     }
 
     function getStatusBadge(integration: Integration) {
+        if (integration.id === 'fortnox' && !isFortnoxPlanEligible) {
+            return (
+                <span style={{
+                    background: 'rgba(245, 158, 11, 0.15)',
+                    color: '#f59e0b',
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '999px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600
+                }}>
+                    Kräver Pro
+                </span>
+            );
+        }
+
         const badgeStyles: Record<IntegrationStatus, { bg: string; color: string; text: string }> = {
             connected: {
                 bg: 'rgba(16, 185, 129, 0.15)',
@@ -343,6 +449,46 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         return icons[iconId] || '?';
     }
 
+    if (activeTool && isFortnoxTool(activeTool) && (!planLoaded || !isFortnoxPlanEligible)) {
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title="Fortnox-funktioner"
+                subtitle="Tillgängligt i Veridat Pro eller Trial."
+                maxWidth="640px"
+            >
+                <div style={{
+                    padding: '1rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(245, 158, 11, 0.25)',
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.9rem',
+                    lineHeight: 1.5
+                }}>
+                    Fortnoxpanel, momsrapport och fakturainkorg kräver Veridat Pro eller Trial.
+                </div>
+                <a
+                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh"
+                    style={{
+                        display: 'inline-block',
+                        marginTop: '1rem',
+                        padding: '0.7rem 1rem',
+                        borderRadius: '999px',
+                        textDecoration: 'none',
+                        fontWeight: 600,
+                        fontSize: '0.9rem',
+                        color: '#fff',
+                        background: '#2563eb',
+                        boxShadow: 'none'
+                    }}
+                >
+                    Uppgradera till Pro
+                </a>
+            </ModalWrapper>
+        );
+    }
+
     if (activeTool === 'dashboard') {
         return (
             <ModalWrapper
@@ -351,7 +497,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 subtitle="Din bokföringsöversikt på ett ställe."
                 maxWidth="1400px"
             >
-                <DashboardPanel onBack={() => setActiveTool(null)} onNavigate={(tool) => setActiveTool(tool as typeof activeTool)} />
+                <DashboardPanel onBack={() => setActiveTool(null)} onNavigate={(tool) => openTool(tool as IntegrationTool)} />
             </ModalWrapper>
         );
     }
@@ -392,7 +538,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             >
                 <ReconciliationView
                     onBack={() => setActiveTool(null)}
-                    onOpenBankImport={() => setActiveTool('bank-import')}
+                    onOpenBankImport={() => openTool('bank-import')}
                 />
             </ModalWrapper>
         );
@@ -493,8 +639,6 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '1rem',
-                                    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                                    boxShadow: 'var(--surface-shadow)',
                                     opacity: integration.status === 'coming_soon' ? 0.6 : 1
                                 }}
                             >
@@ -504,7 +648,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     height: '48px',
                                     borderRadius: '12px',
                                     background: integration.status === 'connected'
-                                        ? 'var(--accent-gradient)'
+                                        ? '#2563eb'
                                         : 'var(--surface-3)',
                                     display: 'flex',
                                     alignItems: 'center',
@@ -550,7 +694,48 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                 {/* Action */}
                                 {integration.status !== 'coming_soon' && (
                                     <div style={{ flexShrink: 0 }}>
-                                        {integration.status === 'connected' ? (
+                                        {integration.id === 'fortnox' && !isFortnoxPlanEligible ? (
+                                            integration.status === 'connected' ? (
+                                                <button
+                                                    onClick={() => handleDisconnect(integration.id)}
+                                                    disabled={connecting === integration.id}
+                                                    style={{
+                                                        padding: '0.5rem 1rem',
+                                                        borderRadius: '8px',
+                                                        border: '1px solid var(--surface-border)',
+                                                        background: 'var(--surface-2)',
+                                                        color: 'var(--text-secondary)',
+                                                        cursor: connecting === integration.id ? 'wait' : 'pointer',
+                                                        fontSize: '0.85rem',
+                                                        fontWeight: 600,
+                                                        boxShadow: 'none'
+                                                    }}
+                                                    onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
+                                                    onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
+                                                >
+                                                    {connecting === integration.id ? '...' : 'Koppla bort'}
+                                                </button>
+                                            ) : (
+                                                <a
+                                                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh"
+                                                    style={{
+                                                        display: 'inline-block',
+                                                        padding: '0.5rem 1rem',
+                                                        borderRadius: '8px',
+                                                        border: 'none',
+                                                        background: '#2563eb',
+                                                        color: '#fff',
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.85rem',
+                                                        fontWeight: 700,
+                                                        textDecoration: 'none',
+                                                        boxShadow: 'none'
+                                                    }}
+                                                >
+                                                    Uppgradera
+                                                </a>
+                                            )
+                                        ) : integration.status === 'connected' ? (
                                             <button
                                                 onClick={() => handleDisconnect(integration.id)}
                                                 disabled={connecting === integration.id}
@@ -562,10 +747,11 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                                     color: 'var(--text-secondary)',
                                                     cursor: connecting === integration.id ? 'wait' : 'pointer',
                                                     fontSize: '0.85rem',
-                                                    fontWeight: 500,
-                                                    transition: 'all 0.2s',
-                                                    boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                                                    fontWeight: 600,
+                                                    boxShadow: 'none'
                                                 }}
+                                                onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
+                                                onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
                                             >
                                                 {connecting === integration.id ? '...' : 'Koppla bort'}
                                             </button>
@@ -577,15 +763,15 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                                     padding: '0.5rem 1rem',
                                                     borderRadius: '8px',
                                                     border: 'none',
-                                                    background: 'var(--accent-gradient)',
+                                                    background: '#2563eb',
                                                     color: '#fff',
                                                     cursor: connecting === integration.id ? 'wait' : 'pointer',
                                                     fontSize: '0.85rem',
-                                                    fontWeight: 600,
-                                                    transition: 'all 0.2s',
-                                                    opacity: connecting === integration.id ? 0.7 : 1,
-                                                    boxShadow: 'var(--accent-glow)'
+                                                    fontWeight: 700,
+                                                    boxShadow: 'none'
                                                 }}
+                                                onMouseOver={(e) => (e.currentTarget.style.background = '#1d4ed8')}
+                                                onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
                                             >
                                                 {connecting === integration.id ? 'Ansluter...' : 'Anslut'}
                                             </button>
@@ -615,7 +801,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                     <div style={{ display: 'grid', gap: '0.75rem' }}>
                         <button
                             type="button"
-                            onClick={() => setActiveTool('dashboard')}
+                            onClick={() => openTool('dashboard')}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -638,18 +824,19 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                             </div>
                             <span style={{
                                 padding: '0.2rem 0.6rem',
-                                borderRadius: '999px',
+                                borderRadius: '0',
                                 background: 'rgba(16, 185, 129, 0.15)',
                                 color: '#10b981',
                                 fontSize: '0.7rem',
-                                fontWeight: 600
+                                fontWeight: 700
                             }}>
                                 Nytt
                             </span>
                         </button>
                         <button
                             type="button"
-                            onClick={() => setActiveTool('vat-report')}
+                            onClick={() => openTool('vat-report')}
+                            disabled={!isFortnoxPlanEligible}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -660,8 +847,9 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                 border: '1px solid var(--surface-border)',
                                 background: 'var(--surface-2)',
                                 color: 'var(--text-primary)',
-                                cursor: 'pointer',
-                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                                cursor: isFortnoxPlanEligible ? 'pointer' : 'not-allowed',
+                                opacity: isFortnoxPlanEligible ? 1 : 0.65,
+                                boxShadow: 'none'
                             }}
                         >
                             <div style={{ textAlign: 'left' }}>
@@ -673,17 +861,18 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                             <span style={{
                                 padding: '0.2rem 0.6rem',
                                 borderRadius: '999px',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10b981',
+                                background: isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                color: isFortnoxPlanEligible ? '#10b981' : '#f59e0b',
                                 fontSize: '0.7rem',
                                 fontWeight: 600
                             }}>
-                                Nytt
+                                {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
                             </span>
                         </button>
                         <button
                             type="button"
-                            onClick={() => setActiveTool('fortnox-panel')}
+                            onClick={() => openTool('fortnox-panel')}
+                            disabled={!isFortnoxPlanEligible}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -694,8 +883,9 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                 border: '1px solid var(--surface-border)',
                                 background: 'var(--surface-2)',
                                 color: 'var(--text-primary)',
-                                cursor: 'pointer',
-                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                                cursor: isFortnoxPlanEligible ? 'pointer' : 'not-allowed',
+                                opacity: isFortnoxPlanEligible ? 1 : 0.65,
+                                boxShadow: 'none'
                             }}
                         >
                             <div style={{ textAlign: 'left' }}>
@@ -707,17 +897,18 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                             <span style={{
                                 padding: '0.2rem 0.6rem',
                                 borderRadius: '999px',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10b981',
+                                background: isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                color: isFortnoxPlanEligible ? '#10b981' : '#f59e0b',
                                 fontSize: '0.7rem',
                                 fontWeight: 600
                             }}>
-                                Nytt
+                                {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
                             </span>
                         </button>
                         <button
                             type="button"
-                            onClick={() => setActiveTool('invoice-inbox')}
+                            onClick={() => openTool('invoice-inbox')}
+                            disabled={!isFortnoxPlanEligible}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -728,8 +919,9 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                 border: '1px solid var(--surface-border)',
                                 background: 'var(--surface-2)',
                                 color: 'var(--text-primary)',
-                                cursor: 'pointer',
-                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                                cursor: isFortnoxPlanEligible ? 'pointer' : 'not-allowed',
+                                opacity: isFortnoxPlanEligible ? 1 : 0.65,
+                                boxShadow: 'none'
                             }}
                         >
                             <div style={{ textAlign: 'left' }}>
@@ -741,17 +933,17 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                             <span style={{
                                 padding: '0.2rem 0.6rem',
                                 borderRadius: '999px',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10b981',
+                                background: isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                color: isFortnoxPlanEligible ? '#10b981' : '#f59e0b',
                                 fontSize: '0.7rem',
                                 fontWeight: 600
                             }}>
-                                Nytt
+                                {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
                             </span>
                         </button>
                         <button
                             type="button"
-                            onClick={() => setActiveTool('bank-import')}
+                            onClick={() => openTool('bank-import')}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -763,7 +955,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                 background: 'var(--surface-2)',
                                 color: 'var(--text-primary)',
                                 cursor: 'pointer',
-                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                                boxShadow: 'none'
                             }}
                         >
                             <div style={{ textAlign: 'left' }}>
@@ -786,7 +978,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
                         <button
                             type="button"
-                            onClick={() => setActiveTool('reconciliation')}
+                            onClick={() => openTool('reconciliation')}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -798,7 +990,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                 background: 'var(--surface-2)',
                                 color: 'var(--text-primary)',
                                 cursor: 'pointer',
-                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+                                boxShadow: 'none'
                             }}
                         >
                             <div style={{ textAlign: 'left' }}>
@@ -820,7 +1012,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                         </button>
                         <button
                             type="button"
-                            onClick={() => setActiveTool('bookkeeping-rules')}
+                            onClick={() => openTool('bookkeeping-rules')}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -854,7 +1046,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                         </button>
                         <button
                             type="button"
-                            onClick={() => setActiveTool('agency')}
+                            onClick={() => openTool('agency')}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',

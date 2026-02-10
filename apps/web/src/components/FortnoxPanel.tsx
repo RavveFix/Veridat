@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { logger } from '../services/LoggerService';
+import { companyService } from '../services/CompanyService';
 import { CopilotPanel } from './CopilotPanel';
+import { getFortnoxList } from '../utils/fortnoxResponse';
 
 interface FortnoxPanelProps {
     onBack: () => void;
@@ -34,6 +36,10 @@ type CustomerFilterMode = 'all' | 'unpaid' | 'overdue';
 
 function todayString(): string {
     return new Date().toISOString().split('T')[0];
+}
+
+function buildIdempotencyKey(action: 'bookkeep' | 'payment', givenNumber: number): string {
+    return `fortnox_panel:approve_supplier_invoice:${action}:${givenNumber}`;
 }
 
 function toNumber(value: number | string | null | undefined): number {
@@ -80,6 +86,7 @@ function getCustomerStatus(invoice: CustomerInvoiceSummary): string {
 }
 
 export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
+    const companyId = companyService.getCurrentId();
     const [loadingSupplier, setLoadingSupplier] = useState(false);
     const [loadingCustomer, setLoadingCustomer] = useState(false);
     const [supplierError, setSupplierError] = useState<string | null>(null);
@@ -205,7 +212,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             }
 
             const result = await response.json();
-            const items = ((result.data?.SupplierInvoices ?? result.SupplierInvoices) || []) as SupplierInvoiceSummary[];
+            const items = getFortnoxList<SupplierInvoiceSummary>(result, 'SupplierInvoices');
             if (target === 'pending') {
                 setPendingInvoices(items);
             } else {
@@ -262,7 +269,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             }
 
             const result = await response.json();
-            const items = ((result.data?.Invoices ?? result.Invoices) || []) as CustomerInvoiceSummary[];
+            const items = getFortnoxList<CustomerInvoiceSummary>(result, 'Invoices');
             setCustomerInvoices(items);
             setLastUpdated(new Date().toISOString());
             if (scopeStatus !== 'missing') {
@@ -287,8 +294,8 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         }
 
         const confirmText = action === 'bookkeep'
-            ? `Vill du attestera bokföring för faktura ${givenNumber}?`
-            : `Vill du attestera betalning för faktura ${givenNumber}?`;
+            ? `Vill du attestera bokföring för faktura ${givenNumber}?\n\nKontrollera att uppgifterna stämmer. Du som företagare ansvarar för att bokföringen är korrekt.`
+            : `Vill du attestera betalning för faktura ${givenNumber}?\n\nKontrollera att uppgifterna stämmer. Du som företagare ansvarar för att bokföringen är korrekt.`;
         if (!window.confirm(confirmText)) return;
 
         setActionLoadingId(String(givenNumberRaw));
@@ -309,7 +316,11 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 },
                 body: JSON.stringify({
                     action: action === 'bookkeep' ? 'approveSupplierInvoiceBookkeep' : 'approveSupplierInvoicePayment',
-                    payload: { givenNumber }
+                    companyId,
+                    payload: {
+                        givenNumber,
+                        idempotencyKey: buildIdempotencyKey(action, givenNumber),
+                    }
                 })
             });
 

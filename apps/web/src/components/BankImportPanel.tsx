@@ -5,6 +5,7 @@ import { bankImportService } from '../services/BankImportService';
 import { logger } from '../services/LoggerService';
 import type { BankImport, BankImportMapping, BankTransaction } from '../types/bank';
 import { BANK_PROFILES, detectBankFromHeaders, getFieldSynonyms, type BankProfile } from '../utils/bankProfiles';
+import { getFortnoxList } from '../utils/fortnoxResponse';
 
 type CsvPreview = {
     headers: string[];
@@ -281,6 +282,22 @@ function createId(): string {
         return crypto.randomUUID();
     }
     return `import_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildMatchIdempotencyKey(
+    companyId: string,
+    result: MatchResult
+): string {
+    if (!result.match) {
+        return `bank_match:${companyId}:${result.transaction.id}`;
+    }
+    if (result.match.type === 'supplier') {
+        const invoice = result.match.invoice;
+        const invoiceRef = invoice.GivenNumber || invoice.InvoiceNumber;
+        return `bank_match:${companyId}:supplier:${result.transaction.id}:${String(invoiceRef)}`;
+    }
+    const invoice = result.match.invoice;
+    return `bank_match:${companyId}:customer:${result.transaction.id}:${String(invoice.InvoiceNumber)}`;
 }
 
 function buildMatches(
@@ -622,7 +639,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 errors.push(errorData.error || 'Kunde inte hämta leverantörsfakturor.');
             } else {
                 const result = await supplierResponse.json();
-                supplierInvoices = ((result.data?.SupplierInvoices ?? result.SupplierInvoices) || []) as SupplierInvoiceSummary[];
+                supplierInvoices = getFortnoxList<SupplierInvoiceSummary>(result, 'SupplierInvoices');
             }
 
             let customerInvoices: CustomerInvoiceSummary[] = [];
@@ -631,7 +648,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 errors.push(errorData.error || 'Kunde inte hämta kundfakturor.');
             } else {
                 const result = await customerResponse.json();
-                customerInvoices = ((result.data?.Invoices ?? result.Invoices) || []) as CustomerInvoiceSummary[];
+                customerInvoices = getFortnoxList<CustomerInvoiceSummary>(result, 'Invoices');
             }
 
             if (supplierInvoices.length === 0 && customerInvoices.length === 0) {
@@ -744,7 +761,15 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${accessToken}`
                 },
-                body: JSON.stringify({ action, companyId, payload: { payment, meta } })
+                body: JSON.stringify({
+                    action,
+                    companyId,
+                    payload: {
+                        idempotencyKey: buildMatchIdempotencyKey(companyId, result),
+                        payment,
+                        meta,
+                    }
+                })
             });
 
             if (!response.ok) {
@@ -880,12 +905,15 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                         style={{
                             padding: '0.45rem 0.9rem',
                             borderRadius: '8px',
-                            background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                            background: '#2563eb',
                             color: '#fff',
                             textDecoration: 'none',
                             fontSize: '0.85rem',
-                            fontWeight: 600
+                            fontWeight: 700,
+                            boxShadow: 'none'
                         }}
+                        onMouseOver={(e) => (e.currentTarget.style.background = '#1d4ed8')}
+                        onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
                     >
                         Ladda ner mall
                     </a>
@@ -905,14 +933,29 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                             height: '34px',
                             padding: '0 0.8rem',
                             borderRadius: '10px',
-                            border: '1px solid var(--glass-border)',
-                            background: (!selectedBank || selectedBank === 'auto') ? 'rgba(14, 165, 233, 0.18)' : 'transparent',
-                            color: (!selectedBank || selectedBank === 'auto') ? '#0ea5e9' : 'var(--text-secondary)',
+                            border: (!selectedBank || selectedBank === 'auto') ? 'none' : '1px solid var(--surface-border)',
+                            background: (!selectedBank || selectedBank === 'auto') ? '#2563eb' : 'var(--surface-2)',
+                            color: (!selectedBank || selectedBank === 'auto') ? '#fff' : 'var(--text-primary)',
                             fontSize: '0.78rem',
-                            fontWeight: 600,
+                            fontWeight: 700,
                             cursor: 'pointer',
                             display: 'inline-flex',
-                            alignItems: 'center'
+                            alignItems: 'center',
+                            boxShadow: 'none'
+                        }}
+                        onMouseOver={(e) => {
+                            if (!selectedBank || selectedBank === 'auto') {
+                                e.currentTarget.style.background = '#1d4ed8';
+                            } else {
+                                e.currentTarget.style.background = 'var(--surface-3)';
+                            }
+                        }}
+                        onMouseOut={(e) => {
+                            if (!selectedBank || selectedBank === 'auto') {
+                                e.currentTarget.style.background = '#2563eb';
+                            } else {
+                                e.currentTarget.style.background = 'var(--surface-2)';
+                            }
                         }}
                     >
                         Auto-detektera{detectedBank && selectedBank === 'auto' ? ` (${detectedBank.name})` : ''}
@@ -926,14 +969,29 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                 height: '34px',
                                 padding: '0 0.8rem',
                                 borderRadius: '10px',
-                                border: '1px solid var(--glass-border)',
-                                background: selectedBank === profile.id ? 'rgba(14, 165, 233, 0.18)' : 'transparent',
-                                color: selectedBank === profile.id ? '#0ea5e9' : 'var(--text-secondary)',
+                                border: selectedBank === profile.id ? 'none' : '1px solid var(--surface-border)',
+                                background: selectedBank === profile.id ? '#2563eb' : 'var(--surface-2)',
+                                color: selectedBank === profile.id ? '#fff' : 'var(--text-primary)',
                                 fontSize: '0.78rem',
-                                fontWeight: 600,
+                                fontWeight: 700,
                                 cursor: 'pointer',
                                 display: 'inline-flex',
-                                alignItems: 'center'
+                                alignItems: 'center',
+                                boxShadow: 'none'
+                            }}
+                            onMouseOver={(e) => {
+                                if (selectedBank === profile.id) {
+                                    e.currentTarget.style.background = '#1d4ed8';
+                                } else {
+                                    e.currentTarget.style.background = 'var(--surface-3)';
+                                }
+                            }}
+                            onMouseOut={(e) => {
+                                if (selectedBank === profile.id) {
+                                    e.currentTarget.style.background = '#2563eb';
+                                } else {
+                                    e.currentTarget.style.background = 'var(--surface-2)';
+                                }
                             }}
                         >
                             {profile.name}
@@ -1143,8 +1201,8 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                 borderRadius: '8px',
                                 border: 'none',
                                 background: missingMapping.length > 0 || normalizedTransactions.length === 0
-                                    ? 'rgba(255, 255, 255, 0.1)'
-                                    : 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                                    ? 'var(--surface-3)'
+                                    : '#2563eb',
                                 color: missingMapping.length > 0 || normalizedTransactions.length === 0
                                     ? 'var(--text-secondary)'
                                     : '#fff',
@@ -1152,7 +1210,18 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                     ? 'not-allowed'
                                     : 'pointer',
                                 fontSize: '0.85rem',
-                                fontWeight: 600
+                                fontWeight: 700,
+                                boxShadow: 'none'
+                            }}
+                            onMouseOver={(e) => {
+                                if (!(missingMapping.length > 0 || normalizedTransactions.length === 0)) {
+                                    e.currentTarget.style.background = '#1d4ed8';
+                                }
+                            }}
+                            onMouseOut={(e) => {
+                                if (!(missingMapping.length > 0 || normalizedTransactions.length === 0)) {
+                                    e.currentTarget.style.background = '#2563eb';
+                                }
                             }}
                         >
                             {saving ? 'Sparar...' : 'Spara import'}
@@ -1188,11 +1257,19 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                             style={{
                                 padding: '0.45rem 0.9rem',
                                 borderRadius: '8px',
-                                border: '1px solid var(--glass-border)',
-                                background: 'transparent',
-                                color: 'var(--text-secondary)',
+                                border: '1px solid var(--surface-border)',
+                                background: 'var(--surface-2)',
+                                color: 'var(--text-primary)',
                                 cursor: matching ? 'wait' : 'pointer',
-                                fontSize: '0.8rem'
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                boxShadow: 'none'
+                            }}
+                            onMouseOver={(e) => {
+                                if (!matching) e.currentTarget.style.background = 'var(--surface-3)';
+                            }}
+                            onMouseOut={(e) => {
+                                if (!matching) e.currentTarget.style.background = 'var(--surface-2)';
                             }}
                         >
                             {matching ? 'Hämtar...' : 'Hämta från Fortnox'}
@@ -1341,11 +1418,18 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                                                         height: '30px',
                                                                         padding: '0 0.7rem',
                                                                         borderRadius: '8px',
-                                                                        border: '1px solid var(--glass-border)',
-                                                                        background: 'transparent',
+                                                                        border: '1px solid var(--surface-border)',
+                                                                        background: 'var(--surface-2)',
                                                                         color: 'var(--text-secondary)',
                                                                         fontSize: '0.72rem',
-                                                                        cursor: isLoading ? 'not-allowed' : 'pointer'
+                                                                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                                                                        boxShadow: 'none'
+                                                                    }}
+                                                                    onMouseOver={(e) => {
+                                                                        if (!isLoading) e.currentTarget.style.background = 'var(--surface-3)';
+                                                                    }}
+                                                                    onMouseOut={(e) => {
+                                                                        if (!isLoading) e.currentTarget.style.background = 'var(--surface-2)';
                                                                     }}
                                                                 >
                                                                     Avvisa
@@ -1361,14 +1445,25 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                                                 height: '30px',
                                                                 padding: '0 0.75rem',
                                                                 borderRadius: '8px',
-                                                                border: '1px solid var(--glass-border)',
+                                                                border: '1px solid var(--surface-border)',
                                                                 background: aiSuggestions.has(result.transaction.id)
                                                                     ? 'rgba(168, 85, 247, 0.12)'
-                                                                    : 'transparent',
+                                                                    : 'var(--surface-2)',
                                                                 color: '#a855f7',
                                                                 fontSize: '0.72rem',
-                                                                fontWeight: 600,
-                                                                cursor: aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id) ? 'not-allowed' : 'pointer'
+                                                                fontWeight: 700,
+                                                                cursor: aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id) ? 'not-allowed' : 'pointer',
+                                                                boxShadow: 'none'
+                                                            }}
+                                                            onMouseOver={(e) => {
+                                                                if (!(aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id))) {
+                                                                    e.currentTarget.style.background = 'var(--surface-3)';
+                                                                }
+                                                            }}
+                                                            onMouseOut={(e) => {
+                                                                if (!(aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id))) {
+                                                                    e.currentTarget.style.background = 'var(--surface-2)';
+                                                                }
                                                             }}
                                                         >
                                                             {aiLoadingId === result.transaction.id

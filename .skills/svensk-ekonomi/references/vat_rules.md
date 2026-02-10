@@ -5,9 +5,25 @@
 | Sats | Procent | Tillämpning |
 |------|---------|-------------|
 | Standard | 25% | Laddning till konsument, de flesta tjänster |
-| Reducerad | 12% | Livsmedel, hotell, restaurang |
+| Reducerad | 12% | Hotell, restaurang/catering |
 | Låg | 6% | Böcker, kultur, kollektivtrafik |
 | Momsfri | 0% | Export, sjukvård, finans, fastighetsuthyrning |
+
+### ⚠️ Matmoms-sänkning (1 april 2026 – 31 december 2027)
+
+Från och med **1 april 2026** sänks momsen på **livsmedel** (mat köpt i butik) från 12% till **6%**.
+Ändringen är tillfällig och gäller t.o.m. 31 december 2027 (kan förlängas).
+
+**Vad påverkas:**
+- Livsmedel i butik: 12% → **6%**
+
+**Vad påverkas INTE:**
+- Restaurang och catering: kvarstår på **12%**
+- Hotell: kvarstår på **12%**
+
+**Rättslig grund:** Prop. 2025/26:55 (Vårändringsbudgeten)
+
+**OBS:** Kontrollera alltid transaktionsdatum vid bokföring kring övergången (mars/april 2026).
 
 ## Elbilsladdning - specifika regler
 
@@ -130,14 +146,14 @@ Vid mindre belopp räcker:
 | 1-40 MSEK | Kvartalsvis | 12:e andra månaden |
 | < 1 MSEK | Årsvis | Senast 26 feb |
 
-### Särskilda datum 2025
+### Särskilda datum 2026
 
 | Period | Deklarationsdatum |
 |--------|-------------------|
 | Jan-Mar | 12 maj |
 | Apr-Jun | 17 aug |
 | Jul-Sep | 12 nov |
-| Okt-Dec | 12 feb 2026 |
+| Okt-Dec | 12 feb 2027 |
 
 ## EU-försäljning
 

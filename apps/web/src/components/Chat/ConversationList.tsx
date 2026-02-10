@@ -153,7 +153,10 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
             let query = supabase
                 .from('conversations')
                 .select(`
-                    *,
+                    id,
+                    title,
+                    created_at,
+                    updated_at,
                     messages (
                         content,
                         role,
@@ -167,20 +170,21 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
                 query = query.eq('company_id', activeCompanyId);
             }
 
-            const { data, error } = await query.order('updated_at', { ascending: false });
+            const { data, error } = await query
+                .order('updated_at', { ascending: false })
+                .order('created_at', { ascending: false, foreignTable: 'messages' })
+                .limit(1, { foreignTable: 'messages' });
 
             if (error) throw error;
 
             // Map data to ensure types match (handling null titles and dates)
-            // Extract last message preview from messages array
+            // Extract last message preview from limited messages array
             const typedData: Conversation[] = (data || []).map(item => {
-                // Get the last user message for preview (most recent by created_at)
-                const messages = (item.messages as Array<{ content: string; role: string; created_at: string }>) || [];
-                const sortedMessages = messages.sort((a, b) =>
-                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                );
-                const lastUserMessage = sortedMessages.find(m => m.role === 'user');
-                const preview = lastUserMessage?.content?.slice(0, 60) || '';
+                const messages = Array.isArray(item.messages)
+                    ? item.messages as Array<{ content: string; role: string; created_at: string }>
+                    : [];
+                const latestMessage = messages[0];
+                const preview = latestMessage?.content?.slice(0, 60) || '';
 
                 return {
                     id: item.id,

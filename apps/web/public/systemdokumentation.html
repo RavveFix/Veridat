@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Systemdokumentation — Veridat</title>
+    <style>
+        :root {
+            --bg: #0a0a14;
+            --surface: #12121f;
+            --border: rgba(0, 240, 255, 0.12);
+            --text: rgba(255, 255, 255, 0.88);
+            --text-secondary: rgba(255, 255, 255, 0.6);
+            --accent: #00f0ff;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            padding: 2rem 1rem;
+        }
+        .container {
+            max-width: 780px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #00f0ff, #00c8ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        h2 {
+            font-size: 1.25rem;
+            margin: 2rem 0 0.75rem;
+            color: var(--accent);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.4rem;
+        }
+        h3 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; color: #fff; }
+        p, li { font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 0.6rem; }
+        ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.9rem; }
+        th, td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+        th { background: var(--surface); color: var(--accent); font-weight: 600; }
+        td { color: var(--text-secondary); }
+        .note {
+            background: rgba(0, 240, 255, 0.06);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem 1.25rem;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+        .subtitle { color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 2rem; }
+        a { color: var(--accent); }
+        code { background: var(--surface); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.88rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+<h1>Systemdokumentation</h1>
+<p class="subtitle">Veridat — AI-driven bokföringsassistent<br>
+Enligt BFNAR 2013:2 kapitel 8 (Bokföringsnämndens allmänna råd om bokföring)</p>
+<div class="note">
+    Driftnivå: <strong>assisterad automation med mänsklig sign-off</strong>. Fortnox är system of record.
+</div>
+
+<h2>1. Systembeskrivning</h2>
+<p><strong>Veridat</strong> är en AI-driven bokföringsassistent som hjälper svenska småföretag att analysera, kategorisera och bokföra affärshändelser. Veridat är <strong>inte ett bokföringsprogram</strong> — det är ett stödsystem som arbetar tillsammans med Fortnox (som är system of record).</p>
+
+<table>
+    <tr><th>Egenskap</th><th>Veridat</th><th>Fortnox</th></tr>
+    <tr><td>Typ</td><td>Bokföringsassistent (AI)</td><td>Bokföringsprogram</td></tr>
+    <tr><td>System of record</td><td>Nej</td><td>Ja</td></tr>
+    <tr><td>BFL-efterlevnad</td><td>Stödjer (spårbarhet)</td><td>Ansvarar (oföränderlighet)</td></tr>
+    <tr><td>7 års arkivering</td><td>AI-beslut och revisionsspår</td><td>Räkenskapsinformation</td></tr>
+</table>
+
+<h2>2. Dataflöde och behandlingsprocess</h2>
+<h3>2.1 Steg för steg</h3>
+<ol>
+    <li><strong>Användaren laddar upp</strong> ett dokument (PDF, Excel, bild) eller skriver en fråga i chatten.</li>
+    <li><strong>AI-analys:</strong> Veridat analyserar dokumentet med AI (Google Gemini för PDF/text, OpenAI för Excel-kolumnmappning). För Monta EV-filer används en deterministisk parser utan AI.</li>
+    <li><strong>Kategorisering:</strong> Transaktioner klassificeras med BAS-konton, momssats och transaktionstyp. Varje klassificering sparas med confidence score (0–1).</li>
+    <li><strong>Presentation:</strong> Resultatet visas för användaren med bokföringsförslag, momsberäkning och verifikationer.</li>
+    <li><strong>Användargodkännande:</strong> Användaren granskar och godkänner (eller ändrar) innan bokföringspåverkande export.</li>
+    <li><strong>Fortnox-export:</strong> Godkänd data skickas till Fortnox via API som verifikationer, leverantörsfakturor eller betalningar.</li>
+    <li><strong>Statusmaskin för leverantörsfakturor:</strong> `not_exported` → `exported` → `booked` → `attested` (UI speglar Fortnox-läge).</li>
+    <li><strong>Revisionsspår:</strong> Varje steg loggas i databasen med tidsstämpel, aktör (AI/användare/system) och tillståndsförändring.</li>
+</ol>
+
+<h3>2.2 Dataflödesdiagram</h3>
+<div class="note">
+    Dokument (PDF/Excel/Bild) → AI-analys → Kategorisering (BAS-konto + moms) → Användargodkännande → Fortnox API → Verifikation i Fortnox
+</div>
+
+<h2>3. AI-behandling</h2>
+<h3>3.1 AI-leverantörer</h3>
+<table>
+    <tr><th>Leverantör</th><th>Modell</th><th>Användning</th></tr>
+    <tr><td>Google</td><td>Gemini</td><td>PDF/bild-analys, chatt, bokföringsförslag</td></tr>
+    <tr><td>OpenAI</td><td>GPT</td><td>Excel-kolumnmappning</td></tr>
+    <tr><td>Anthropic</td><td>Claude</td><td>Reserv vid Google-avbrott</td></tr>
+</table>
+
+<h3>3.2 Vad skickas till AI</h3>
+<ul>
+    <li>Dokumentinnehåll (fakturadata, transaktioner)</li>
+    <li>Användarkontext (företagsprofil, kontoplan, tidigare mönster)</li>
+    <li>Ingen lösenord, bankuppgifter eller autentiseringsdata skickas</li>
+</ul>
+
+<h3>3.3 AI-beslutsspårning</h3>
+<p>Varje AI-klassificering sparas i tabellen <code>ai_decisions</code> med:</p>
+<ul>
+    <li>AI-leverantör och modellversion</li>
+    <li>Input-hash (SHA-256) för deduplicering</li>
+    <li>Confidence score (0–1)</li>
+    <li>Användarens eventuella överstyrning (override)</li>
+    <li>Bevaras i 7 år (BFL 7:2)</li>
+</ul>
+
+<h2>4. Revisionsspår (BFL 7 kap)</h2>
+<p>Tre separata loggtabeller säkerställer full spårbarhet:</p>
+
+<table>
+    <tr><th>Tabell</th><th>Innehåll</th><th>Bevarandetid</th></tr>
+    <tr><td><code>audit_logs</code></td><td>Alla ekonomiska åtgärder (skapande, ändring, export)</td><td>7 år</td></tr>
+    <tr><td><code>ai_decisions</code></td><td>AI-klassificeringar med confidence och överstyrning</td><td>7 år</td></tr>
+    <tr><td><code>fortnox_sync_log</code></td><td>Export till Fortnox (status, dokumentnummer, felmeddelanden)</td><td>7 år</td></tr>
+</table>
+
+<p>Varje loggpost innehåller: tidsstämpel, aktör (user/system/ai/fortnox_sync), åtgärd, resurstyp, tidigare och nytt tillstånd (JSON), IP-adress.</p>
+
+<h2>5. Kontroller och validering</h2>
+<ul>
+    <li><strong>Action-specifik payload-validering:</strong> Fortnox write-actions valideras server-side och returnerar maskinläsbara felkoder vid ogiltig payload.</li>
+    <li><strong>Idempotens på write-actions:</strong> `idempotencyKey` dedupliceras mot <code>fortnox_sync_log</code> för att undvika dubbelbokning vid dubbelklick/retry.</li>
+    <li><strong>Pagination:</strong> Fortnox-listor (fakturor/verifikationer) hämtas paginerat för att säkra fullständig datamängd i större bolag.</li>
+    <li><strong>Fortnox Guardian (read-only):</strong> Schemalagd bevakning skapar in-app-larm vid token-risk, failed sync, förfallna/obokförda fakturor och momsvarningar.</li>
+    <li><strong>Mänsklig sign-off:</strong> Bokföringspåverkande steg kräver användarens godkännande i UI.</li>
+    <li><strong>Momsvalidering (ML 3:30a):</strong> Nollmoms-transaktioner valideras automatiskt mot giltiga scenarier (roaming, omvänd skattskyldighet, export).</li>
+    <li><strong>Saldokontroll:</strong> Varje verifikation kontrolleras att debet = kredit (1 öres tolerans).</li>
+    <li><strong>Öresavrundning:</strong> ROUND_HALF_UP till 2 decimaler, varje belopp rundas före summering.</li>
+    <li><strong>Organisationsnummer:</strong> Luhn-validering (modulus 10).</li>
+    <li><strong>Dubblettskydd:</strong> Kontroll före export om verifikation redan finns i Fortnox.</li>
+</ul>
+
+<h2>6. Dataskydd och GDPR</h2>
+<ul>
+    <li><strong>Rättslig grund:</strong> Rättslig förpliktelse (GDPR Art. 6(1)(c)) för bokföringdata; samtycke för övrig behandling.</li>
+    <li><strong>Personuppgiftsbiträdesavtal (DPA):</strong> Finns med Google, OpenAI och Anthropic.</li>
+    <li><strong>Datalagring:</strong> Supabase PostgreSQL (EU-region). Räkenskapsinformation 7 år, konversationer max 24 månader.</li>
+    <li><strong>Radering:</strong> Automatisk rensning av data äldre än bevarandetiden.</li>
+    <li><strong>RLS (Row-Level Security):</strong> Varje användare ser bara sin egen data.</li>
+</ul>
+
+<h2>7. Ansvarsfördelning</h2>
+<div class="note">
+    <strong>Företagaren ansvarar alltid för sin bokföring enligt Bokföringslagen (BFL).</strong><br><br>
+    Veridat tillhandahåller AI-baserade förslag och analyser. Alla förslag bör granskas av användaren innan de bokförs i Fortnox. Veridat är inte en auktoriserad redovisningskonsult eller revisor.
+</div>
+
+<h2>8. Versionshistorik</h2>
+<table>
+    <tr><th>Version</th><th>Datum</th><th>Ändring</th></tr>
+    <tr><td>1.1</td><td>2026-02-10</td><td>Fortnox produktionshärdning: idempotens, paginering, sync-statusmaskin, guardian-larm och uppdaterade kontroller</td></tr>
+    <tr><td>1.0</td><td>2026-02-09</td><td>Initial systemdokumentation upprättad</td></tr>
+</table>
+
+<p style="margin-top: 2rem; font-size: 0.8rem; color: var(--text-secondary);">
+    Denna dokumentation är upprättad enligt BFNAR 2013:2 kapitel 8 och beskriver Veridats roll i bokföringskedjan.
+    Senast uppdaterad: 2026-02-10.
+</p>
+
+</div>
+</body>
+</html>

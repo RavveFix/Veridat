@@ -1,6 +1,6 @@
 import { CURRENT_TERMS_VERSION } from "./termsVersion";
 
-export type LegalDocType = "terms" | "privacy" | "security" | "dpa";
+export type LegalDocType = "terms" | "privacy" | "security" | "dpa" | "systemdoc";
 
 export const LEGAL_DOCS: Record<LegalDocType, {
     label: string;
@@ -28,6 +28,11 @@ export const LEGAL_DOCS: Record<LegalDocType, {
         url: "/dpa",
         version: CURRENT_TERMS_VERSION,
         requiresSigner: true
+    },
+    systemdoc: {
+        label: "Systemdokumentation",
+        url: "/systemdokumentation.html",
+        version: "1.0"
     }
 };
 
