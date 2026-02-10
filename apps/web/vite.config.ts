@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import preact from '@preact/preset-vite';
+import { visualizer } from 'rollup-plugin-visualizer';
+
+const ANALYZE_BUNDLE = process.env.VITE_BUNDLE_ANALYZE === 'true';
+const SENTRY_ENABLED = Boolean(process.env.VITE_SENTRY_DSN);
 
 export default defineConfig({
     // Run Vite with a stable root regardless of where the command is executed from.
@@ -28,8 +32,20 @@ export default defineConfig({
         // Keep the build output in the repo root for existing deploy configs.
         outDir: resolve(__dirname, '../../dist'),
         emptyOutDir: true,
-        sourcemap: true,
+        // Do not publish production source maps by default.
+        // Can be re-enabled with VITE_SOURCEMAP=true when needed.
+        sourcemap: process.env.VITE_SOURCEMAP === 'true',
         rollupOptions: {
+            plugins: ANALYZE_BUNDLE
+                ? [
+                    visualizer({
+                        filename: resolve(__dirname, '../../dist/bundle-stats.html'),
+                        template: 'treemap',
+                        gzipSize: true,
+                        brotliSize: true,
+                    }),
+                ]
+                : [],
             input: {
                 main: resolve(__dirname, 'index.html'),
                 login: resolve(__dirname, 'login.html'),
@@ -42,9 +58,50 @@ export default defineConfig({
                 manifest: resolve(__dirname, 'manifest.html'),
             },
             output: {
-                manualChunks: {
-                    'vendor-ui': ['@heroui/react', 'framer-motion'],
-                    'vendor-supabase': ['@supabase/supabase-js'],
+                manualChunks(id: string) {
+                    if (!id.includes('node_modules')) return undefined;
+
+                    if (id.includes('/node_modules/xlsx/')) return 'vendor-xlsx';
+                    if (id.includes('/node_modules/pdfjs-dist/')) return 'vendor-pdf';
+                    if (id.includes('/node_modules/@supabase/')) return 'vendor-supabase';
+
+                    if (
+                        id.includes('/node_modules/@heroui/') ||
+                        id.includes('/node_modules/@react-aria/') ||
+                        id.includes('/node_modules/@react-stately/') ||
+                        id.includes('/node_modules/@react-types/') ||
+                        id.includes('/node_modules/@internationalized/') ||
+                        id.includes('/node_modules/framer-motion/') ||
+                        id.includes('/node_modules/motion/') ||
+                        id.includes('/node_modules/motion-dom/') ||
+                        id.includes('/node_modules/motion-utils/')
+                    ) {
+                        return 'vendor-ui';
+                    }
+
+                    if (id.includes('/preact/') || id.includes('preact/')) {
+                        return 'vendor-preact';
+                    }
+
+                    if (
+                        SENTRY_ENABLED &&
+                        (
+                            id.includes('/node_modules/@sentry/') ||
+                            id.includes('/node_modules/@sentry-internal/')
+                        )
+                    ) {
+                        return 'vendor-sentry';
+                    }
+
+                    if (
+                        id.includes('/node_modules/clsx/') ||
+                        id.includes('/node_modules/tailwind-merge/') ||
+                        id.includes('/node_modules/dompurify/')
+                    ) {
+                        return 'vendor-utils';
+                    }
+
+                    return 'vendor-misc';
                 },
             },
         },

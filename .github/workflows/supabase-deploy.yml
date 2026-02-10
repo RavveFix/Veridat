@@ -44,7 +44,9 @@ jobs:
           fi
 
           ./node_modules/.bin/supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD" --yes
+          ./node_modules/.bin/supabase db lint --linked --level warning --fail-on warning
           ./node_modules/.bin/supabase db push --include-all --yes
+          ./node_modules/.bin/supabase db lint --linked --level warning --fail-on warning
 
           FUNCTIONS=$(find supabase/functions -maxdepth 2 -type f -name index.ts -print | xargs -n1 dirname | xargs -n1 basename | sort -u | tr '\n' ' ')
           echo "Deploying functions: $FUNCTIONS"
