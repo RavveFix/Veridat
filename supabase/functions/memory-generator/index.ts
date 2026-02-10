@@ -3,7 +3,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 import { createLogger } from "../../services/LoggerService.ts";
-import { createOptionsResponse, getCorsHeaders } from "../../services/CorsService.ts";
+import {
+    createOptionsResponse,
+    getCorsHeaders,
+    isOriginAllowed,
+    createForbiddenOriginResponse
+} from "../../services/CorsService.ts";
 import { extractGoogleRateLimitInfo } from "../../services/GeminiService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
@@ -186,7 +191,7 @@ function parseMemoryResponse(text: string): MemoryResponse | null {
 }
 
 async function repairMemoryResponse(
-    model: { generateContent: (request: unknown) => Promise<{ response: { text: () => string } }> },
+    model: any,
     rawText: string
 ): Promise<string | null> {
     const snippet = rawText.length > 4000 ? `${rawText.slice(0, 4000)}…` : rawText;
@@ -295,11 +300,17 @@ function isGenericMemory(content: string): boolean {
 }
 
 Deno.serve(async (req: Request) => {
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+
     if (req.method === "OPTIONS") {
-        return createOptionsResponse();
+        return createOptionsResponse(req);
     }
 
-    const corsHeaders = getCorsHeaders();
+    if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+        return createForbiddenOriginResponse(requestOrigin);
+    }
+
+    const corsHeaders = getCorsHeaders(requestOrigin);
 
     try {
         const supabaseUrl = getEnv(["SUPABASE_URL", "SB_SUPABASE_URL", "API_URL"]);

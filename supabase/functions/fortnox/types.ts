@@ -42,9 +42,9 @@ export interface FortnoxInvoice {
 
 export interface FortnoxResponse<T> {
     MetaInformation?: {
-        "@TotalResources": number;
-        "@TotalPages": number;
-        "@CurrentPage": number;
+        "@TotalResources"?: number | string;
+        "@TotalPages"?: number | string;
+        "@CurrentPage"?: number | string;
     };
 }
 
@@ -194,6 +194,7 @@ export interface FortnoxSupplierInvoiceListResponse extends FortnoxResponse<Fort
         GivenNumber: number;
         Balance: number;
         Booked: boolean;
+        SupplierName?: string;
     }>;
 }
 

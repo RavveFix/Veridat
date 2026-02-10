@@ -66,10 +66,10 @@ export class RateLimiterService {
             }
 
             if (!usage) {
-                // Create new record with separate counters
+                // Create new record — use upsert to handle concurrent first-requests
                 const { error: insertError } = await this.supabase
                     .from('api_usage')
-                    .insert({
+                    .upsert({
                         user_id: userId,
                         endpoint: endpoint,
                         hourly_count: 1,
@@ -79,7 +79,7 @@ export class RateLimiterService {
                         // Legacy columns
                         request_count: 1,
                         last_reset: now.toISOString()
-                    });
+                    }, { onConflict: 'user_id,endpoint', ignoreDuplicates: true });
 
                 if (insertError) {
                     console.error('Error creating usage record:', insertError);

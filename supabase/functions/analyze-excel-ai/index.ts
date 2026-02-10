@@ -3,7 +3,12 @@
 // AI används ENDAST för företagsnamn/period om det saknas
 /// <reference path="../types/deno.d.ts" />
 
-import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
+import {
+  getCorsHeaders,
+  createOptionsResponse,
+  isOriginAllowed,
+  createForbiddenOriginResponse
+} from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
@@ -772,10 +777,15 @@ interface AIQuestion {
 }
 
 Deno.serve(async (req: Request) => {
-  const corsHeaders = getCorsHeaders();
+  const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+  const corsHeaders = getCorsHeaders(requestOrigin);
 
   if (req.method === "OPTIONS") {
-    return createOptionsResponse();
+    return createOptionsResponse(req);
+  }
+
+  if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+    return createForbiddenOriginResponse(requestOrigin);
   }
 
   // Require auth and resolve actual user id from token (don’t trust client-provided IDs)

@@ -1,7 +1,13 @@
 /// <reference path="../types/deno.d.ts" />
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { getCorsHeaders, createOptionsResponse } from '../../services/CorsService.ts';
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import {
+    getCorsHeaders,
+    createOptionsResponse,
+    isOriginAllowed,
+    createForbiddenOriginResponse
+} from '../../services/CorsService.ts';
 import { createLogger } from '../../services/LoggerService.ts';
 
 const logger = createLogger('admin-billing');
@@ -32,6 +38,13 @@ interface ProfileRow {
     paid_at: string | null;
 }
 
+interface CompanyRow {
+    user_id: string | null;
+    name: string | null;
+}
+
+type AdminSupabaseClient = SupabaseClient<any, any, any, any, any>;
+
 function jsonResponse(status: number, body: Record<string, unknown>) {
     return new Response(JSON.stringify(body), {
         status,
@@ -56,7 +69,7 @@ function addDays(base: Date, days: number): Date {
     return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
-async function requireAdmin(supabaseAdmin: ReturnType<typeof createClient>, token: string) {
+async function requireAdmin(supabaseAdmin: AdminSupabaseClient, token: string) {
     const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
     if (userError || !user) {
         return { error: jsonResponse(401, { error: 'Unauthorized' }) } as const;
@@ -80,7 +93,7 @@ async function requireAdmin(supabaseAdmin: ReturnType<typeof createClient>, toke
 }
 
 async function findUsersById(
-    supabaseAdmin: ReturnType<typeof createClient>,
+    supabaseAdmin: AdminSupabaseClient,
     userIds: string[]
 ): Promise<Map<string, { email: string | null }>> {
     const target = new Set(userIds);
@@ -114,7 +127,7 @@ async function findUsersById(
 }
 
 async function findUserByEmail(
-    supabaseAdmin: ReturnType<typeof createClient>,
+    supabaseAdmin: AdminSupabaseClient,
     email: string
 ): Promise<{ id: string; email: string | null } | null> {
     let page = 1;
@@ -145,7 +158,7 @@ async function findUserByEmail(
     return null;
 }
 
-async function listAccounts(supabaseAdmin: ReturnType<typeof createClient>) {
+async function listAccounts(supabaseAdmin: AdminSupabaseClient) {
     const { data: profiles, error } = await supabaseAdmin
         .from('profiles')
         .select('id, full_name, plan, billing_status, period_end, grace_until, trial_end, invoice_id, invoice_due_date, paid_at')
@@ -167,9 +180,10 @@ async function listAccounts(supabaseAdmin: ReturnType<typeof createClient>) {
 
     const companyMap = new Map<string, string>();
     if (!companies.error && companies.data) {
-        for (const company of companies.data) {
+        const companyRows = companies.data as CompanyRow[];
+        for (const company of companyRows) {
             if (!company.user_id || companyMap.has(company.user_id)) continue;
-            companyMap.set(company.user_id, company.name);
+            companyMap.set(company.user_id, company.name ?? '—');
         }
     }
 
@@ -191,7 +205,7 @@ async function listAccounts(supabaseAdmin: ReturnType<typeof createClient>) {
     return jsonResponse(200, { accounts });
 }
 
-async function inviteUser(supabaseAdmin: ReturnType<typeof createClient>, payload: Record<string, unknown>) {
+async function inviteUser(supabaseAdmin: AdminSupabaseClient, payload: Record<string, unknown>) {
     const email = typeof payload.email === 'string' ? payload.email.trim() : '';
     const fullName = typeof payload.fullName === 'string' ? payload.fullName.trim() : '';
     const plan = typeof payload.plan === 'string' ? payload.plan : 'free';
@@ -251,8 +265,8 @@ async function inviteUser(supabaseAdmin: ReturnType<typeof createClient>, payloa
         updatePayload.trial_end = null;
     }
 
-    const { error: updateError } = await supabaseAdmin
-        .from('profiles')
+    const { error: updateError } = await (supabaseAdmin
+        .from('profiles') as any)
         .upsert({ id: userId, ...updatePayload }, { onConflict: 'id' });
 
     if (updateError) {
@@ -263,7 +277,7 @@ async function inviteUser(supabaseAdmin: ReturnType<typeof createClient>, payloa
     return jsonResponse(200, { success: true, userId });
 }
 
-async function updateAccount(supabaseAdmin: ReturnType<typeof createClient>, payload: Record<string, unknown>) {
+async function updateAccount(supabaseAdmin: AdminSupabaseClient, payload: Record<string, unknown>) {
     const userId = typeof payload.userId === 'string' ? payload.userId : '';
     if (!userId) {
         return jsonResponse(400, { error: 'userId is required' });
@@ -315,8 +329,8 @@ async function updateAccount(supabaseAdmin: ReturnType<typeof createClient>, pay
         }
     }
 
-    const { error } = await supabaseAdmin
-        .from('profiles')
+    const { error } = await (supabaseAdmin
+        .from('profiles') as any)
         .update(updatePayload)
         .eq('id', userId);
 
@@ -328,7 +342,7 @@ async function updateAccount(supabaseAdmin: ReturnType<typeof createClient>, pay
     return jsonResponse(200, { success: true });
 }
 
-async function markPaid(supabaseAdmin: ReturnType<typeof createClient>, payload: Record<string, unknown>) {
+async function markPaid(supabaseAdmin: AdminSupabaseClient, payload: Record<string, unknown>) {
     const userId = typeof payload.userId === 'string' ? payload.userId : '';
     if (!userId) {
         return jsonResponse(400, { error: 'userId is required' });
@@ -336,11 +350,11 @@ async function markPaid(supabaseAdmin: ReturnType<typeof createClient>, payload:
 
     const periodDays = parsePositiveInt(payload.periodDays, DEFAULT_PERIOD_DAYS);
 
-    const { data: profile, error } = await supabaseAdmin
-        .from('profiles')
+    const { data: profile, error } = await (supabaseAdmin
+        .from('profiles') as any)
         .select('period_end')
         .eq('id', userId)
-        .maybeSingle();
+        .maybeSingle() as { data: Pick<ProfileRow, 'period_end'> | null; error: Error | null };
 
     if (error) {
         logger.error('Failed to load profile for mark_paid', { error: error.message });
@@ -352,8 +366,8 @@ async function markPaid(supabaseAdmin: ReturnType<typeof createClient>, payload:
     const base = currentEnd && currentEnd > now ? currentEnd : now;
     const newPeriodEnd = addDays(base, periodDays).toISOString();
 
-    const { error: updateError } = await supabaseAdmin
-        .from('profiles')
+    const { error: updateError } = await (supabaseAdmin
+        .from('profiles') as any)
         .update({
             plan: 'pro',
             billing_status: 'active',
@@ -373,10 +387,15 @@ async function markPaid(supabaseAdmin: ReturnType<typeof createClient>, payload:
 }
 
 Deno.serve(async (req: Request) => {
-    const corsHeaders = getCorsHeaders();
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+    const corsHeaders = getCorsHeaders(requestOrigin);
 
     if (req.method === 'OPTIONS') {
-        return createOptionsResponse();
+        return createOptionsResponse(req);
+    }
+
+    if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+        return createForbiddenOriginResponse(requestOrigin);
     }
 
     if (req.method !== 'POST') {
@@ -401,8 +420,8 @@ Deno.serve(async (req: Request) => {
     const token = authHeader.replace(/^Bearer\s+/i, '');
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    const adminResult = await requireAdmin(supabaseAdmin, token);
-    if ('error' in adminResult) {
+    const adminResult = await requireAdmin(supabaseAdmin as AdminSupabaseClient, token);
+    if ('error' in adminResult && adminResult.error) {
         return adminResult.error;
     }
 

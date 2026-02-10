@@ -42,6 +42,18 @@ interface FortnoxTokenRecord {
     expires_at: string;
 }
 
+type FortnoxMetaInformation = {
+    "@TotalResources"?: number | string;
+    "@TotalPages"?: number | string;
+    "@CurrentPage"?: number | string;
+};
+
+interface PaginationOptions {
+    page?: number;
+    limit?: number;
+    allPages?: boolean;
+}
+
 const logger = createLogger('fortnox');
 
 export class FortnoxService {
@@ -58,6 +70,88 @@ export class FortnoxService {
         this.clientSecret = config.clientSecret;
         this.supabase = supabaseClient;
         this.userId = userId;
+    }
+
+    private toPositiveInt(value: number | string | undefined): number | null {
+        if (value === undefined || value === null) return null;
+        const parsed = typeof value === 'number' ? value : Number.parseInt(value, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) return null;
+        return parsed;
+    }
+
+    private normalizeLimit(limit: number | undefined): number {
+        const parsed = this.toPositiveInt(limit);
+        if (!parsed) return 100;
+        return Math.min(parsed, 500);
+    }
+
+    private normalizePage(page: number | undefined): number {
+        return this.toPositiveInt(page) ?? 1;
+    }
+
+    private buildEndpoint(path: string, params: Record<string, string | number | undefined>): string {
+        const query = new URLSearchParams();
+        for (const [key, value] of Object.entries(params)) {
+            if (value === undefined || value === null || value === '') continue;
+            query.set(key, String(value));
+        }
+        const qs = query.toString();
+        return qs ? `${path}?${qs}` : path;
+    }
+
+    private async requestPaginatedList<TItem>(
+        path: string,
+        listKey: string,
+        params: Record<string, string | number | undefined>,
+        options?: PaginationOptions
+    ): Promise<{ items: TItem[]; meta?: FortnoxMetaInformation }> {
+        const limit = this.normalizeLimit(options?.limit);
+        const allPages = options?.allPages ?? true;
+        let page = this.normalizePage(options?.page);
+        let totalPages = 1;
+        let guard = 0;
+        const items: TItem[] = [];
+        let lastMeta: FortnoxMetaInformation | undefined;
+
+        while (guard < 200) {
+            guard += 1;
+            const endpoint = this.buildEndpoint(path, { ...params, page, limit });
+            const response = await this.request<Record<string, unknown>>(endpoint);
+            const pageItems = Array.isArray(response[listKey]) ? (response[listKey] as TItem[]) : [];
+            items.push(...pageItems);
+
+            const maybeMeta = response.MetaInformation;
+            const meta = (maybeMeta && typeof maybeMeta === 'object')
+                ? (maybeMeta as FortnoxMetaInformation)
+                : undefined;
+            lastMeta = meta;
+
+            if (!allPages) {
+                break;
+            }
+
+            const currentPage = this.toPositiveInt(meta?.["@CurrentPage"]) ?? page;
+            const metaTotalPages = this.toPositiveInt(meta?.["@TotalPages"]);
+            if (metaTotalPages) {
+                totalPages = metaTotalPages;
+            } else if (pageItems.length < limit) {
+                break;
+            } else {
+                totalPages = Math.max(totalPages, currentPage + 1);
+            }
+
+            if (currentPage >= totalPages || pageItems.length === 0) {
+                break;
+            }
+
+            page = currentPage + 1;
+        }
+
+        if (guard >= 200) {
+            logger.warn('Stopped Fortnox pagination early due to guard limit', { path, listKey });
+        }
+
+        return { items, meta: lastMeta };
     }
 
     /**
@@ -305,25 +399,29 @@ export class FortnoxService {
         fromDate?: string;
         toDate?: string;
         customerNumber?: string;
+        page?: number;
+        limit?: number;
+        allPages?: boolean;
     }): Promise<FortnoxInvoiceListResponse> {
-        let endpoint = '/invoices';
-        const queryParams: string[] = [];
+        const paged = await this.requestPaginatedList<FortnoxInvoiceListResponse['Invoices'][number]>(
+            '/invoices',
+            'Invoices',
+            {
+                fromdate: params?.fromDate,
+                todate: params?.toDate,
+                customernumber: params?.customerNumber,
+            },
+            {
+                page: params?.page,
+                limit: params?.limit,
+                allPages: params?.allPages,
+            }
+        );
 
-        if (params?.fromDate) {
-            queryParams.push(`fromdate=${params.fromDate}`);
-        }
-        if (params?.toDate) {
-            queryParams.push(`todate=${params.toDate}`);
-        }
-        if (params?.customerNumber) {
-            queryParams.push(`customernumber=${params.customerNumber}`);
-        }
-
-        if (queryParams.length > 0) {
-            endpoint += `?${queryParams.join('&')}`;
-        }
-
-        return await this.request<FortnoxInvoiceListResponse>(endpoint);
+        return {
+            Invoices: paged.items,
+            MetaInformation: paged.meta,
+        };
     }
 
     // ========================================================================
@@ -333,22 +431,25 @@ export class FortnoxService {
     /**
      * Get all vouchers for a specific financial year and series
      */
-    async getVouchers(financialYear?: number, voucherSeries?: string): Promise<FortnoxVoucherListResponse> {
-        let endpoint = '/vouchers';
-        const params: string[] = [];
+    async getVouchers(
+        financialYear?: number,
+        voucherSeries?: string,
+        pagination?: PaginationOptions
+    ): Promise<FortnoxVoucherListResponse> {
+        const paged = await this.requestPaginatedList<FortnoxVoucherListResponse['Vouchers'][number]>(
+            '/vouchers',
+            'Vouchers',
+            {
+                financialyear: financialYear,
+                voucherseries: voucherSeries,
+            },
+            pagination
+        );
 
-        if (financialYear) {
-            params.push(`financialyear=${financialYear}`);
-        }
-        if (voucherSeries) {
-            params.push(`voucherseries=${voucherSeries}`);
-        }
-
-        if (params.length > 0) {
-            endpoint += `?${params.join('&')}`;
-        }
-
-        return await this.request<FortnoxVoucherListResponse>(endpoint);
+        return {
+            Vouchers: paged.items,
+            MetaInformation: paged.meta,
+        };
     }
 
     /**
@@ -391,28 +492,30 @@ export class FortnoxService {
         toDate?: string;
         supplierNumber?: string;
         filter?: string;
+        page?: number;
+        limit?: number;
+        allPages?: boolean;
     }): Promise<FortnoxSupplierInvoiceListResponse> {
-        let endpoint = '/supplierinvoices';
-        const queryParams: string[] = [];
+        const paged = await this.requestPaginatedList<FortnoxSupplierInvoiceListResponse['SupplierInvoices'][number]>(
+            '/supplierinvoices',
+            'SupplierInvoices',
+            {
+                fromdate: params?.fromDate,
+                todate: params?.toDate,
+                suppliernumber: params?.supplierNumber,
+                filter: params?.filter,
+            },
+            {
+                page: params?.page,
+                limit: params?.limit,
+                allPages: params?.allPages,
+            }
+        );
 
-        if (params?.fromDate) {
-            queryParams.push(`fromdate=${params.fromDate}`);
-        }
-        if (params?.toDate) {
-            queryParams.push(`todate=${params.toDate}`);
-        }
-        if (params?.supplierNumber) {
-            queryParams.push(`suppliernumber=${params.supplierNumber}`);
-        }
-        if (params?.filter) {
-            queryParams.push(`filter=${params.filter}`);
-        }
-
-        if (queryParams.length > 0) {
-            endpoint += `?${queryParams.join('&')}`;
-        }
-
-        return await this.request<FortnoxSupplierInvoiceListResponse>(endpoint);
+        return {
+            SupplierInvoices: paged.items,
+            MetaInformation: paged.meta,
+        };
     }
 
     /**
@@ -544,7 +647,9 @@ export class FortnoxService {
                     return { Supplier: existing };
                 }
             } catch (error) {
-                logger.warn('Could not search suppliers', error);
+                logger.warn('Could not search suppliers', {
+                    error: error instanceof Error ? error.message : String(error),
+                });
             }
         }
 

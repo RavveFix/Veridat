@@ -111,9 +111,9 @@ export class ConversationService {
         fileUrl?: string | null,
         fileName?: string | null,
         metadata?: Record<string, unknown> | null
-    ): Promise<Message> {
+    ): Promise<void> {
         try {
-            const { data, error } = await this.supabase
+            const { error } = await this.supabase
                 .from('messages')
                 .insert({
                     conversation_id: conversationId,
@@ -122,12 +122,9 @@ export class ConversationService {
                     file_url: fileUrl || null,
                     file_name: fileName || null,
                     metadata: metadata || null
-                })
-                .select()
-                .single();
+                });
 
             if (error) throw error;
-            return data;
         } catch (error) {
             console.error('Error adding message:', error);
             throw error;

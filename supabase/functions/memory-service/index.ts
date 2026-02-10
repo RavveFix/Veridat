@@ -2,7 +2,14 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createLogger } from "../../services/LoggerService.ts";
-import { createOptionsResponse, getCorsHeaders } from "../../services/CorsService.ts";
+import {
+    createOptionsResponse,
+    getCorsHeaders,
+    isOriginAllowed,
+    createForbiddenOriginResponse
+} from "../../services/CorsService.ts";
+import { RateLimiterService } from "../../services/RateLimiterService.ts";
+import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
 
 const logger = createLogger("memory-service");
 
@@ -237,11 +244,17 @@ function getEnv(keys: string[]): string | undefined {
 }
 
 Deno.serve(async (req: Request) => {
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+
     if (req.method === "OPTIONS") {
-        return createOptionsResponse();
+        return createOptionsResponse(req);
     }
 
-    const corsHeaders = getCorsHeaders();
+    if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+        return createForbiddenOriginResponse(requestOrigin);
+    }
+
+    const corsHeaders = getCorsHeaders(requestOrigin);
 
     try {
         const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
@@ -273,6 +286,33 @@ Deno.serve(async (req: Request) => {
                 status: 401,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
+        }
+
+        const supabaseServiceKey = getEnv(["SUPABASE_SERVICE_ROLE_KEY", "SB_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY", "SECRET_KEY"]);
+        if (supabaseServiceKey) {
+            const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+            const plan = await getUserPlan(supabaseAdmin, user.id);
+            const rateLimiter = new RateLimiterService(supabaseAdmin, getRateLimitConfigForPlan(plan));
+            const rateLimit = await rateLimiter.checkAndIncrement(user.id, "memory-service");
+            if (!rateLimit.allowed) {
+                return new Response(
+                    JSON.stringify({
+                        error: "rate_limit_exceeded",
+                        message: rateLimit.message,
+                        remaining: rateLimit.remaining,
+                        resetAt: rateLimit.resetAt.toISOString(),
+                    }),
+                    {
+                        status: 429,
+                        headers: {
+                            ...corsHeaders,
+                            "Content-Type": "application/json",
+                            "X-RateLimit-Remaining": String(rateLimit.remaining),
+                            "X-RateLimit-Reset": rateLimit.resetAt.toISOString(),
+                        },
+                    }
+                );
+            }
         }
 
         const body = await req.json() as MemoryRequest;

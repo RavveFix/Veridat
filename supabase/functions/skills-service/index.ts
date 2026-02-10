@@ -1,7 +1,12 @@
 /// <reference path="../types/deno.d.ts" />
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { createOptionsResponse, getCorsHeaders } from "../../services/CorsService.ts";
+import {
+    createOptionsResponse,
+    getCorsHeaders,
+    isOriginAllowed,
+    createForbiddenOriginResponse
+} from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 
@@ -114,11 +119,17 @@ function pickRunFields(payload: Record<string, unknown>): Record<string, unknown
 }
 
 Deno.serve(async (req: Request) => {
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+
     if (req.method === "OPTIONS") {
-        return createOptionsResponse();
+        return createOptionsResponse(req);
     }
 
-    const corsHeaders = getCorsHeaders();
+    if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+        return createForbiddenOriginResponse(requestOrigin);
+    }
+
+    const corsHeaders = getCorsHeaders(requestOrigin);
 
     try {
         if (req.method !== "POST") {

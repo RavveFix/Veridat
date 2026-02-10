@@ -43,5 +43,11 @@ verify_jwt = false
 [functions.billing-maintenance]
 verify_jwt = false
 
+[functions.fortnox]
+verify_jwt = false
+
 [functions.fortnox-oauth]
+verify_jwt = false
+
+[functions.fortnox-guardian]
 verify_jwt = false

@@ -1,7 +1,12 @@
 /// <reference path="../types/deno.d.ts" />
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { createOptionsResponse, getCorsHeaders } from "../../services/CorsService.ts";
+import {
+    createOptionsResponse,
+    getCorsHeaders,
+    isOriginAllowed,
+    createForbiddenOriginResponse
+} from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
 
@@ -180,10 +185,15 @@ async function fetchGoogleCseResults(
 }
 
 Deno.serve(async (req: Request) => {
-    const corsHeaders = getCorsHeaders();
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+    const corsHeaders = getCorsHeaders(requestOrigin);
 
     if (req.method === "OPTIONS") {
-        return createOptionsResponse();
+        return createOptionsResponse(req);
+    }
+
+    if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+        return createForbiddenOriginResponse(requestOrigin);
     }
 
     try {

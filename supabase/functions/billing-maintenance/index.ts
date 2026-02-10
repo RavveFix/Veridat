@@ -1,7 +1,13 @@
 /// <reference path="../types/deno.d.ts" />
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { getCorsHeaders, createOptionsResponse } from '../../services/CorsService.ts';
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import {
+    getCorsHeaders,
+    createOptionsResponse,
+    isOriginAllowed,
+    createForbiddenOriginResponse
+} from '../../services/CorsService.ts';
 import { createLogger } from '../../services/LoggerService.ts';
 
 const logger = createLogger('billing-maintenance');
@@ -11,6 +17,8 @@ type AdminProfile = {
     is_admin: boolean | null;
 };
 
+type AdminSupabaseClient = SupabaseClient<any, any, any, any, any>;
+
 function jsonResponse(status: number, body: Record<string, unknown>) {
     return new Response(JSON.stringify(body), {
         status,
@@ -19,7 +27,7 @@ function jsonResponse(status: number, body: Record<string, unknown>) {
 }
 
 async function authorizeRequest(
-    supabaseAdmin: ReturnType<typeof createClient>,
+    supabaseAdmin: AdminSupabaseClient,
     req: Request
 ): Promise<{ allowed: true; mode: 'admin' | 'cron' } | { allowed: false; response: Response }> {
     const cronSecret = Deno.env.get('BILLING_CRON_SECRET');
@@ -54,8 +62,14 @@ async function authorizeRequest(
 }
 
 Deno.serve(async (req: Request) => {
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+
     if (req.method === 'OPTIONS') {
-        return createOptionsResponse();
+        return createOptionsResponse(req);
+    }
+
+    if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+        return createForbiddenOriginResponse(requestOrigin);
     }
 
     if (req.method !== 'POST') {
@@ -71,7 +85,7 @@ Deno.serve(async (req: Request) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    const auth = await authorizeRequest(supabaseAdmin, req);
+    const auth = await authorizeRequest(supabaseAdmin as AdminSupabaseClient, req);
     if (!auth.allowed) {
         return auth.response;
     }

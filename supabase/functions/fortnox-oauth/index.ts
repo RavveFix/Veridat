@@ -13,10 +13,24 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import {
+    getCorsHeaders,
+    createOptionsResponse,
+    isOriginAllowed,
+    createForbiddenOriginResponse
+} from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
+import { getUserPlan } from "../../services/PlanService.ts";
 
 const logger = createLogger('fortnox-oauth');
+
+type OAuthSupabaseClient = SupabaseClient<any, any, any, any, any>;
+
+interface FortnoxTokenStatusRow {
+    created_at: string | null;
+    expires_at: string | null;
+}
 
 // Fortnox OAuth endpoints
 const FORTNOX_AUTH_URL = 'https://apps.fortnox.se/oauth-v1/auth';
@@ -116,12 +130,28 @@ function getEnv(keys: string[]): string | undefined {
     return undefined;
 }
 
+function planRequiredResponse(corsHeaders: Record<string, string>): Response {
+    return new Response(
+        JSON.stringify({
+            error: 'plan_required',
+            errorCode: 'PLAN_REQUIRED',
+            message: 'Fortnox kräver Veridat Pro eller Trial.'
+        }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+}
+
 Deno.serve(async (req: Request) => {
-    const corsHeaders = getCorsHeaders();
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+    const corsHeaders = getCorsHeaders(requestOrigin);
 
     // Handle CORS preflight request
     if (req.method === 'OPTIONS') {
-        return createOptionsResponse();
+        return createOptionsResponse(req);
+    }
+
+    if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+        return createForbiddenOriginResponse(requestOrigin);
     }
 
     try {
@@ -173,6 +203,13 @@ Deno.serve(async (req: Request) => {
         const action = body.action;
 
         logger.info('Fortnox OAuth action requested', { userId: user.id, action });
+
+        if (action === 'initiate') {
+            const plan = await getUserPlan(supabaseAdmin, user.id);
+            if (plan === 'free') {
+                return planRequiredResponse(corsHeaders);
+            }
+        }
 
         switch (action) {
             case 'initiate':
@@ -303,6 +340,12 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
             throw new Error('Missing configuration');
         }
 
+        const supabaseAdmin = createClient(supabaseInternalUrl, supabaseServiceKey);
+        const plan = await getUserPlan(supabaseAdmin, userId);
+        if (plan === 'free') {
+            return Response.redirect(`${appUrl}?fortnox_error=plan_required`, 302);
+        }
+
         const redirectUri = `${supabasePublicUrl}/functions/v1/fortnox-oauth`;
         const credentials = btoa(`${clientId}:${clientSecret}`);
 
@@ -333,8 +376,6 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
         const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
         // Store tokens in database
-        const supabaseAdmin = createClient(supabaseInternalUrl, supabaseServiceKey);
-
         // Atomic upsert — uses UNIQUE(user_id) constraint
         const { error: upsertError } = await supabaseAdmin
             .from('fortnox_tokens')
@@ -367,14 +408,14 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
  */
 async function handleStatus(
     userId: string,
-    supabase: ReturnType<typeof createClient>,
+    supabase: OAuthSupabaseClient,
     corsHeaders: Record<string, string>
 ) {
-    const { data, error } = await supabase
-        .from('fortnox_tokens')
+    const { data, error } = await (supabase
+        .from('fortnox_tokens') as any)
         .select('created_at, expires_at')
         .eq('user_id', userId)
-        .maybeSingle();
+        .maybeSingle() as { data: FortnoxTokenStatusRow | null; error: Error | null };
 
     if (error) {
         logger.error('Error checking Fortnox status', error);
@@ -399,7 +440,7 @@ async function handleStatus(
  */
 async function handleDisconnect(
     userId: string,
-    supabase: ReturnType<typeof createClient>,
+    supabase: OAuthSupabaseClient,
     corsHeaders: Record<string, string>
 ) {
     const { error } = await supabase

@@ -9,15 +9,22 @@ import { RateLimiterService } from "../../services/RateLimiterService.ts";
 import { CompanyMemoryService, type CompanyMemory } from "../../services/CompanyMemoryService.ts";
 import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanService.ts";
 import { ConversationService } from "../../services/ConversationService.ts";
-import { getCorsHeaders, createOptionsResponse } from "../../services/CorsService.ts";
+import {
+    getCorsHeaders,
+    createOptionsResponse,
+    isOriginAllowed,
+    createForbiddenOriginResponse
+} from "../../services/CorsService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
 import { AuditService } from "../../services/AuditService.ts";
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { FortnoxService } from "../../services/FortnoxService.ts";
 
 const logger = createLogger('gemini-chat');
 const RATE_LIMIT_ENDPOINT = 'ai';
+type EdgeSupabaseClient = SupabaseClient<any, any, any, any, any>;
 
 function getEnv(keys: string[]): string | undefined {
     for (const key of keys) {
@@ -694,7 +701,7 @@ function extractMemoryRequest(message: string): string | null {
 }
 
 async function searchConversationHistory(
-    supabaseAdmin: ReturnType<typeof createClient>,
+    supabaseAdmin: EdgeSupabaseClient,
     userId: string,
     companyId: string | null,
     query: string,
@@ -726,18 +733,24 @@ async function searchConversationHistory(
     type MessageRow = {
         content: string;
         created_at: string;
-        conversation: { id: string; title: string | null; company_id: string; user_id: string };
+        conversation: Array<{ id: string; title: string | null; company_id: string; user_id: string }>;
     };
-    return (data as MessageRow[] || []).map((row) => ({
-        conversation_id: row.conversation.id,
-        conversation_title: row.conversation.title,
-        snippet: extractSnippet(row.content, query),
-        created_at: row.created_at
-    }));
+    return (((data as unknown as MessageRow[]) || [])
+        .map((row) => {
+            const conversation = row.conversation?.[0];
+            if (!conversation) return null;
+            return {
+                conversation_id: conversation.id,
+                conversation_title: conversation.title,
+                snippet: extractSnippet(row.content, query),
+                created_at: row.created_at
+            };
+        })
+        .filter((row): row is HistorySearchResult => row !== null));
 }
 
 async function getRecentConversations(
-    supabaseAdmin: ReturnType<typeof createClient>,
+    supabaseAdmin: EdgeSupabaseClient,
     userId: string,
     companyId: string | null,
     limit: number
@@ -860,53 +873,54 @@ async function triggerMemoryGenerator(
  */
 async function generateSmartTitleIfNeeded(
     _conversationService: ConversationService,
-    supabaseAdmin: ReturnType<typeof createClient>,
+    supabaseAdmin: EdgeSupabaseClient,
     conversationId: string,
     userMessage: string,
-    aiResponse: string
-): Promise<void> {
-    console.log('[TITLE] generateSmartTitleIfNeeded called', { conversationId, userMessage: userMessage?.substring(0, 50) });
-
+    aiResponse: string,
+    currentTitleHint?: string | null
+): Promise<string | null> {
     try {
-        // Check current title using service role
-        const { data: conv, error: fetchError } = await supabaseAdmin
-            .from('conversations')
-            .select('title')
-            .eq('id', conversationId)
-            .single();
-
-        console.log('[TITLE] Current title check', { conversationId, title: conv?.title, error: fetchError?.message });
-
-        if (fetchError || !conv) {
-            console.log('[TITLE] Could not fetch conversation', { conversationId, error: fetchError?.message });
-            return;
+        const hintedTitle = currentTitleHint?.trim() || null;
+        if (hintedTitle && hintedTitle !== 'Ny konversation') {
+            return hintedTitle;
         }
 
-        // Only generate if title is missing or default
-        const currentTitle = conv.title?.trim();
-        if (currentTitle && currentTitle !== 'Ny konversation') {
-            console.log('[TITLE] Title already set, skipping', { conversationId, currentTitle });
-            return;
+        if (!hintedTitle) {
+            // Fallback for callers that do not already have the current title.
+            const { data: conv, error: fetchError } = await (supabaseAdmin
+                .from('conversations') as any)
+                .select('title')
+                .eq('id', conversationId)
+                .single() as { data: { title: string | null } | null; error: Error | null };
+
+            if (fetchError || !conv) {
+                return null;
+            }
+
+            const currentTitle = conv.title?.trim();
+            if (currentTitle && currentTitle !== 'Ny konversation') {
+                return currentTitle;
+            }
         }
 
         // Use AI to generate a smart title (falls back to truncation on error)
         const apiKey = Deno.env.get('GEMINI_API_KEY');
         const generatedTitle = await generateConversationTitle(userMessage, aiResponse, apiKey);
-        console.log('[TITLE] AI generated title:', generatedTitle, { conversationId });
 
         // Use supabaseAdmin directly (service role) to bypass any RLS issues
-        const { error: updateError } = await supabaseAdmin
-            .from('conversations')
+        const { error: updateError } = await (supabaseAdmin
+            .from('conversations') as any)
             .update({ title: generatedTitle, updated_at: new Date().toISOString() })
             .eq('id', conversationId);
 
         if (updateError) {
-            console.log('[TITLE] Update failed', { conversationId, error: updateError.message });
-        } else {
-            console.log('[TITLE] Title updated successfully!', { conversationId, title: generatedTitle });
+            return null;
         }
+
+        return generatedTitle;
     } catch (error) {
-        console.log('[TITLE] Exception caught', { conversationId, error: String(error) });
+        logger.warn('[TITLE] Exception while generating smart title', { conversationId, error: String(error) });
+        return null;
     }
 }
 interface RequestBody {
@@ -932,7 +946,7 @@ interface VATReportContext {
     type: string;
     period: string;
     company?: { name: string; org_number: string };
-    summary?: { total_income: number; total_costs: number; result: number };
+    summary?: { total_income: number; total_costs: number; result: number; total_sales?: number };
     vat?: { outgoing_25: number; incoming: number; net: number };
     validation?: { is_valid: boolean; errors: string[]; warnings: string[] };
 }
@@ -1018,7 +1032,15 @@ async function executeFortnoxTool(
                         { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
                     ],
                 } as any);
-                void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'create', resourceType: 'supplier_invoice', newState: result });
+                void auditService.log({
+                    userId,
+                    companyId: companyId || undefined,
+                    actorType: 'ai',
+                    action: 'create',
+                    resourceType: 'supplier_invoice',
+                    resourceId: siArgs.invoice_number || `supplier-${siArgs.supplier_number}`,
+                    newState: result as unknown as Record<string, unknown>
+                });
                 return `Leverantörsfaktura skapad!\n- Belopp: ${siArgs.total_amount} kr (${net} + ${vat} moms)\n- Konto: ${siArgs.account}\n- Förfallodatum: ${siArgs.due_date || '30 dagar'}`;
             }
             case 'export_journal_to_fortnox': {
@@ -1034,7 +1056,7 @@ async function executeFortnoxTool(
             }
             case 'book_supplier_invoice': {
                 const bArgs = toolArgs as BookSupplierInvoiceArgs;
-                await fortnoxService.bookSupplierInvoice(bArgs.invoice_number);
+                await fortnoxService.bookSupplierInvoice(Number(bArgs.invoice_number));
                 void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'update', resourceType: 'supplier_invoice', resourceId: bArgs.invoice_number });
                 return `Leverantörsfaktura ${bArgs.invoice_number} är nu bokförd.`;
             }
@@ -1090,7 +1112,8 @@ async function fetchWebSearchResults(
 }
 
 Deno.serve(async (req: Request) => {
-    const corsHeaders = getCorsHeaders();
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+    const corsHeaders = getCorsHeaders(requestOrigin);
     const provider = (Deno.env.get('LLM_PROVIDER') || 'gemini').toLowerCase();
     console.log('[INIT] LLM_PROVIDER env value:', Deno.env.get('LLM_PROVIDER'), '-> provider:', provider);
     const responseHeaders = {
@@ -1100,7 +1123,11 @@ Deno.serve(async (req: Request) => {
 
     // Handle CORS preflight
     if (req.method === "OPTIONS") {
-        return createOptionsResponse();
+        return createOptionsResponse(req);
+    }
+
+    if (requestOrigin && !isOriginAllowed(requestOrigin)) {
+        return createForbiddenOriginResponse(requestOrigin);
     }
 
     try {
@@ -1199,11 +1226,13 @@ Deno.serve(async (req: Request) => {
 
         logger.info('Rate limit check passed', { userId, remaining: rateLimit.remaining });
 
+        let verifiedConversation: { id: string; company_id: string | null; title: string | null } | null = null;
+
         // Verify that the conversation (if provided) belongs to the authenticated user.
         if (conversationId) {
             const { data: conversation, error: conversationError } = await supabaseAdmin
                 .from('conversations')
-                .select('id, company_id')
+                .select('id, company_id, title')
                 .eq('id', conversationId)
                 .eq('user_id', userId)
                 .maybeSingle();
@@ -1229,6 +1258,12 @@ Deno.serve(async (req: Request) => {
                 );
             }
 
+            verifiedConversation = {
+                id: conversation.id,
+                company_id: conversation.company_id ?? null,
+                title: conversation.title ?? null,
+            };
+
             if (conversation.company_id) {
                 resolvedCompanyId = String(conversation.company_id);
             }
@@ -1245,15 +1280,8 @@ Deno.serve(async (req: Request) => {
                 );
             }
 
-            const { data: conv, error: titleFetchError } = await supabaseAdmin
-                .from('conversations')
-                .select('title')
-                .eq('id', conversationId)
-                .eq('user_id', userId)
-                .single();
-
-            if (titleFetchError || !conv) {
-                logger.error('Failed to fetch conversation for title generation', { conversationId, error: titleFetchError?.message });
+            if (!verifiedConversation) {
+                logger.error('Failed to fetch conversation for title generation', { conversationId });
                 return new Response(
                     JSON.stringify({ error: 'conversation_not_found' }),
                     {
@@ -1263,7 +1291,7 @@ Deno.serve(async (req: Request) => {
                 );
             }
 
-            const currentTitle = conv.title?.trim();
+            const currentTitle = verifiedConversation.title?.trim();
             if (currentTitle && currentTitle !== 'Ny konversation') {
                 return new Response(JSON.stringify({
                     title: currentTitle,
@@ -1291,6 +1319,8 @@ Deno.serve(async (req: Request) => {
                     headers: { ...responseHeaders, "Content-Type": "application/json" }
                 });
             }
+
+            verifiedConversation.title = generatedTitle;
 
             return new Response(JSON.stringify({
                 title: generatedTitle,
@@ -1349,7 +1379,17 @@ Deno.serve(async (req: Request) => {
                 }
 
                 await conversationService.addMessage(conversationId, 'assistant', responseText);
-                await generateSmartTitleIfNeeded(conversationService, supabaseAdmin, conversationId, message, responseText);
+                const resolvedTitle = await generateSmartTitleIfNeeded(
+                    conversationService,
+                    supabaseAdmin,
+                    conversationId,
+                    message,
+                    responseText,
+                    verifiedConversation?.title ?? null
+                );
+                if (resolvedTitle && verifiedConversation) {
+                    verifiedConversation.title = resolvedTitle;
+                }
                 void triggerMemoryGenerator(supabaseUrl, supabaseServiceKey, conversationId);
 
                 return new Response(JSON.stringify({ type: 'text', data: responseText }), {
@@ -1709,7 +1749,17 @@ ANVÄNDARFRÅGA:
                                         : null;
                                     await conversationService.addMessage(conversationId, 'assistant', fullText, null, null, messageMetadata);
                                     // Generate smart title - must await to prevent Edge Function terminating early
-                                    await generateSmartTitleIfNeeded(conversationService, supabaseAdmin, conversationId, message, fullText);
+                                    const resolvedTitle = await generateSmartTitleIfNeeded(
+                                        conversationService,
+                                        supabaseAdmin,
+                                        conversationId,
+                                        message,
+                                        fullText,
+                                        verifiedConversation?.title ?? null
+                                    );
+                                    if (resolvedTitle && verifiedConversation) {
+                                        verifiedConversation.title = resolvedTitle;
+                                    }
                                     void triggerMemoryGenerator(supabaseUrl, supabaseServiceKey, conversationId);
 
                                     // Log AI decision for BFL compliance (audit trail)
@@ -1773,7 +1823,7 @@ ANVÄNDARFRÅGA:
 
         // OpenAI or Fallback
         const geminiResponse = await (provider === 'openai'
-            ? sendMessageToOpenAI(finalMessage, primaryImage, imagePages, history)
+            ? sendMessageToOpenAI(finalMessage, primaryFile, imagePages, history)
             : sendMessageToGemini(finalMessage, geminiFileData, history, undefined, undefined, { disableTools }));
 
         // Handle Tool Calls (Non-streaming fallback)
@@ -1950,7 +2000,8 @@ ANVÄNDARFRÅGA:
                             actorType: 'ai',
                             action: 'create',
                             resourceType: 'supplier_invoice',
-                            newState: toolResult,
+                            resourceId: siArgs.invoice_number || `supplier-${siArgs.supplier_number}`,
+                            newState: toolResult as Record<string, unknown>,
                         });
                         break;
                     }
@@ -2000,7 +2051,7 @@ ANVÄNDARFRÅGA:
                     }
                     case 'book_supplier_invoice': {
                         const bsiArgs = args as BookSupplierInvoiceArgs;
-                        toolResult = await fortnoxService.bookSupplierInvoice(bsiArgs.invoice_number);
+                        toolResult = await fortnoxService.bookSupplierInvoice(Number(bsiArgs.invoice_number));
                         responseText = `Leverantörsfaktura ${bsiArgs.invoice_number} är nu bokförd i Fortnox.`;
                         void auditService.log({
                             userId,
@@ -2065,7 +2116,9 @@ ANVÄNDARFRÅGA:
                                 is_balanced: validation.balanced
                             });
                         } catch (dbErr) {
-                            logger.warn('Could not save journal entry to database', dbErr);
+                            logger.warn('Could not save journal entry to database', {
+                                error: dbErr instanceof Error ? dbErr.message : String(dbErr)
+                            });
                         }
 
                         // Build metadata for chat display
@@ -2096,7 +2149,9 @@ ANVÄNDARFRÅGA:
                             try {
                                 await conversationService.addMessage(conversationId, 'assistant', responseText, null, null, journalMetadata);
                             } catch (msgErr) {
-                                logger.warn('Could not save journal message', msgErr);
+                                logger.warn('Could not save journal message', {
+                                    error: msgErr instanceof Error ? msgErr.message : String(msgErr)
+                                });
                             }
                         }
 
@@ -2162,7 +2217,17 @@ ANVÄNDARFRÅGA:
                     null,
                     Object.keys(messageMetadata).length > 0 ? messageMetadata : null
                 );
-                await generateSmartTitleIfNeeded(conversationService, supabaseAdmin, conversationId, message, responseText);
+                const resolvedTitle = await generateSmartTitleIfNeeded(
+                    conversationService,
+                    supabaseAdmin,
+                    conversationId,
+                    message,
+                    responseText,
+                    verifiedConversation?.title ?? null
+                );
+                if (resolvedTitle && verifiedConversation) {
+                    verifiedConversation.title = resolvedTitle;
+                }
                 void triggerMemoryGenerator(supabaseUrl, supabaseServiceKey, conversationId);
 
                 // Log AI decision for BFL compliance (audit trail)

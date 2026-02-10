@@ -27,6 +27,12 @@ export type AIProvider = 'gemini' | 'openai' | 'claude';
 export type FortnoxOperation =
     | 'export_voucher'
     | 'export_supplier_invoice'
+    | 'book_supplier_invoice'
+    | 'approve_supplier_invoice_bookkeep'
+    | 'approve_supplier_invoice_payment'
+    | 'register_invoice_payment'
+    | 'register_supplier_invoice_payment'
+    | 'create_invoice'
     | 'create_supplier'
     | 'create_customer'
     | 'create_article'
@@ -69,10 +75,14 @@ export interface FortnoxSyncEntry {
     userId: string;
     companyId: string;
     operation: FortnoxOperation;
+    actionName?: string;
+    idempotencyKey?: string;
     vatReportId?: string;
     transactionId?: string;
     aiDecisionId?: string;
     requestPayload: Record<string, unknown>;
+    ipAddress?: string;
+    userAgent?: string;
 }
 
 export interface FortnoxSyncResult {
@@ -81,6 +91,14 @@ export interface FortnoxSyncResult {
     fortnoxSupplierNumber?: string;
     fortnoxInvoiceNumber?: string;
     responsePayload?: Record<string, unknown>;
+}
+
+export interface IdempotentSyncResult {
+    id: string;
+    status: SyncStatus;
+    responsePayload: Record<string, unknown> | null;
+    errorCode: string | null;
+    errorMessage: string | null;
 }
 
 // ============================================================================
@@ -248,11 +266,15 @@ export class AuditService {
                     user_id: entry.userId,
                     company_id: entry.companyId,
                     operation: entry.operation,
+                    action_name: entry.actionName || entry.operation,
+                    idempotency_key: entry.idempotencyKey,
                     vat_report_id: entry.vatReportId,
                     transaction_id: entry.transactionId,
                     ai_decision_id: entry.aiDecisionId,
                     status: 'pending',
                     request_payload: entry.requestPayload,
+                    ip_address: entry.ipAddress,
+                    user_agent: entry.userAgent,
                 })
                 .select('id')
                 .single();
@@ -271,6 +293,43 @@ export class AuditService {
         } catch (error) {
             logger.error('Fortnox sync start failed', error);
             return '';
+        }
+    }
+
+    /**
+     * Find latest Fortnox sync by idempotency key for deduplication
+     */
+    async findIdempotentFortnoxSync(
+        userId: string,
+        companyId: string,
+        operation: FortnoxOperation,
+        idempotencyKey: string
+    ): Promise<IdempotentSyncResult | null> {
+        try {
+            const { data, error } = await this.supabase
+                .from('fortnox_sync_log')
+                .select('id, status, response_payload, error_code, error_message')
+                .eq('user_id', userId)
+                .eq('company_id', companyId)
+                .eq('operation', operation)
+                .eq('idempotency_key', idempotencyKey)
+                .in('status', ['pending', 'in_progress', 'success'])
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (error || !data) return null;
+
+            return {
+                id: data.id,
+                status: data.status as SyncStatus,
+                responsePayload: data.response_payload as Record<string, unknown> | null,
+                errorCode: data.error_code,
+                errorMessage: data.error_message,
+            };
+        } catch (error) {
+            logger.error('Failed to query idempotent Fortnox sync', error);
+            return null;
         }
     }
 
@@ -297,7 +356,8 @@ export class AuditService {
      */
     async completeFortnoxSync(
         syncId: string,
-        result: FortnoxSyncResult
+        result: FortnoxSyncResult,
+        context?: { ipAddress?: string; userAgent?: string }
     ): Promise<void> {
         try {
             const { error } = await this.supabase
@@ -339,6 +399,8 @@ export class AuditService {
                     resourceId: syncId,
                     companyId: syncData.company_id,
                     newState: result as unknown as Record<string, unknown>,
+                    ipAddress: context?.ipAddress,
+                    userAgent: context?.userAgent,
                 });
             }
         } catch (error) {
@@ -353,7 +415,8 @@ export class AuditService {
         syncId: string,
         errorCode: string,
         errorMessage: string,
-        responsePayload?: Record<string, unknown>
+        responsePayload?: Record<string, unknown>,
+        context?: { ipAddress?: string; userAgent?: string }
     ): Promise<void> {
         try {
             // Get current retry count
@@ -399,6 +462,8 @@ export class AuditService {
                     resourceId: syncId,
                     companyId: current.company_id,
                     newState: { errorCode, errorMessage, retryCount: newRetryCount },
+                    ipAddress: context?.ipAddress,
+                    userAgent: context?.userAgent,
                 });
             }
         } catch (error) {

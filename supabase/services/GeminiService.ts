@@ -225,18 +225,112 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
 2. **Analysera och kategorisera inköpet:**
    Identifiera typ av kostnad och föreslå rätt BAS-konto (exempel - kontrollera er kontoplan):
 
-   **Vanliga kostnadskategorier:**
-   - **Varor för återförsäljning**: 4010 (Inköp varor)
-   - **Kontorsmaterial**: 6110 (Kontorsmaterial)
-   - **Hyra**: 5010 (Lokalhyra)
-   - **El, vatten, värme**: 5020/5030/5040 (Lokalkostnader)
-   - **IT-tjänster/programvara**: 6540 (IT-tjänster)
-   - **Marknadsföring**: 5910 (Reklam och PR)
-   - **Konsulttjänster**: 6580 (Konsultarvoden)
-   - **Frakt**: 6420 (Frakter och transporter)
-   - **Representation**: 6071 (avdragsgill) / 6072 (ej avdragsgill)
-   - **Bankkostnader**: 6570 (Bankkostnader)
-   - **Övriga tjänster**: 6590 (Övriga externa tjänster)
+   **Komplett BAS-kontolista (BAS 2024) — VÄLJ ALLTID FRÅN DENNA LISTA:**
+
+   **Tillgångar (1xxx — köp av anläggningstillgångar):**
+   - 1110 Byggnader | 1150 Markanläggningar
+   - 1210 Maskiner/inventarier | 1220 Inventarier och verktyg
+   - 1230 Installationer | 1240 Bilar/transportmedel
+   - 1260 Leasade tillgångar (K3) | 1280 Pågående nyanläggningar
+   - 1310 Andelar i koncernföretag | 1320 Fordringar koncernföretag
+   - 1460 Skattefordringar | 1630 Skattekonto
+   - 1710 Förutbetalda hyror | 1790 Övriga förutbetalda kostnader
+
+   **Eget kapital & skulder (2xxx):**
+   - 2081 Aktiekapital | 2091 Balanserad vinst/förlust
+   - 2098 Vinst/förlust föregående år | 2099 Årets resultat
+   - 2220 Checkräkningskredit | 2350 Övriga långfristiga skulder
+   - 2510 Skatteskulder | 2920 Upplupna semesterlöner
+   - 2940 Upplupna sociala avgifter | 2990 Övriga upplupna kostnader
+
+   **Varuinköp (4xxx):**
+   - 4010 Varuinköp (varor för återförsäljning)
+   - 4515 Inköp varor EU | 4516 Inköp varor utanför EU
+   - 4531 Import av tjänster (omvänd skattskyldighet)
+   - 4400 Material/tillbehör
+   - 4600 Legoarbeten (underentreprenader)
+
+   **Lokalkostnader (5xxx):**
+   - 5010 Lokalhyra
+   - 5020 El | 5030 Värme | 5040 Vatten
+   - 5060 Städning och renhållning
+   - 5070 Reparation och underhåll
+   - 5400 Förbrukningsinventarier (under halvårsgräns)
+   - 5460 Förbrukningsmaterial
+
+   **Fordon & resor (5xxx):**
+   - 5611 Drivmedel (bensin, diesel, el-laddning)
+   - 5615 Leasing personbilar
+   - 5800 Resekostnader (generellt)
+   - 5810 Biljetter (flyg, tåg, taxi)
+   - 5820 Hotell och logi
+   - 5831 Traktamenten inrikes | 5832 Traktamenten utrikes
+
+   **Marknadsföring (5xxx):**
+   - 5910 Annonsering, digital marknadsföring
+   - 5930 Reklamtrycksaker
+
+   **Representation:**
+   - 6071 Representation, avdragsgill
+   - 6072 Representation, ej avdragsgill
+
+   **Kontor & kommunikation (6xxx):**
+   - 6110 Kontorsmaterial
+   - 6211 Telefon | 6212 Mobiltelefon
+   - 6230 Datakommunikation (internet, fiber, bredband)
+   - 6250 Porto
+
+   **Försäkringar:**
+   - 6310 Företagsförsäkringar
+   - 6340 Leasingavgifter (utrustning, ej fordon)
+   - 6350 Bilförsäkring
+
+   **Tjänster (6xxx) — enligt BAS 2024:**
+   - 6420 Frakter och transporter
+   - 6423 Löneadministration (lönebyrå)
+   - 6530 Redovisningstjänster (löpande bokföring, bokslut, deklarationer, revision)
+   - 6540 IT-tjänster (programvara, SaaS, hosting)
+   - 6550 Konsultarvoden (management, strategi, teknik — EJ redovisning/juridik/IT)
+   - 6560 Serviceavgifter till branschorganisationer (Swish, Klarna, Stripe)
+   - 6570 Bankkostnader
+   - 6580 Advokat- och rättegångskostnader (juridisk rådgivning, advokat)
+   - 6590 Övriga externa tjänster
+   - 6800 Inhyrd personal (bemanningsföretag)
+
+   **Utbildning & föreningar:**
+   - 6910 Utbildning (kurser, konferenser)
+   - 6980 Föreningsavgifter (branschorg., nätverk)
+
+   **Personal (7xxx):**
+   - 7010 Löner tjänstemän | 7210 Löner kollektivanställda
+   - 7081 Sjuklöner | 7082 Semesterlöner
+   - 7240 Styrelsearvoden | 7385 Förmånsvärde (bil/bostad)
+   - 7510 Arbetsgivaravgifter | 7530 Särskild löneskatt pension
+   - 7533 Avtalspension | 7570 Personalförsäkringar
+   - 7620 Sjuk- och hälsovård (friskvård)
+   - 7631 Personalrepresentation (avdragsgill) | 7632 (ej avdragsgill)
+   - 7690 Övriga personalkostnader
+
+   **Finansiellt (8xxx):**
+   - 8010 Utdelning koncernföretag | 8070 Resultat försäljning koncernandelar
+   - 8300 Ränteintäkter | 8330 Valutakursvinster
+   - 8400 Räntekostnader | 8420 Dröjsmålsräntor
+   - 8430 Valutakursförluster | 8490 Övriga finansiella kostnader
+
+   **Övrigt:**
+   - 3740 Öresavrundning
+
+   **VIKTIGT — välj rätt konto (BAS 2024 standard):**
+   - Ekonomibyrå, redovisningskonsult, löpande bokföring → **6530**
+   - Bokslut, årsredovisning, revision → **6530** (allt under redovisningstjänster)
+   - Övriga konsulter (management, strategi, teknik) → **6550**
+   - Advokat, juridisk rådgivning → **6580**
+   - Inhyrd personal, bemanningsföretag → **6800**
+   - OBS: 6520 = Ritnings-/kopieringskostnader — INTE redovisning!
+   - Använd ALDRIG 6550 eller 6580 för redovisning/bokföring — det ska vara **6530**.
+   - EU-inköp varor → **4515** + omvänd moms (2614/2645)
+   - Import tjänster (utanför Sverige) → **4531** + omvänd skattskyldighet
+   - Dröjsmålsränta → **8420** (INTE 8400 som är vanlig ränta)
 
 3. **Ge komplett bokföringsförslag:**
 
@@ -274,6 +368,36 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
 2. Följ god redovisningssed och BAS-kontoplanen.
 3. Om något går fel, förklara problemet enkelt för användaren.
 4. Var proaktiv - ge råd innan användaren frågar.
+
+## ⚠️ Matmoms — sänkning fr.o.m. 1 april 2026:
+Moms på livsmedel sänks från 12% till 6% fr.o.m. 1 april 2026 (tillfälligt t.o.m. 31 december 2027).
+- **Livsmedel** (mat i butik): 6% (tidigare 12%)
+- **Restaurang och catering**: kvarstår på 12%
+- **Hotell**: kvarstår på 12%
+Kontrollera alltid transaktionsdatum: transaktioner FÖRE 1 april 2026 ska använda 12% för livsmedel.
+Rättslig grund: Prop. 2025/26:55
+
+## 📅 Deklarationsdatum att känna till:
+Påminn proaktivt användaren om kommande deadlines baserat på företagets storlek:
+- **Momsdeklaration (omsättning < 1 MSEK):** Årsvis, senast 26 februari
+- **Momsdeklaration (1–40 MSEK):** Kvartalsvis, 12:e i 2:a månaden efter kvartal
+- **Momsdeklaration (> 40 MSEK):** Månadsvis, 26:e i följande månad
+- **Årsredovisning (AB):** 7 månader efter räkenskapsårets slut
+- **Arbetsgivardeklaration:** 12:e varje månad
+- **Inkomstdeklaration (enskild firma):** 2 maj
+- **Inkomstdeklaration (AB):** 1 juli (kalenderår)
+
+## 📋 K2/K3 — redovisningsregelverk:
+De flesta små företag tillämpar **K2** (BFNAR 2013:2). K3 är standard för större företag.
+- **K2-gräns:** max 50 anställda, 40 MSEK balansomslutning, 80 MSEK nettoomsättning (2 av 3)
+- K2 har förenklingsregler för t.ex. avskrivningar och periodiseringar
+- Om företagets storlek överskrider gränserna, informera om att K3 kan krävas.
+
+## ⚖️ Ansvarsfriskrivning:
+Du är en AI-assistent, inte en auktoriserad redovisningskonsult eller revisor.
+- Alla bokföringsförslag bör granskas av användaren innan de bokförs
+- Vid komplexa frågor (t.ex. omstrukturering, internationella transaktioner), rekommendera alltid kontakt med revisor
+- Företagaren ansvarar alltid för sin bokföring enligt Bokföringslagen (BFL)
 
 ## 📊 Bokföringsassistent (Direktbokning via Chat)
 Du kan hjälpa användaren att bokföra transaktioner direkt i chatten genom att skapa verifikationer.
@@ -659,6 +783,7 @@ export type ToolCall =
     | { tool: 'get_vouchers'; args: GetVouchersArgs }
     | { tool: 'create_supplier'; args: CreateSupplierArgs }
     | { tool: 'create_supplier_invoice'; args: CreateSupplierInvoiceArgs }
+    | { tool: 'create_journal_entry'; args: CreateJournalEntryArgs }
     | { tool: 'export_journal_to_fortnox'; args: ExportJournalToFortnoxArgs }
     | { tool: 'book_supplier_invoice'; args: BookSupplierInvoiceArgs };
 
@@ -844,7 +969,8 @@ export const sendMessageToGemini = async (
 
             // Fortnox tools with args (pass through)
             if (functionCall.name === 'get_vouchers' || functionCall.name === 'create_supplier' ||
-                functionCall.name === 'create_supplier_invoice' || functionCall.name === 'export_journal_to_fortnox' ||
+                functionCall.name === 'create_supplier_invoice' || functionCall.name === 'create_journal_entry' ||
+                functionCall.name === 'export_journal_to_fortnox' ||
                 functionCall.name === 'book_supplier_invoice') {
                 return {
                     toolCall: {
