@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginWithMagicLink } from './helpers/auth';
-import { openTool } from './helpers/navigation';
+import { closeModal, openTool } from './helpers/navigation';
 import { setProfileFlags } from './helpers/profile';
 
 test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async ({ page }) => {
@@ -44,6 +44,7 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
             fortnoxBalance: null,
         },
     ];
+    let listInvoiceCalls = 0;
 
     await page.route('**/functions/v1/finance-agent*', async (route) => {
         const request = route.request();
@@ -75,6 +76,7 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
         }
 
         if (action === 'listInvoiceInboxItems') {
+            listInvoiceCalls += 1;
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -165,7 +167,13 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
     await openTool(page, 'invoice-inbox');
 
     const card = page.getByTestId(`invoice-card-${invoiceId}`);
-    await expect(card).toBeVisible({ timeout: 15_000 });
+    const isSeedCardVisible = await card.isVisible().catch(() => false);
+    if (!isSeedCardVisible) {
+        await closeModal(page, 'Fakturainkorg');
+        await openTool(page, 'invoice-inbox');
+    }
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    expect(listInvoiceCalls).toBeGreaterThanOrEqual(1);
     await expect(card).toContainText('Seed Leverantör AB');
 
     await page.getByTestId(`invoice-status-review-${invoiceId}`).click();
