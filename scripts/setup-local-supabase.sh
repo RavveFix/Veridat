@@ -24,6 +24,12 @@ if ! supabase status >/dev/null 2>&1; then
     supabase start
 fi
 
+echo "Applying pending local migrations..."
+supabase migration up --local --include-all
+
+echo "Ensuring all local Supabase services are running..."
+supabase start
+
 status_env="$(supabase status -o env)"
 
 api_url="$(printf '%s\n' "$status_env" | awk -F= '$1=="API_URL"{print $2; exit}')"
@@ -68,4 +74,9 @@ MAILPIT_URL=$mailpit_url
 EOF
 
 echo "Wrote .env.local with local Supabase keys."
+
+if [ -x "$ROOT_DIR/scripts/start-local-functions.sh" ]; then
+    "$ROOT_DIR/scripts/start-local-functions.sh"
+fi
+
 echo "Run: npm run dev"

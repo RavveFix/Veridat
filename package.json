@@ -13,12 +13,20 @@
         "test": "vitest run --config apps/web/vitest.config.ts",
         "test:watch": "vitest --config apps/web/vitest.config.ts",
         "test:e2e": "node ./node_modules/@playwright/test/cli.js test",
+        "test:agent:core": "bash ./scripts/run-core-agents.sh",
+        "test:agent:core:soft": "bash ./scripts/run-core-agents-soft.sh",
+        "test:agent:dashboard": "bash ./scripts/run-dashboard-agent.sh",
+        "test:agent:bank": "bash ./scripts/run-bank-reconciliation-agent.sh",
+        "test:agent:finance": "bash ./scripts/run-finance-agents.sh",
+        "test:agent:nightly": "bash ./scripts/run-nightly-agents.sh",
         "perf:benchmark": "node scripts/benchmark-gemini-chat.mjs",
         "check:edge": "deno check supabase/functions/*/index.ts",
         "ops:smoke": "./scripts/ops-smoke.sh",
         "supabase:setup": "./scripts/setup-local-supabase.sh",
         "supabase:start": "supabase start",
-        "supabase:stop": "supabase stop"
+        "supabase:serve": "./scripts/start-local-functions.sh",
+        "supabase:serve:stop": "./scripts/stop-local-functions.sh",
+        "supabase:stop": "./scripts/stop-local-functions.sh && supabase stop"
     },
     "keywords": [
         "bokföring",

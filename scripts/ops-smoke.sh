@@ -20,7 +20,7 @@ if [[ "${SKIP_E2E:-}" == "1" ]]; then
 fi
 
 echo "[ops:smoke] Starting preview server on port 5175..."
-npm run preview -- --port 5175 --host 127.0.0.1 >/tmp/veridat-preview.log 2>&1 &
+npm run preview -- --port 5175 --host 127.0.0.1 --strictPort >/tmp/veridat-preview.log 2>&1 &
 PREVIEW_PID=$!
 
 cleanup() {

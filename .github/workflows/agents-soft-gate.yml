@@ -1,0 +1,154 @@
+name: Core Agents Progressive Gate
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+    branches:
+      - main
+      - staging
+  workflow_dispatch:
+
+jobs:
+  core-agents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run dashboard agent (hard gate)
+        id: dashboard_hard
+        run: npm run test:agent:dashboard
+
+      - name: Upload dashboard Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-hard-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: playwright-report
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload dashboard Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-hard-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload dashboard agent logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-hard-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/veridat-dashboard-agent-preview.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run bank reconciliation agent (hard gate)
+        id: bank_hard
+        run: npm run test:agent:bank
+
+      - name: Upload bank hard-gate Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bank-hard-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: playwright-report
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload bank hard-gate Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bank-hard-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload bank hard-gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bank-hard-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/veridat-bank-agent-preview.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run remaining core agents (soft gate)
+        if: always()
+        id: core_soft
+        continue-on-error: true
+        run: npm run test:agent:core:soft
+
+      - name: Upload soft-core Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-soft-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: playwright-report
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload soft-core Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-soft-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload soft-core agent logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-soft-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/veridat-core-soft-agent-preview.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summarize progressive gate result
+        if: always()
+        run: |
+          echo "## Core Agents Progressive Gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Dashboard hard gate: \`${{ steps.dashboard_hard.outcome }}\` (\`npm run test:agent:dashboard\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Bank reconciliation hard gate: \`${{ steps.bank_hard.outcome }}\` (\`npm run test:agent:bank\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Remaining core soft gate: \`${{ steps.core_soft.outcome }}\` (\`npm run test:agent:core:soft\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifacts: dashboard-hard + bank-hard + core-soft (playwright-report, test-results, logs)" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ steps.dashboard_hard.outcome }}" != "success" ]; then
+            echo "- Status: Hard gate blockerade merge (dashboard)." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.bank_hard.outcome }}" != "success" ]; then
+            echo "- Status: Dashboard passerade, hard gate blockerade merge (bank reconciliation)." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.core_soft.outcome }}" != "success" ]; then
+            echo "- Status: Hard gates passerade, soft-gate varnade för återstående core-agenter." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Status: Alla körda core-agenter passerade." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Stop local Supabase
+        if: always()
+        run: npm run supabase:stop
