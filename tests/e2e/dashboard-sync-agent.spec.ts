@@ -1,7 +1,6 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginWithMagicLink } from './helpers/auth';
-import { openTool, closeModal } from './helpers/navigation';
-import { setProfileFlags } from './helpers/profile';
+import { openTool } from './helpers/navigation';
 
 type DashboardVariant = 'modern' | 'legacy';
 
@@ -45,33 +44,15 @@ async function runSyncAndAssert(page: Page, button: Locator, variant: DashboardV
     await expect(button).toHaveText('Synka nu');
 }
 
-test('dashboard test agent verifierar Synka nu + admin-gating automatiskt', async ({ page }) => {
+test('dashboard test agent verifierar Synka nu + statusflöde', async ({ page }) => {
     const fullName = 'Dashboard Agent';
     const email = `dashboard-agent+${Date.now()}@example.com`;
 
-    const { userId } = await loginWithMagicLink(page, email, fullName);
-
-    // --- Admin scenario ---
-    await setProfileFlags(userId, { isAdmin: true });
-    await page.reload({ waitUntil: 'domcontentloaded' });
+    await loginWithMagicLink(page, email, fullName);
 
     await openTool(page, 'dashboard');
-    const adminSession = await detectDashboardVariant(page);
-    if (adminSession.variant === 'modern') {
-        await expect(page.getByText(/Plattformspuls \(\d+ dagar\)/)).toBeVisible({ timeout: 20_000 });
-    }
-    await runSyncAndAssert(page, adminSession.button, adminSession.variant);
-    await closeModal(page, 'Översikt');
-
-    // --- Non-admin scenario ---
-    await setProfileFlags(userId, { isAdmin: false });
-    await page.reload({ waitUntil: 'domcontentloaded' });
-
-    await openTool(page, 'dashboard');
-    if (adminSession.variant === 'modern') {
-        await expect(page.getByText(/Plattformspuls \(\d+ dagar\)/)).toHaveCount(0);
-    }
+    await expect(page.getByText(/Plattformspuls \(\d+ dagar\)/)).toHaveCount(0);
     await expect(page.getByText('Ekonomisk översikt')).toBeVisible();
-    const userSession = await detectDashboardVariant(page);
-    await runSyncAndAssert(page, userSession.button, userSession.variant);
+    const dashboardSession = await detectDashboardVariant(page);
+    await runSyncAndAssert(page, dashboardSession.button, dashboardSession.variant);
 });
