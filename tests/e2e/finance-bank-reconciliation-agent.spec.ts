@@ -6,12 +6,13 @@ import { closeModal, openTool } from './helpers/navigation';
 async function resolveBankImportFileInput(page: Page): Promise<Locator> {
     const modernInput = page.getByTestId('bank-import-file-input');
     const legacyInput = page.locator('input[type="file"]').first();
+    const legacyChooseFileButton = page.getByRole('button', { name: /Choose File|Välj fil/i }).first();
 
     const timeoutAt = Date.now() + 20_000;
     while (Date.now() < timeoutAt) {
-        if (await modernInput.isVisible().catch(() => false)) return modernInput.first();
-        if (await legacyInput.count()) return legacyInput;
         if (await modernInput.count()) return modernInput.first();
+        if (await legacyInput.count()) return legacyInput;
+        if (await legacyChooseFileButton.isVisible().catch(() => false)) return legacyChooseFileButton;
         await page.waitForTimeout(200);
     }
 
@@ -152,7 +153,16 @@ test('finance agent verifierar bankimport + avstämning med persistens', async (
 
     const csvPath = path.join(process.cwd(), 'tests/fixtures/bank/seb-sample.csv');
     const fileInput = await resolveBankImportFileInput(page);
-    await fileInput.setInputFiles(csvPath);
+    const tagName = await fileInput.evaluate((element) => element.tagName.toLowerCase());
+    if (tagName === 'input') {
+        await fileInput.setInputFiles(csvPath);
+    } else {
+        const [chooser] = await Promise.all([
+            page.waitForEvent('filechooser'),
+            fileInput.click(),
+        ]);
+        await chooser.setFiles(csvPath);
+    }
 
     await expect(page.getByText('Förhandsvisning')).toBeVisible({ timeout: 15_000 });
     const saveButton = await resolveBankImportSaveButton(page);
