@@ -10,6 +10,21 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
     const { userId } = await loginWithMagicLink(page, email, fullName);
     await setProfileFlags(userId, { plan: 'trial' });
     await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => {
+        for (let i = 0; i < localStorage.length; i += 1) {
+            const key = localStorage.key(i);
+            if (!key || !key.includes('auth-token')) continue;
+            const value = localStorage.getItem(key) || '';
+            if (value.includes('access_token')) {
+                return true;
+            }
+        }
+        return false;
+    }, { timeout: 20_000 });
+    await page.waitForFunction(() => {
+        const companyId = localStorage.getItem('activeCompanyId');
+        return typeof companyId === 'string' && companyId.length > 0;
+    }, { timeout: 20_000 });
 
     const invoiceId = `seed-invoice-${Date.now()}`;
     const invoiceItems: Array<Record<string, unknown>> = [
