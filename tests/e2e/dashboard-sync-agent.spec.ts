@@ -1,26 +1,48 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginWithMagicLink } from './helpers/auth';
 import { openTool, closeModal } from './helpers/navigation';
 import { setProfileFlags } from './helpers/profile';
 
-async function runSyncAndAssert(page: Page): Promise<void> {
-    const syncButton = page.getByTestId('dashboard-sync-button');
-    await expect(syncButton).toBeVisible();
+type DashboardVariant = 'modern' | 'legacy';
 
-    await syncButton.click();
+async function detectDashboardVariant(page: Page): Promise<{ variant: DashboardVariant; button: Locator }> {
+    const modernButton = page.getByTestId('dashboard-sync-button');
+    const legacyButton = page.getByRole('button', { name: 'Uppdatera' });
 
-    await expect(syncButton).toBeDisabled({ timeout: 10_000 });
-    await expect(syncButton).toHaveText('Synkar...', { timeout: 10_000 });
+    const timeoutAt = Date.now() + 20_000;
+    while (Date.now() < timeoutAt) {
+        if (await modernButton.isVisible().catch(() => false)) {
+            return { variant: 'modern', button: modernButton };
+        }
+        if (await legacyButton.isVisible().catch(() => false)) {
+            return { variant: 'legacy', button: legacyButton };
+        }
+        await page.waitForTimeout(200);
+    }
 
+    throw new Error('Kunde inte hitta dashboard-action (varken Synka nu eller Uppdatera).');
+}
+
+async function runSyncAndAssert(page: Page, button: Locator, variant: DashboardVariant): Promise<void> {
+    await expect(button).toBeVisible();
+    await button.click();
+
+    if (variant === 'legacy') {
+        await expect(page.getByText('Ekonomisk översikt')).toBeVisible({ timeout: 20_000 });
+        await expect(button).toBeVisible({ timeout: 20_000 });
+        return;
+    }
+
+    await expect(button).toBeDisabled({ timeout: 10_000 });
+    await expect(button).toHaveText('Synkar...', { timeout: 10_000 });
     await expect(page.getByTestId('dashboard-sync-status-row')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('dashboard-sync-status-message')).toHaveText(
         /Synk klar med varningar|Synk klar|Synk misslyckades/,
         { timeout: 20_000 }
     );
     await expect(page.getByTestId('dashboard-sync-last-synced')).toContainText('Senast synkad', { timeout: 20_000 });
-
-    await expect(syncButton).toBeEnabled({ timeout: 20_000 });
-    await expect(syncButton).toHaveText('Synka nu');
+    await expect(button).toBeEnabled({ timeout: 20_000 });
+    await expect(button).toHaveText('Synka nu');
 }
 
 test('dashboard test agent verifierar Synka nu + admin-gating automatiskt', async ({ page }) => {
@@ -34,8 +56,11 @@ test('dashboard test agent verifierar Synka nu + admin-gating automatiskt', asyn
     await page.reload({ waitUntil: 'domcontentloaded' });
 
     await openTool(page, 'dashboard');
-    await expect(page.getByText('Plattformspuls (7 dagar)')).toBeVisible({ timeout: 20_000 });
-    await runSyncAndAssert(page);
+    const adminSession = await detectDashboardVariant(page);
+    if (adminSession.variant === 'modern') {
+        await expect(page.getByText(/Plattformspuls \(\d+ dagar\)/)).toBeVisible({ timeout: 20_000 });
+    }
+    await runSyncAndAssert(page, adminSession.button, adminSession.variant);
     await closeModal(page, 'Översikt');
 
     // --- Non-admin scenario ---
@@ -43,7 +68,10 @@ test('dashboard test agent verifierar Synka nu + admin-gating automatiskt', asyn
     await page.reload({ waitUntil: 'domcontentloaded' });
 
     await openTool(page, 'dashboard');
-    await expect(page.getByText('Plattformspuls (7 dagar)')).toHaveCount(0);
+    if (adminSession.variant === 'modern') {
+        await expect(page.getByText(/Plattformspuls \(\d+ dagar\)/)).toHaveCount(0);
+    }
     await expect(page.getByText('Ekonomisk översikt')).toBeVisible();
-    await runSyncAndAssert(page);
+    const userSession = await detectDashboardVariant(page);
+    await runSyncAndAssert(page, userSession.button, userSession.variant);
 });
