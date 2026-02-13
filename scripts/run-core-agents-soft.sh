@@ -56,9 +56,8 @@ if ! curl -fsS "${PLAYWRIGHT_BASE_URL}/login" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[core-agents-soft] Kör Playwright soft core-suite (utan dashboard + bank)..."
+echo "[core-agents-soft] Kör Playwright soft core-suite (utan dashboard + bank + invoice/vat)..."
 npm run test:e2e -- \
-  tests/e2e/finance-invoice-vat-agent.spec.ts \
   tests/e2e/search-modal-agent.spec.ts \
   tests/e2e/auth-legal-consent-agent.spec.ts \
   tests/e2e/fortnox-plan-gating-agent.spec.ts

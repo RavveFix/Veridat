@@ -96,6 +96,38 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Run invoice/vat agent (hard gate)
+        id: invoice_vat_hard
+        run: npm run test:agent:invoice-vat
+
+      - name: Upload invoice-vat hard-gate Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-vat-hard-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: playwright-report
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload invoice-vat hard-gate Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-vat-hard-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload invoice-vat hard-gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-vat-hard-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/veridat-invoice-vat-agent-preview.log
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Run remaining core agents (soft gate)
         if: always()
         id: core_soft
@@ -136,13 +168,16 @@ jobs:
           echo "## Core Agents Progressive Gate" >> "$GITHUB_STEP_SUMMARY"
           echo "- Dashboard hard gate: \`${{ steps.dashboard_hard.outcome }}\` (\`npm run test:agent:dashboard\`)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Bank reconciliation hard gate: \`${{ steps.bank_hard.outcome }}\` (\`npm run test:agent:bank\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Invoice/VAT hard gate: \`${{ steps.invoice_vat_hard.outcome }}\` (\`npm run test:agent:invoice-vat\`)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Remaining core soft gate: \`${{ steps.core_soft.outcome }}\` (\`npm run test:agent:core:soft\`)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Artifacts: dashboard-hard + bank-hard + core-soft (playwright-report, test-results, logs)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifacts: dashboard-hard + bank-hard + invoice-vat-hard + core-soft (playwright-report, test-results, logs)" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${{ steps.dashboard_hard.outcome }}" != "success" ]; then
             echo "- Status: Hard gate blockerade merge (dashboard)." >> "$GITHUB_STEP_SUMMARY"
           elif [ "${{ steps.bank_hard.outcome }}" != "success" ]; then
             echo "- Status: Dashboard passerade, hard gate blockerade merge (bank reconciliation)." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.invoice_vat_hard.outcome }}" != "success" ]; then
+            echo "- Status: Dashboard+bank passerade, hard gate blockerade merge (invoice/vat)." >> "$GITHUB_STEP_SUMMARY"
           elif [ "${{ steps.core_soft.outcome }}" != "success" ]; then
             echo "- Status: Hard gates passerade, soft-gate varnade för återstående core-agenter." >> "$GITHUB_STEP_SUMMARY"
           else
