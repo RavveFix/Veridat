@@ -4,8 +4,11 @@ import { loginWithMagicLink } from './helpers/auth';
 import { closeModal, openTool } from './helpers/navigation';
 
 async function resolveBankImportFileInput(page: Page): Promise<Locator> {
-    const modernInput = page.getByTestId('bank-import-file-input');
-    const legacyInput = page.locator('input[type="file"]').first();
+    const bankImportModal = page.locator('.modal-content').filter({
+        has: page.getByRole('heading', { name: 'Bankimport (CSV)' }),
+    }).first();
+    const modernInput = bankImportModal.getByTestId('bank-import-file-input');
+    const legacyInput = bankImportModal.locator('input[type="file"]').first();
     const legacyChooseFileButton = page.getByRole('button', { name: /Choose File|Välj fil/i }).first();
 
     const timeoutAt = Date.now() + 20_000;
@@ -20,8 +23,11 @@ async function resolveBankImportFileInput(page: Page): Promise<Locator> {
 }
 
 async function resolveBankImportSaveButton(page: Page): Promise<Locator> {
-    const modernButton = page.getByTestId('bank-import-save-button');
-    const legacyButton = page.getByRole('button', { name: 'Spara import' });
+    const bankImportModal = page.locator('.modal-content').filter({
+        has: page.getByRole('heading', { name: 'Bankimport (CSV)' }),
+    }).first();
+    const modernButton = bankImportModal.getByTestId('bank-import-save-button');
+    const legacyButton = bankImportModal.getByRole('button', { name: 'Spara import' });
 
     const timeoutAt = Date.now() + 20_000;
     while (Date.now() < timeoutAt) {
