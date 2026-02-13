@@ -45,7 +45,7 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
         },
     ];
 
-    await page.route('**/functions/v1/finance-agent', async (route) => {
+    await page.route('**/functions/v1/finance-agent*', async (route) => {
         const request = route.request();
         if (request.method() !== 'POST') {
             await route.continue();
@@ -177,7 +177,7 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
     await expect(card).toContainText('Betald');
 
     let vatCalls = 0;
-    await page.route('**/functions/v1/fortnox', async (route) => {
+    await page.route('**/functions/v1/fortnox*', async (route) => {
         const request = route.request();
         if (request.method() !== 'POST') {
             await route.continue();

@@ -67,7 +67,7 @@ test('finance agent verifierar bankimport + avstämning med persistens', async (
     const imports: Array<Record<string, unknown>> = [];
     const reconciliation = new Map<string, { period: string; status: 'open' | 'reconciled' | 'locked'; notes?: string | null }>();
 
-    await page.route('**/functions/v1/finance-agent', async (route) => {
+    await page.route('**/functions/v1/finance-agent*', async (route) => {
         const request = route.request();
         if (request.method() !== 'POST') {
             await route.continue();
