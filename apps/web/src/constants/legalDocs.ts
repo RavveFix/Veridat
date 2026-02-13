@@ -31,8 +31,8 @@ export const LEGAL_DOCS: Record<LegalDocType, {
     },
     systemdoc: {
         label: "Systemdokumentation",
-        url: "/systemdokumentation.html",
-        version: "1.0"
+        url: "/systemdokumentation",
+        version: "1.1"
     }
 };
 

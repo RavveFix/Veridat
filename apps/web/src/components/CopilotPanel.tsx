@@ -206,6 +206,7 @@ export function CopilotPanel() {
 function NotificationCard({ notif }: { notif: CopilotNotification }) {
     const iconSvg = TYPE_ICONS[notif.type] || TYPE_ICONS.action_suggestion;
     const severityColor = SEVERITY_COLORS[notif.severity] || SEVERITY_COLORS.info;
+    const isGuardian = notif.id.startsWith('guardian-');
 
     const handleClick = () => {
         copilotService.markAsRead(notif.id);
@@ -253,6 +254,20 @@ function NotificationCard({ notif }: { notif: CopilotNotification }) {
                     }}>
                         {notif.title}
                     </span>
+                    {isGuardian && (
+                        <span style={{
+                            fontSize: '0.62rem',
+                            fontWeight: 700,
+                            padding: '0.12rem 0.45rem',
+                            borderRadius: '999px',
+                            border: '1px solid var(--glass-border)',
+                            background: 'rgba(255,255,255,0.04)',
+                            color: 'var(--text-secondary)',
+                            flexShrink: 0,
+                        }}>
+                            Guardian
+                        </span>
+                    )}
                     {!notif.read && (
                         <span style={{
                             width: '6px',
@@ -287,6 +302,10 @@ function NotificationCard({ notif }: { notif: CopilotNotification }) {
                 type="button"
                 onClick={event => {
                     event.stopPropagation();
+                    if (isGuardian) {
+                        void copilotService.resolveGuardianNotification(notif.id);
+                        return;
+                    }
                     copilotService.dismiss(notif.id);
                 }}
                 style={{

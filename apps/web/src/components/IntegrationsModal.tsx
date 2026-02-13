@@ -11,6 +11,7 @@ import type { Integration, IntegrationStatus } from '../types/integrations';
 import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
 import { logger } from '../services/LoggerService';
 import { isFortnoxEligible, normalizeUserPlan, type UserPlan } from '../services/PlanGateService';
+import { copilotService } from '../services/CopilotService';
 import { ModalWrapper } from './ModalWrapper';
 import { BankImportPanel } from './BankImportPanel';
 import { AgencyPanel } from './AgencyPanel';
@@ -95,6 +96,21 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     const [userPlan, setUserPlan] = useState<UserPlan>('free');
     const [planLoaded, setPlanLoaded] = useState(false);
     const isFortnoxPlanEligible = isFortnoxEligible(userPlan);
+    const [guardianBadgeCount, setGuardianBadgeCount] = useState(0);
+
+    useEffect(() => {
+        const update = () => {
+            const notifications = copilotService.getNotifications();
+            const count = notifications.filter(n =>
+                n.id.startsWith('guardian-') && (n.severity === 'critical' || n.severity === 'warning')
+            ).length;
+            setGuardianBadgeCount(count);
+        };
+
+        update();
+        copilotService.addEventListener('copilot-updated', update as EventListener);
+        return () => copilotService.removeEventListener('copilot-updated', update as EventListener);
+    }, []);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -894,16 +910,38 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     Se leverantörsfakturor, status och Copilot i en vy.
                                 </div>
                             </div>
-                            <span style={{
-                                padding: '0.2rem 0.6rem',
-                                borderRadius: '999px',
-                                background: isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                color: isFortnoxPlanEligible ? '#10b981' : '#f59e0b',
-                                fontSize: '0.7rem',
-                                fontWeight: 600
-                            }}>
-                                {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                {guardianBadgeCount > 0 && (
+                                    <span
+                                        title="Guardian-larm"
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            minWidth: '20px',
+                                            height: '20px',
+                                            padding: '0 0.35rem',
+                                            borderRadius: '999px',
+                                            background: '#ef4444',
+                                            color: '#fff',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 800
+                                        }}
+                                    >
+                                        {guardianBadgeCount > 9 ? '9+' : guardianBadgeCount}
+                                    </span>
+                                )}
+                                <span style={{
+                                    padding: '0.2rem 0.6rem',
+                                    borderRadius: '999px',
+                                    background: isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                    color: isFortnoxPlanEligible ? '#10b981' : '#f59e0b',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600
+                                }}>
+                                    {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
+                                </span>
+                            </div>
                         </button>
                         <button
                             type="button"

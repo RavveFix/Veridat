@@ -55,6 +55,7 @@ export default defineConfig({
                 terms: resolve(__dirname, 'terms.html'),
                 dpa: resolve(__dirname, 'dpa.html'),
                 security: resolve(__dirname, 'security.html'),
+                systemdokumentation: resolve(__dirname, 'systemdokumentation.html'),
                 manifest: resolve(__dirname, 'manifest.html'),
             },
             output: {
@@ -134,6 +135,8 @@ function rewriteHtmlRequests(req: { url?: string }, _res: unknown, next: () => v
         req.url = '/login.html';
     } else if (pathOnly === '/admin') {
         req.url = '/admin.html';
+    } else if (pathOnly === '/systemdokumentation' || pathOnly === '/systemdokumentation/') {
+        req.url = '/systemdokumentation.html';
     } else if (pathOnly === '/privacy') {
         req.url = '/privacy.html';
     } else if (pathOnly === '/terms') {

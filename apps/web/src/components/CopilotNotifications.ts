@@ -86,6 +86,10 @@ export class CopilotNotificationsRenderer {
             el.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const id = (el as HTMLElement).dataset.dismissId!;
+                if (id.startsWith('guardian-')) {
+                    void copilotService.resolveGuardianNotification(id);
+                    return;
+                }
                 copilotService.dismiss(id);
             });
         });

@@ -83,6 +83,7 @@ interface GuardianAlert {
     severity: NotificationSeverity;
     status: 'open' | 'acknowledged' | 'resolved';
     action_target?: string | null;
+    payload?: Record<string, unknown> | null;
     created_at: string;
 }
 
@@ -186,7 +187,17 @@ class CopilotServiceClass extends EventTarget {
             this.checkInvoiceInbox(newNotifications);
 
             // 10. Server-side guardian alerts
-            await this.checkGuardianAlerts(newNotifications);
+            const guardianMappedTypes = await this.checkGuardianAlerts(newNotifications);
+            if (guardianMappedTypes.size > 0) {
+                // Guardian already provides these signals; remove local duplicates.
+                for (let i = newNotifications.length - 1; i >= 0; i--) {
+                    const n = newNotifications[i];
+                    if (!n) continue;
+                    if (!this.isGuardianNotificationId(n.id) && guardianMappedTypes.has(n.type)) {
+                        newNotifications.splice(i, 1);
+                    }
+                }
+            }
 
             // 11. Action suggestions
             this.generateActionSuggestions(newNotifications);
@@ -243,6 +254,61 @@ class CopilotServiceClass extends EventTarget {
             this.saveToStorage();
             this.dispatchUpdate();
         }
+    }
+
+    private isGuardianNotificationId(id: string): boolean {
+        return id.startsWith('guardian-');
+    }
+
+    private extractGuardianAlertId(notificationId: string): string | null {
+        if (!this.isGuardianNotificationId(notificationId)) return null;
+        const raw = notificationId.slice('guardian-'.length).trim();
+        return raw.length > 0 ? raw : null;
+    }
+
+    /**
+     * Persistently resolve a Guardian alert server-side and remove it from Copilot.
+     * Falls back to a local dismiss if the network call fails.
+     */
+    async resolveGuardianNotification(notificationId: string): Promise<void> {
+        const alertId = this.extractGuardianAlertId(notificationId);
+        if (!alertId) {
+            this.dismiss(notificationId);
+            return;
+        }
+
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                this.dismiss(notificationId);
+                return;
+            }
+
+            const response = await fetch(`${this.supabaseUrl}/functions/v1/fortnox-guardian`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                    action: 'resolve_alert',
+                    payload: { alertId },
+                }),
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                logger.warn('Failed to resolve guardian alert (falling back to local dismiss)', {
+                    status: response.status,
+                    err,
+                    alertId,
+                });
+            }
+        } catch (err) {
+            logger.warn('Failed to resolve guardian alert (falling back to local dismiss)', err);
+        }
+
+        this.dismiss(notificationId);
     }
 
     // =========================================================================
@@ -552,19 +618,41 @@ class CopilotServiceClass extends EventTarget {
         }
     }
 
-    private async checkGuardianAlerts(out: CopilotNotification[]): Promise<void> {
+    private async checkGuardianAlerts(out: CopilotNotification[]): Promise<Set<NotificationType>> {
         const alerts = await this.fetchGuardianAlerts();
-        if (alerts.length === 0) return;
+        if (alerts.length === 0) return new Set();
+
+        const mappedTypes = new Set<NotificationType>();
+
+        const mapGuardianCheckToNotificationType = (check: string): NotificationType | null => {
+            switch (check) {
+                case 'overdue_supplier_invoices':
+                    return 'overdue_invoice';
+                case 'unbooked_supplier_invoices':
+                    return 'unbooked_invoice';
+                case 'duplicate_supplier_invoices':
+                    return 'anomaly_duplicate';
+                case 'unusual_supplier_amounts':
+                    return 'anomaly_amount';
+                default:
+                    return null;
+            }
+        };
 
         for (const alert of alerts) {
             if (alert.status !== 'open') continue;
+            const checkKey = typeof alert.payload?.check === 'string' ? alert.payload.check : '';
+            const mappedType = checkKey ? mapGuardianCheckToNotificationType(checkKey) : null;
+            if (mappedType) {
+                mappedTypes.add(mappedType);
+            }
             const category: NotificationCategory = alert.severity === 'critical' || alert.severity === 'warning'
                 ? 'varning'
                 : 'insikt';
 
             out.push({
                 id: `guardian-${alert.id}`,
-                type: 'guardian_alert',
+                type: mappedType ?? 'guardian_alert',
                 category,
                 title: alert.title,
                 description: alert.description,
@@ -575,6 +663,8 @@ class CopilotServiceClass extends EventTarget {
                 read: false,
             });
         }
+
+        return mappedTypes;
     }
 
     // =========================================================================

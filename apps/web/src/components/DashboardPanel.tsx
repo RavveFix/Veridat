@@ -80,7 +80,7 @@ function aggregateDashboardData(companyId: string): DashboardData {
     const overdueCount = notifications.filter(n => n.type === 'overdue_invoice').length;
     const unbookedCount = notifications.filter(n => n.type === 'unbooked_invoice').length;
     const guardianAlertCount = notifications.filter(n =>
-        n.type === 'guardian_alert' && (n.severity === 'critical' || n.severity === 'warning')
+        n.id.startsWith('guardian-') && (n.severity === 'critical' || n.severity === 'warning')
     ).length;
 
     let pendingInvoices = 0;

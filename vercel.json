@@ -9,6 +9,10 @@
             "destination": "/admin.html"
         },
         {
+            "source": "/systemdokumentation",
+            "destination": "/systemdokumentation.html"
+        },
+        {
             "source": "/app/chat/:path*",
             "destination": "/app/index.html"
         },
