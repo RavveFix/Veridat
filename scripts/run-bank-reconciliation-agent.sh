@@ -30,6 +30,28 @@ PORT="${PLAYWRIGHT_PORT:-5175}"
 export PLAYWRIGHT_BASE_URL="http://127.0.0.1:${PORT}"
 export MAILPIT_URL="${MAILPIT_URL:-http://127.0.0.1:54324}"
 
+kill_preview_port() {
+  if ! command -v lsof >/dev/null 2>&1; then
+    return
+  fi
+
+  local pids
+  pids="$(lsof -ti "tcp:${PORT}" 2>/dev/null || true)"
+  if [[ -z "$pids" ]]; then
+    return
+  fi
+
+  kill $pids >/dev/null 2>&1 || true
+  sleep 1
+
+  pids="$(lsof -ti "tcp:${PORT}" 2>/dev/null || true)"
+  if [[ -n "$pids" ]]; then
+    kill -9 $pids >/dev/null 2>&1 || true
+  fi
+}
+
+kill_preview_port
+
 echo "[bank-agent] Startar preview-server på ${PLAYWRIGHT_BASE_URL}..."
 npm run preview -- --port "$PORT" --host 127.0.0.1 --strictPort >/tmp/veridat-bank-agent-preview.log 2>&1 &
 PREVIEW_PID=$!
@@ -38,6 +60,7 @@ cleanup() {
   if ps -p "$PREVIEW_PID" >/dev/null 2>&1; then
     kill "$PREVIEW_PID" >/dev/null 2>&1 || true
   fi
+  kill_preview_port
 }
 
 trap cleanup EXIT
