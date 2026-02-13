@@ -22,7 +22,7 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
         return false;
     }, { timeout: 20_000 });
     await page.waitForFunction(() => {
-        const companyId = localStorage.getItem('activeCompanyId');
+        const companyId = localStorage.getItem('currentCompanyId');
         return typeof companyId === 'string' && companyId.length > 0;
     }, { timeout: 20_000 });
 
