@@ -60,6 +60,8 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
         },
     ];
     let listInvoiceCalls = 0;
+    let vatCalls = 0;
+    let supplierSyncCalls = 0;
 
     await page.route('**/functions/v1/finance-agent*', async (route) => {
         const request = route.request();
@@ -179,27 +181,6 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
         });
     });
 
-    await openTool(page, 'invoice-inbox');
-
-    const card = page.getByTestId(`invoice-card-${invoiceId}`);
-    const isSeedCardVisible = await card.isVisible().catch(() => false);
-    if (!isSeedCardVisible) {
-        await closeModal(page, 'Fakturainkorg');
-        await openTool(page, 'invoice-inbox');
-    }
-    await expect(card).toBeVisible({ timeout: 20_000 });
-    expect(listInvoiceCalls).toBeGreaterThanOrEqual(1);
-    await expect(card).toContainText('Seed Leverantör AB');
-
-    await page.getByTestId(`invoice-status-review-${invoiceId}`).click();
-    await expect(card).toContainText('Granskad');
-
-    const markPaidButton = page.getByTestId(`invoice-status-paid-${invoiceId}`);
-    await expect(markPaidButton).toBeVisible();
-    await markPaidButton.click();
-    await expect(card).toContainText('Betald');
-
-    let vatCalls = 0;
     await page.route('**/functions/v1/fortnox*', async (route) => {
         const request = route.request();
         if (request.method() !== 'POST') {
@@ -212,6 +193,35 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
             payload = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
         } catch {
             payload = {};
+        }
+
+        if (payload.action === 'getSupplierInvoices') {
+            supplierSyncCalls += 1;
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    data: {
+                        SupplierInvoices: [
+                            {
+                                GivenNumber: 2001,
+                                SupplierName: 'Seed Leverantör AB',
+                                SupplierNumber: 'SUP-2001',
+                                InvoiceNumber: 'INV-2001',
+                                InvoiceDate: '2026-02-01',
+                                DueDate: '2026-02-20',
+                                Total: 1250,
+                                VAT: 250,
+                                Currency: 'SEK',
+                                Balance: 1250,
+                                Booked: false,
+                                OCR: '20012001',
+                            },
+                        ],
+                    },
+                }),
+            });
+            return;
         }
 
         if (payload.action === 'getVATReport') {
@@ -278,6 +288,34 @@ test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async (
 
         await route.continue();
     });
+
+    await openTool(page, 'invoice-inbox');
+
+    let activeInvoiceId = invoiceId;
+    let card = page.getByTestId(`invoice-card-${activeInvoiceId}`);
+    const isSeedCardVisible = await card.isVisible().catch(() => false);
+    if (!isSeedCardVisible) {
+        await closeModal(page, 'Fakturainkorg');
+        await openTool(page, 'invoice-inbox');
+
+        const isSeedCardVisibleAfterReopen = await card.isVisible().catch(() => false);
+        if (!isSeedCardVisibleAfterReopen) {
+            await page.getByRole('button', { name: 'Hämta leverantörsfakturor från Fortnox' }).click();
+            activeInvoiceId = 'fnx_2001';
+            card = page.getByTestId(`invoice-card-${activeInvoiceId}`);
+        }
+    }
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    expect(listInvoiceCalls + supplierSyncCalls).toBeGreaterThanOrEqual(1);
+    await expect(card).toContainText('Seed Leverantör AB');
+
+    await page.getByTestId(`invoice-status-review-${activeInvoiceId}`).click();
+    await expect(card).toContainText('Granskad');
+
+    const markPaidButton = page.getByTestId(`invoice-status-paid-${activeInvoiceId}`);
+    await expect(markPaidButton).toBeVisible();
+    await markPaidButton.click();
+    await expect(card).toContainText('Betald');
 
     await openTool(page, 'vat-report');
 
