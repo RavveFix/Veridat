@@ -3,8 +3,6 @@ import { loginWithMagicLink } from './helpers/auth';
 import { openTool, closeModal } from './helpers/navigation';
 import { setProfileFlags } from './helpers/profile';
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function runSyncAndAssert(page: Page): Promise<void> {
     const syncButton = page.getByTestId('dashboard-sync-button');
     await expect(syncButton).toBeVisible();
@@ -33,16 +31,16 @@ test('dashboard test agent verifierar Synka nu + admin-gating automatiskt', asyn
 
     // --- Admin scenario ---
     await setProfileFlags(userId, { isAdmin: true });
-    await sleep(500);
+    await page.reload({ waitUntil: 'domcontentloaded' });
 
     await openTool(page, 'dashboard');
-    await expect(page.getByText('Plattformspuls (7 dagar)')).toBeVisible();
+    await expect(page.getByText('Plattformspuls (7 dagar)')).toBeVisible({ timeout: 20_000 });
     await runSyncAndAssert(page);
     await closeModal(page, 'Översikt');
 
     // --- Non-admin scenario ---
     await setProfileFlags(userId, { isAdmin: false });
-    await sleep(500);
+    await page.reload({ waitUntil: 'domcontentloaded' });
 
     await openTool(page, 'dashboard');
     await expect(page.getByText('Plattformspuls (7 dagar)')).toHaveCount(0);

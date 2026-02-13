@@ -3,15 +3,13 @@ import { loginWithMagicLink } from './helpers/auth';
 import { openTool } from './helpers/navigation';
 import { setProfileFlags } from './helpers/profile';
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 test('finance agent verifierar fakturaflöde + momsrapport + dashboard', async ({ page }) => {
     const fullName = 'Finance Invoice Agent';
     const email = `finance-invoice-agent+${Date.now()}@example.com`;
 
     const { userId } = await loginWithMagicLink(page, email, fullName);
     await setProfileFlags(userId, { plan: 'trial' });
-    await sleep(500);
+    await page.reload({ waitUntil: 'domcontentloaded' });
 
     const invoiceId = `seed-invoice-${Date.now()}`;
     const invoiceItems: Array<Record<string, unknown>> = [
