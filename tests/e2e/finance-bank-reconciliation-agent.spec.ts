@@ -10,7 +10,8 @@ async function resolveBankImportFileInput(page: Page): Promise<Locator> {
     const timeoutAt = Date.now() + 20_000;
     while (Date.now() < timeoutAt) {
         if (await modernInput.isVisible().catch(() => false)) return modernInput.first();
-        if (await legacyInput.isVisible().catch(() => false)) return legacyInput;
+        if (await legacyInput.count()) return legacyInput;
+        if (await modernInput.count()) return modernInput.first();
         await page.waitForTimeout(200);
     }
 
