@@ -12,6 +12,8 @@ import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
 import { logger } from '../services/LoggerService';
 import { isFortnoxEligible, normalizeUserPlan, type UserPlan } from '../services/PlanGateService';
 import { copilotService } from '../services/CopilotService';
+import { companyService } from '../services/CompanyService';
+import { financeAgentService } from '../services/FinanceAgentService';
 import { ModalWrapper } from './ModalWrapper';
 import { BankImportPanel } from './BankImportPanel';
 import { AgencyPanel } from './AgencyPanel';
@@ -81,6 +83,93 @@ function isFortnoxTool(tool: IntegrationTool | null | undefined): boolean {
     return !!tool && FORTNOX_LOCKED_TOOLS.includes(tool);
 }
 
+function setSurfaceButtonBackground(button: HTMLButtonElement, isHover: boolean): void {
+    button.style.background = isHover ? 'var(--surface-3)' : 'var(--surface-2)';
+}
+
+function setPrimaryButtonBackground(button: HTMLButtonElement, isHover: boolean): void {
+    button.style.background = isHover ? '#1d4ed8' : '#2563eb';
+}
+
+function getDisconnectButtonStyle(isBusy: boolean) {
+    return {
+        padding: '0.5rem 1rem',
+        borderRadius: '8px',
+        border: '1px solid var(--surface-border)',
+        background: 'var(--surface-2)',
+        color: 'var(--text-secondary)',
+        cursor: isBusy ? 'wait' : 'pointer',
+        fontSize: '0.85rem',
+        fontWeight: 600,
+        boxShadow: 'none'
+    } as const;
+}
+
+function getConnectButtonStyle(isBusy: boolean) {
+    return {
+        padding: '0.5rem 1rem',
+        borderRadius: '8px',
+        border: 'none',
+        background: '#2563eb',
+        color: '#fff',
+        cursor: isBusy ? 'wait' : 'pointer',
+        fontSize: '0.85rem',
+        fontWeight: 700,
+        boxShadow: 'none'
+    } as const;
+}
+
+const UPGRADE_LINK_STYLE = {
+    display: 'inline-block',
+    padding: '0.5rem 1rem',
+    borderRadius: '8px',
+    border: 'none',
+    background: '#2563eb',
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '0.85rem',
+    fontWeight: 700,
+    textDecoration: 'none',
+    boxShadow: 'none'
+} as const;
+
+const TOOL_BUTTON_BASE_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '1rem',
+    padding: '0.9rem 1rem',
+    borderRadius: '10px',
+    border: '1px solid var(--surface-border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text-primary)',
+} as const;
+
+function getToolButtonStyle(options?: { disabled?: boolean; highlighted?: boolean }) {
+    const disabled = options?.disabled === true;
+    return {
+        ...TOOL_BUTTON_BASE_STYLE,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.65 : 1,
+        boxShadow: options?.highlighted ? 'inset 0 1px 0 var(--glass-highlight)' : 'none',
+    } as const;
+}
+
+function getToolBadgeStyle(
+    background: string,
+    color: string,
+    options?: { fontWeight?: number; borderRadius?: string }
+) {
+    return {
+        padding: '0.2rem 0.6rem',
+        borderRadius: options?.borderRadius ?? '999px',
+        background,
+        color,
+        fontSize: '0.7rem',
+        fontWeight: options?.fontWeight ?? 600,
+    } as const;
+}
+
 export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalProps) {
     const requestedInitialTool = isIntegrationTool(initialTool) ? initialTool : null;
     const pendingInitialToolRef = useRef<IntegrationTool | null>(requestedInitialTool);
@@ -94,9 +183,39 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         requestedInitialTool && !isFortnoxTool(requestedInitialTool) ? requestedInitialTool : null
     );
     const [userPlan, setUserPlan] = useState<UserPlan>('free');
+    const [isAdmin, setIsAdmin] = useState(false);
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [planLoaded, setPlanLoaded] = useState(false);
     const isFortnoxPlanEligible = isFortnoxEligible(userPlan);
     const [guardianBadgeCount, setGuardianBadgeCount] = useState(0);
+    const [complianceBadgeCount, setComplianceBadgeCount] = useState(0);
+
+    async function getSessionAccessToken(): Promise<string | null> {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ?? null;
+    }
+
+    function buildAuthHeaders(accessToken: string): Record<string, string> {
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+        };
+    }
+
+    async function postAuthedFunction(
+        functionName: 'fortnox' | 'fortnox-oauth',
+        accessToken: string,
+        body: Record<string, unknown>
+    ): Promise<Response> {
+        return fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`,
+            {
+                method: 'POST',
+                headers: buildAuthHeaders(accessToken),
+                body: JSON.stringify(body)
+            }
+        );
+    }
 
     useEffect(() => {
         const update = () => {
@@ -111,6 +230,34 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         copilotService.addEventListener('copilot-updated', update as EventListener);
         return () => copilotService.removeEventListener('copilot-updated', update as EventListener);
     }, []);
+
+    useEffect(() => {
+        if (!currentUserId) {
+            setComplianceBadgeCount(0);
+            return;
+        }
+        const companyId = companyService.getCurrentId();
+        if (!companyId) {
+            setComplianceBadgeCount(0);
+            return;
+        }
+
+        let cancelled = false;
+        void (async () => {
+            try {
+                const alerts = await financeAgentService.listComplianceAlerts(companyId);
+                if (cancelled) return;
+                const count = alerts.filter((alert) => alert.severity === 'warning' || alert.severity === 'critical').length;
+                setComplianceBadgeCount(count);
+            } catch (error) {
+                logger.warn('Could not load compliance badge', error);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [currentUserId, planLoaded, activeTool]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -131,6 +278,16 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         };
     }, []);
 
+    useEffect(() => {
+        if (!activeTool) return;
+        if (!['bank-import', 'invoice-inbox', 'reconciliation'].includes(activeTool)) return;
+
+        const companyId = companyService.getCurrentId();
+        if (!companyId) return;
+
+        void financeAgentService.preloadCompany(companyId);
+    }, [activeTool]);
+
     function openTool(tool: IntegrationTool): void {
         if (isFortnoxTool(tool) && !isFortnoxPlanEligible) {
             setError('Fortnox-funktioner kräver Veridat Pro eller Trial.');
@@ -144,6 +301,8 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         setLoading(true);
         setError(null);
         setPlanLoaded(false);
+        setIsAdmin(false);
+        setCurrentUserId(null);
 
         try {
             // Check Fortnox connection status with timeout (10s for auth)
@@ -155,15 +314,19 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
             if (!user) {
                 setUserPlan('free');
+                setIsAdmin(false);
+                setCurrentUserId(null);
                 setPlanLoaded(true);
                 setError('Du måste vara inloggad för att hantera integreringar.');
                 setLoading(false);
                 return;
             }
 
+            setCurrentUserId(user.id);
+
             const profileQuery = supabase
                 .from('profiles')
-                .select('plan')
+                .select('plan, is_admin')
                 .eq('id', user.id)
                 .maybeSingle();
 
@@ -177,8 +340,10 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 logger.error('Error checking plan status:', profileError);
             }
 
-            const plan = normalizeUserPlan((profile as { plan?: unknown } | null)?.plan);
+            const normalizedProfile = profile as { plan?: unknown; is_admin?: unknown } | null;
+            const plan = normalizeUserPlan(normalizedProfile?.plan);
             const fortnoxAllowed = isFortnoxEligible(plan);
+            setIsAdmin(Boolean(normalizedProfile?.is_admin));
             setUserPlan(plan);
             setPlanLoaded(true);
 
@@ -210,17 +375,11 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             if (fortnoxAllowed && fortnoxTokens && user) {
                 const companyId = localStorage.getItem('activeCompanyId');
                 if (companyId) {
-                    fetch(
-                        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`,
-                        {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-                            },
-                            body: JSON.stringify({ action: 'sync_profile', companyId })
-                        }
-                    ).catch((err) => logger.warn('Fortnox profile sync skipped:', err));
+                    void (async () => {
+                        const accessToken = await getSessionAccessToken();
+                        if (!accessToken) return;
+                        await postAuthedFunction('fortnox', accessToken, { action: 'sync_profile', companyId });
+                    })().catch((err) => logger.warn('Fortnox profile sync skipped:', err));
                 }
             }
 
@@ -261,6 +420,8 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         } catch (err) {
             logger.error('Error loading integrations:', err);
             setUserPlan('free');
+            setIsAdmin(false);
+            setCurrentUserId(null);
             setPlanLoaded(true);
 
             // Check if component was aborted (unmounted)
@@ -294,28 +455,18 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
         try {
             // Get the OAuth authorization URL from our Edge Function
-            const { data: { session } } = await withTimeout(
-                supabase.auth.getSession(),
+            const accessToken = await withTimeout(
+                getSessionAccessToken(),
                 10000,
                 'Tidsgräns för sessionshämtning'
             );
 
-            if (!session) {
+            if (!accessToken) {
                 throw new Error('Not authenticated');
             }
 
             const response = await withTimeout(
-                fetch(
-                    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox-oauth`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${session.access_token}`
-                        },
-                        body: JSON.stringify({ action: 'initiate' })
-                    }
-                ),
+                postAuthedFunction('fortnox-oauth', accessToken, { action: 'initiate' }),
                 15000, // Edge function may take longer
                 'Tidsgräns för Fortnox-anslutning'
             );
@@ -465,6 +616,166 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         return icons[iconId] || '?';
     }
 
+    function renderDisconnectButton(integrationId: string) {
+        const isBusy = connecting === integrationId;
+        return (
+            <button
+                onClick={() => handleDisconnect(integrationId)}
+                data-testid={`integration-disconnect-${integrationId}`}
+                disabled={isBusy}
+                style={getDisconnectButtonStyle(isBusy)}
+                onMouseOver={(e) => setSurfaceButtonBackground(e.currentTarget, true)}
+                onMouseOut={(e) => setSurfaceButtonBackground(e.currentTarget, false)}
+            >
+                {isBusy ? '...' : 'Koppla bort'}
+            </button>
+        );
+    }
+
+    function renderConnectButton(integrationId: string) {
+        const isBusy = connecting === integrationId;
+        return (
+            <button
+                onClick={() => handleConnect(integrationId)}
+                data-testid={`integration-connect-${integrationId}`}
+                disabled={isBusy}
+                style={getConnectButtonStyle(isBusy)}
+                onMouseOver={(e) => setPrimaryButtonBackground(e.currentTarget, true)}
+                onMouseOut={(e) => setPrimaryButtonBackground(e.currentTarget, false)}
+            >
+                {isBusy ? 'Ansluter...' : 'Anslut'}
+            </button>
+        );
+    }
+
+    function renderIntegrationAction(integration: Integration) {
+        if (integration.status === 'coming_soon') return null;
+
+        const fortnoxNeedsPlan = integration.id === 'fortnox' && !isFortnoxPlanEligible;
+        if (fortnoxNeedsPlan && integration.status !== 'connected') {
+            return (
+                <a
+                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh"
+                    style={UPGRADE_LINK_STYLE}
+                >
+                    Uppgradera
+                </a>
+            );
+        }
+
+        return integration.status === 'connected'
+            ? renderDisconnectButton(integration.id)
+            : renderConnectButton(integration.id);
+    }
+
+    function renderActiveToolModal() {
+        if (!activeTool) return null;
+
+        const onBack = () => setActiveTool(null);
+
+        switch (activeTool) {
+            case 'dashboard':
+                return (
+                    <ModalWrapper
+                        onClose={onClose}
+                        title="Översikt"
+                        subtitle="Din bokföringsöversikt på ett ställe."
+                        maxWidth="1400px"
+                    >
+                        <DashboardPanel
+                            onBack={onBack}
+                            onNavigate={(tool) => openTool(tool as IntegrationTool)}
+                            isAdmin={isAdmin}
+                            userId={currentUserId}
+                            timeWindowDays={7}
+                        />
+                    </ModalWrapper>
+                );
+            case 'bank-import':
+                return (
+                    <ModalWrapper
+                        onClose={onClose}
+                        title="Bankimport (CSV)"
+                        subtitle="Importera kontoutdrag och matcha mot Fortnox-fakturor."
+                        maxWidth="1200px"
+                    >
+                        <BankImportPanel onBack={onBack} />
+                    </ModalWrapper>
+                );
+            case 'agency':
+                return (
+                    <ModalWrapper
+                        onClose={onClose}
+                        title="Byråvy (beta)"
+                        subtitle="Hantera klientbolag och byt aktivt bolag snabbt."
+                        maxWidth="1200px"
+                    >
+                        <AgencyPanel onBack={onBack} />
+                    </ModalWrapper>
+                );
+            case 'reconciliation':
+                return (
+                    <ModalWrapper
+                        onClose={onClose}
+                        title="Bankavstämning"
+                        subtitle="Översikt och periodstatus för bankavstämning."
+                        maxWidth="1200px"
+                    >
+                        <ReconciliationView
+                            onBack={onBack}
+                            onOpenBankImport={() => openTool('bank-import')}
+                        />
+                    </ModalWrapper>
+                );
+            case 'bookkeeping-rules':
+                return (
+                    <ModalWrapper
+                        onClose={onClose}
+                        title="Bokföringsregler"
+                        subtitle="Hantera automatiska konteringsregler baserade på tidigare bokföringar."
+                        maxWidth="1200px"
+                    >
+                        <BookkeepingRulesPanel onBack={onBack} />
+                    </ModalWrapper>
+                );
+            case 'invoice-inbox':
+                return (
+                    <ModalWrapper
+                        onClose={onClose}
+                        title="Fakturainkorg"
+                        subtitle="Ladda upp leverantörsfakturor, AI-extrahera och exportera till Fortnox."
+                        maxWidth="1200px"
+                    >
+                        <InvoiceInboxPanel onBack={onBack} />
+                    </ModalWrapper>
+                );
+            case 'vat-report':
+                return (
+                    <ModalWrapper
+                        onClose={onClose}
+                        title="Momsdeklaration"
+                        subtitle="Momsrapport baserad på din Fortnox-bokföring."
+                        maxWidth="1200px"
+                    >
+                        <VATReportFromFortnoxPanel onBack={onBack} />
+                    </ModalWrapper>
+                );
+            case 'fortnox-panel':
+                return (
+                    <ModalWrapper
+                        onClose={onClose}
+                        title="Fortnoxpanel"
+                        subtitle="Leverantörsfakturor, status och Copilot på ett ställe."
+                        maxWidth="1200px"
+                    >
+                        <FortnoxPanel onBack={onBack} />
+                    </ModalWrapper>
+                );
+            default:
+                return null;
+        }
+    }
+
     if (activeTool && isFortnoxTool(activeTool) && (!planLoaded || !isFortnoxPlanEligible)) {
         return (
             <ModalWrapper
@@ -473,19 +784,23 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 subtitle="Tillgängligt i Veridat Pro eller Trial."
                 maxWidth="640px"
             >
-                <div style={{
-                    padding: '1rem',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(245, 158, 11, 0.25)',
-                    background: 'rgba(245, 158, 11, 0.08)',
-                    color: 'var(--text-secondary)',
-                    fontSize: '0.9rem',
-                    lineHeight: 1.5
-                }}>
+                <div
+                    data-testid="fortnox-plan-gated-message"
+                    style={{
+                        padding: '1rem',
+                        borderRadius: '12px',
+                        border: '1px solid rgba(245, 158, 11, 0.25)',
+                        background: 'rgba(245, 158, 11, 0.08)',
+                        color: 'var(--text-secondary)',
+                        fontSize: '0.9rem',
+                        lineHeight: 1.5
+                    }}
+                >
                     Fortnoxpanel, momsrapport och fakturainkorg kräver Veridat Pro eller Trial.
                 </div>
                 <a
                     href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh"
+                    data-testid="fortnox-upgrade-link"
                     style={{
                         display: 'inline-block',
                         marginTop: '1rem',
@@ -505,112 +820,8 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         );
     }
 
-    if (activeTool === 'dashboard') {
-        return (
-            <ModalWrapper
-                onClose={onClose}
-                title="Översikt"
-                subtitle="Din bokföringsöversikt på ett ställe."
-                maxWidth="1400px"
-            >
-                <DashboardPanel onBack={() => setActiveTool(null)} onNavigate={(tool) => openTool(tool as IntegrationTool)} />
-            </ModalWrapper>
-        );
-    }
-
-    if (activeTool === 'bank-import') {
-        return (
-            <ModalWrapper
-                onClose={onClose}
-                title="Bankimport (CSV)"
-                subtitle="Importera kontoutdrag och matcha mot Fortnox-fakturor."
-                maxWidth="1200px"
-            >
-                <BankImportPanel onBack={() => setActiveTool(null)} />
-            </ModalWrapper>
-        );
-    }
-
-    if (activeTool === 'agency') {
-        return (
-            <ModalWrapper
-                onClose={onClose}
-                title="Byråvy (beta)"
-                subtitle="Hantera klientbolag och byt aktivt bolag snabbt."
-                maxWidth="1200px"
-            >
-                <AgencyPanel onBack={() => setActiveTool(null)} />
-            </ModalWrapper>
-        );
-    }
-
-    if (activeTool === 'reconciliation') {
-        return (
-            <ModalWrapper
-                onClose={onClose}
-                title="Bankavstämning"
-                subtitle="Översikt och periodstatus för bankavstämning."
-                maxWidth="1200px"
-            >
-                <ReconciliationView
-                    onBack={() => setActiveTool(null)}
-                    onOpenBankImport={() => openTool('bank-import')}
-                />
-            </ModalWrapper>
-        );
-    }
-
-    if (activeTool === 'bookkeeping-rules') {
-        return (
-            <ModalWrapper
-                onClose={onClose}
-                title="Bokföringsregler"
-                subtitle="Hantera automatiska konteringsregler baserade på tidigare bokföringar."
-                maxWidth="1200px"
-            >
-                <BookkeepingRulesPanel onBack={() => setActiveTool(null)} />
-            </ModalWrapper>
-        );
-    }
-
-    if (activeTool === 'invoice-inbox') {
-        return (
-            <ModalWrapper
-                onClose={onClose}
-                title="Fakturainkorg"
-                subtitle="Ladda upp leverantörsfakturor, AI-extrahera och exportera till Fortnox."
-                maxWidth="1200px"
-            >
-                <InvoiceInboxPanel onBack={() => setActiveTool(null)} />
-            </ModalWrapper>
-        );
-    }
-
-    if (activeTool === 'vat-report') {
-        return (
-            <ModalWrapper
-                onClose={onClose}
-                title="Momsdeklaration"
-                subtitle="Momsrapport baserad på din Fortnox-bokföring."
-                maxWidth="1200px"
-            >
-                <VATReportFromFortnoxPanel onBack={() => setActiveTool(null)} />
-            </ModalWrapper>
-        );
-    }
-
-    if (activeTool === 'fortnox-panel') {
-        return (
-            <ModalWrapper
-                onClose={onClose}
-                title="Fortnoxpanel"
-                subtitle="Leverantörsfakturor, status och Copilot på ett ställe."
-                maxWidth="1200px"
-            >
-                <FortnoxPanel onBack={() => setActiveTool(null)} />
-            </ModalWrapper>
-        );
-    }
+    const activeToolModal = renderActiveToolModal();
+    if (activeToolModal) return activeToolModal;
 
     return (
         <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokföringssystem." maxWidth="1200px">
@@ -646,6 +857,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                         {integrations.map((integration) => (
                             <div
                                 key={integration.id}
+                                data-testid={`integration-card-${integration.id}`}
                                 className="integration-card"
                                 style={{
                                     padding: '1.25rem',
@@ -710,88 +922,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                 {/* Action */}
                                 {integration.status !== 'coming_soon' && (
                                     <div style={{ flexShrink: 0 }}>
-                                        {integration.id === 'fortnox' && !isFortnoxPlanEligible ? (
-                                            integration.status === 'connected' ? (
-                                                <button
-                                                    onClick={() => handleDisconnect(integration.id)}
-                                                    disabled={connecting === integration.id}
-                                                    style={{
-                                                        padding: '0.5rem 1rem',
-                                                        borderRadius: '8px',
-                                                        border: '1px solid var(--surface-border)',
-                                                        background: 'var(--surface-2)',
-                                                        color: 'var(--text-secondary)',
-                                                        cursor: connecting === integration.id ? 'wait' : 'pointer',
-                                                        fontSize: '0.85rem',
-                                                        fontWeight: 600,
-                                                        boxShadow: 'none'
-                                                    }}
-                                                    onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
-                                                    onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
-                                                >
-                                                    {connecting === integration.id ? '...' : 'Koppla bort'}
-                                                </button>
-                                            ) : (
-                                                <a
-                                                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh"
-                                                    style={{
-                                                        display: 'inline-block',
-                                                        padding: '0.5rem 1rem',
-                                                        borderRadius: '8px',
-                                                        border: 'none',
-                                                        background: '#2563eb',
-                                                        color: '#fff',
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.85rem',
-                                                        fontWeight: 700,
-                                                        textDecoration: 'none',
-                                                        boxShadow: 'none'
-                                                    }}
-                                                >
-                                                    Uppgradera
-                                                </a>
-                                            )
-                                        ) : integration.status === 'connected' ? (
-                                            <button
-                                                onClick={() => handleDisconnect(integration.id)}
-                                                disabled={connecting === integration.id}
-                                                style={{
-                                                    padding: '0.5rem 1rem',
-                                                    borderRadius: '8px',
-                                                    border: '1px solid var(--surface-border)',
-                                                    background: 'var(--surface-2)',
-                                                    color: 'var(--text-secondary)',
-                                                    cursor: connecting === integration.id ? 'wait' : 'pointer',
-                                                    fontSize: '0.85rem',
-                                                    fontWeight: 600,
-                                                    boxShadow: 'none'
-                                                }}
-                                                onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
-                                                onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
-                                            >
-                                                {connecting === integration.id ? '...' : 'Koppla bort'}
-                                            </button>
-                                        ) : (
-                                            <button
-                                                onClick={() => handleConnect(integration.id)}
-                                                disabled={connecting === integration.id}
-                                                style={{
-                                                    padding: '0.5rem 1rem',
-                                                    borderRadius: '8px',
-                                                    border: 'none',
-                                                    background: '#2563eb',
-                                                    color: '#fff',
-                                                    cursor: connecting === integration.id ? 'wait' : 'pointer',
-                                                    fontSize: '0.85rem',
-                                                    fontWeight: 700,
-                                                    boxShadow: 'none'
-                                                }}
-                                                onMouseOver={(e) => (e.currentTarget.style.background = '#1d4ed8')}
-                                                onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
-                                            >
-                                                {connecting === integration.id ? 'Ansluter...' : 'Anslut'}
-                                            </button>
-                                        )}
+                                        {renderIntegrationAction(integration)}
                                     </div>
                                 )}
                             </div>
@@ -818,19 +949,8 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                         <button
                             type="button"
                             onClick={() => openTool('dashboard')}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '1rem',
-                                padding: '0.9rem 1rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: 'pointer',
-                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
-                            }}
+                            data-testid="integration-tool-dashboard"
+                            style={getToolButtonStyle({ highlighted: true })}
                         >
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Översikt</div>
@@ -838,35 +958,16 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     Dashboard med ekonomisk status, deadlines och snabbåtgärder.
                                 </div>
                             </div>
-                            <span style={{
-                                padding: '0.2rem 0.6rem',
-                                borderRadius: '0',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10b981',
-                                fontSize: '0.7rem',
-                                fontWeight: 700
-                            }}>
+                            <span style={getToolBadgeStyle('rgba(16, 185, 129, 0.15)', '#10b981', { borderRadius: '0', fontWeight: 700 })}>
                                 Nytt
                             </span>
                         </button>
                         <button
                             type="button"
                             onClick={() => openTool('vat-report')}
+                            data-testid="integration-tool-vat-report"
                             disabled={!isFortnoxPlanEligible}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '1rem',
-                                padding: '0.9rem 1rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: isFortnoxPlanEligible ? 'pointer' : 'not-allowed',
-                                opacity: isFortnoxPlanEligible ? 1 : 0.65,
-                                boxShadow: 'none'
-                            }}
+                            style={getToolButtonStyle({ disabled: !isFortnoxPlanEligible })}
                         >
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Momsdeklaration</div>
@@ -874,35 +975,19 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     Hämta momsrapport direkt från Fortnox med intäkter, kostnader och momsavräkning.
                                 </div>
                             </div>
-                            <span style={{
-                                padding: '0.2rem 0.6rem',
-                                borderRadius: '999px',
-                                background: isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                color: isFortnoxPlanEligible ? '#10b981' : '#f59e0b',
-                                fontSize: '0.7rem',
-                                fontWeight: 600
-                            }}>
+                            <span style={getToolBadgeStyle(
+                                isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                isFortnoxPlanEligible ? '#10b981' : '#f59e0b'
+                            )}>
                                 {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
                             </span>
                         </button>
                         <button
                             type="button"
                             onClick={() => openTool('fortnox-panel')}
+                            data-testid="integration-tool-fortnox-panel"
                             disabled={!isFortnoxPlanEligible}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '1rem',
-                                padding: '0.9rem 1rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: isFortnoxPlanEligible ? 'pointer' : 'not-allowed',
-                                opacity: isFortnoxPlanEligible ? 1 : 0.65,
-                                boxShadow: 'none'
-                            }}
+                            style={getToolButtonStyle({ disabled: !isFortnoxPlanEligible })}
                         >
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Fortnoxpanel</div>
@@ -914,6 +999,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                 {guardianBadgeCount > 0 && (
                                     <span
                                         title="Guardian-larm"
+                                        data-testid="integration-tool-fortnox-guardian-badge"
                                         style={{
                                             display: 'inline-flex',
                                             alignItems: 'center',
@@ -931,14 +1017,30 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                         {guardianBadgeCount > 9 ? '9+' : guardianBadgeCount}
                                     </span>
                                 )}
-                                <span style={{
-                                    padding: '0.2rem 0.6rem',
-                                    borderRadius: '999px',
-                                    background: isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                    color: isFortnoxPlanEligible ? '#10b981' : '#f59e0b',
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600
-                                }}>
+                                {complianceBadgeCount > 0 && (
+                                    <span
+                                        title="Compliance-varningar"
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            minWidth: '20px',
+                                            height: '20px',
+                                            padding: '0 0.35rem',
+                                            borderRadius: '999px',
+                                            background: '#f59e0b',
+                                            color: '#0f172a',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 800
+                                        }}
+                                    >
+                                        {complianceBadgeCount > 9 ? '9+' : complianceBadgeCount}
+                                    </span>
+                                )}
+                                <span style={getToolBadgeStyle(
+                                    isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                    isFortnoxPlanEligible ? '#10b981' : '#f59e0b'
+                                )}>
                                     {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
                                 </span>
                             </div>
@@ -946,21 +1048,9 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                         <button
                             type="button"
                             onClick={() => openTool('invoice-inbox')}
+                            data-testid="integration-tool-invoice-inbox"
                             disabled={!isFortnoxPlanEligible}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '1rem',
-                                padding: '0.9rem 1rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: isFortnoxPlanEligible ? 'pointer' : 'not-allowed',
-                                opacity: isFortnoxPlanEligible ? 1 : 0.65,
-                                boxShadow: 'none'
-                            }}
+                            style={getToolButtonStyle({ disabled: !isFortnoxPlanEligible })}
                         >
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Fakturainkorg</div>
@@ -968,33 +1058,18 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     Ladda upp leverantörsfakturor (PDF/bild), AI-extrahera och exportera till Fortnox.
                                 </div>
                             </div>
-                            <span style={{
-                                padding: '0.2rem 0.6rem',
-                                borderRadius: '999px',
-                                background: isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                color: isFortnoxPlanEligible ? '#10b981' : '#f59e0b',
-                                fontSize: '0.7rem',
-                                fontWeight: 600
-                            }}>
+                            <span style={getToolBadgeStyle(
+                                isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                isFortnoxPlanEligible ? '#10b981' : '#f59e0b'
+                            )}>
                                 {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
                             </span>
                         </button>
                         <button
                             type="button"
                             onClick={() => openTool('bank-import')}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '1rem',
-                                padding: '0.9rem 1rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: 'pointer',
-                                boxShadow: 'none'
-                            }}
+                            data-testid="integration-tool-bank-import"
+                            style={getToolButtonStyle()}
                         >
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Bankimport (CSV)</div>
@@ -1002,14 +1077,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     Importera kontoutdrag (Handelsbanken, SEB, Nordea, Swedbank) och matcha mot fakturor.
                                 </div>
                             </div>
-                            <span style={{
-                                padding: '0.2rem 0.6rem',
-                                borderRadius: '999px',
-                                background: 'rgba(59, 130, 246, 0.15)',
-                                color: '#3b82f6',
-                                fontSize: '0.7rem',
-                                fontWeight: 600
-                            }}>
+                            <span style={getToolBadgeStyle('rgba(59, 130, 246, 0.15)', '#3b82f6')}>
                                 Beta
                             </span>
                         </button>
@@ -1017,19 +1085,8 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                         <button
                             type="button"
                             onClick={() => openTool('reconciliation')}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '1rem',
-                                padding: '0.9rem 1rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: 'pointer',
-                                boxShadow: 'none'
-                            }}
+                            data-testid="integration-tool-reconciliation"
+                            style={getToolButtonStyle()}
                         >
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Bankavstämning</div>
@@ -1037,33 +1094,15 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     Översikt per period, markera månader som avstämda.
                                 </div>
                             </div>
-                            <span style={{
-                                padding: '0.2rem 0.6rem',
-                                borderRadius: '999px',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10b981',
-                                fontSize: '0.7rem',
-                                fontWeight: 600
-                            }}>
+                            <span style={getToolBadgeStyle('rgba(16, 185, 129, 0.15)', '#10b981')}>
                                 Nytt
                             </span>
                         </button>
                         <button
                             type="button"
                             onClick={() => openTool('bookkeeping-rules')}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '1rem',
-                                padding: '0.9rem 1rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: 'pointer',
-                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
-                            }}
+                            data-testid="integration-tool-bookkeeping-rules"
+                            style={getToolButtonStyle({ highlighted: true })}
                         >
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Bokföringsregler</div>
@@ -1071,33 +1110,15 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     Visa och hantera automatiska konteringsregler (leverantör → konto).
                                 </div>
                             </div>
-                            <span style={{
-                                padding: '0.2rem 0.6rem',
-                                borderRadius: '999px',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10b981',
-                                fontSize: '0.7rem',
-                                fontWeight: 600
-                            }}>
+                            <span style={getToolBadgeStyle('rgba(16, 185, 129, 0.15)', '#10b981')}>
                                 Nytt
                             </span>
                         </button>
                         <button
                             type="button"
                             onClick={() => openTool('agency')}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '1rem',
-                                padding: '0.9rem 1rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: 'pointer',
-                                boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
-                            }}
+                            data-testid="integration-tool-agency"
+                            style={getToolButtonStyle({ highlighted: true })}
                         >
                             <div style={{ textAlign: 'left' }}>
                                 <div style={{ fontWeight: 600 }}>Byråvy</div>
@@ -1105,14 +1126,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     Byt snabbt mellan klientbolag och få en enkel översikt.
                                 </div>
                             </div>
-                            <span style={{
-                                padding: '0.2rem 0.6rem',
-                                borderRadius: '999px',
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10b981',
-                                fontSize: '0.7rem',
-                                fontWeight: 600
-                            }}>
+                            <span style={getToolBadgeStyle('rgba(16, 185, 129, 0.15)', '#10b981')}>
                                 Nytt
                             </span>
                         </button>

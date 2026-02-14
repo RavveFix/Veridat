@@ -1,7 +1,7 @@
 /**
- * DashboardPanel - Ekonomisk översikt
+ * DashboardPanel - Ekonomisk översikt + admin-gated plattformspuls
  *
- * Aggregerar data från alla Veridat-verktyg:
+ * Aggregerar data från Veridat-verktyg:
  * - VAT-rapport (resultat, momssaldo)
  * - Bankimporter (banksaldo, perioder)
  * - Fakturainkorg (väntande fakturor)
@@ -12,11 +12,27 @@
 
 import { FunctionComponent } from 'preact';
 import { useState, useEffect, useMemo, useCallback } from 'preact/hooks';
+import { supabase } from '../lib/supabase';
 import { bankImportService } from '../services/BankImportService';
 import { copilotService } from '../services/CopilotService';
 import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
+import { financeAgentService } from '../services/FinanceAgentService';
 import { companyService } from '../services/CompanyService';
+import { logger } from '../services/LoggerService';
 import { STORAGE_KEYS } from '../constants/storageKeys';
+import { withTimeout } from '../utils/asyncTimeout';
+import { runDashboardSync, type DashboardSyncResult, type DashboardSyncSteps } from '../utils/dashboardSync';
+import {
+    buildTimeWindows,
+    calcTrendDelta,
+    classifyTriageBucket,
+    computeAdoptionScore,
+    computeOperationalScore,
+    computePlatformScore,
+    countIsoTimestampsInRange,
+    type TrendDelta as PlatformTrendDelta,
+    type TriageBucket as PlatformTriageBucket,
+} from '../utils/platformDashboard';
 
 // =============================================================================
 // TYPES
@@ -25,6 +41,9 @@ import { STORAGE_KEYS } from '../constants/storageKeys';
 interface DashboardPanelProps {
     onBack: () => void;
     onNavigate: (tool: string) => void;
+    isAdmin: boolean;
+    userId: string | null;
+    timeWindowDays?: number;
 }
 
 interface DashboardData {
@@ -56,21 +75,189 @@ interface Deadline {
     severity: 'critical' | 'warning' | 'info';
 }
 
+interface ApiUsageSnapshot {
+    hourlyUsed: number;
+    dailyUsed: number;
+    ratio: number;
+}
+
+type TrendDelta = PlatformTrendDelta;
+type TriageBucket = PlatformTriageBucket;
+
+interface PlatformMetric {
+    id: string;
+    title: string;
+    value: string;
+    details: string;
+    score: number;
+    trend: TrendDelta;
+    trendPositiveDirection: 'up' | 'down';
+    bucket: TriageBucket;
+    actionTool?: string;
+    actionLabel?: string;
+}
+
+interface PlatformSummary {
+    platformScore: number;
+    operationalScore: number;
+    adoptionScore: number;
+    quotaDataAvailable: boolean;
+    metrics: PlatformMetric[];
+}
+
+interface InvoiceInboxEntry {
+    uploadedAt?: string;
+    status?: string;
+}
+
+interface ReconciliationSnapshotEntry {
+    period: string;
+    status?: string | null;
+}
+
 // =============================================================================
-// DATA AGGREGATION (unchanged logic)
+// STORAGE HELPERS
+// =============================================================================
+
+const storageWarningKeys = new Set<string>();
+
+function logStorageWarningOnce(key: string, error: unknown): void {
+    if (storageWarningKeys.has(key)) return;
+    storageWarningKeys.add(key);
+    logger.warn(`Dashboard: kunde inte läsa localStorage (${key})`, error);
+}
+
+function readStoredJson<T>(key: string): T | null {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        return JSON.parse(raw) as T;
+    } catch (error) {
+        logStorageWarningOnce(key, error);
+        return null;
+    }
+}
+
+function parseDateMs(value: string | undefined | null): number | null {
+    if (!value) return null;
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : null;
+}
+
+function isTimestampInRange(value: string | undefined, start: Date, end: Date): boolean {
+    const ms = parseDateMs(value);
+    if (ms === null) return false;
+    return ms >= start.getTime() && ms < end.getTime();
+}
+
+function extractVatTimestamp(report: Record<string, unknown> | null): string | null {
+    if (!report) return null;
+    const candidates = ['analyzedAt', 'updatedAt', 'createdAt', 'timestamp'];
+    for (const key of candidates) {
+        const value = report[key];
+        if (typeof value === 'string' && value.trim()) {
+            return value;
+        }
+    }
+    return null;
+}
+
+function getAgeDays(timestamp: string | null, now: Date): number | null {
+    if (!timestamp) return null;
+    const parsedMs = parseDateMs(timestamp);
+    if (parsedMs === null) return null;
+    const delta = now.getTime() - parsedMs;
+    if (!Number.isFinite(delta)) return null;
+    return Math.max(0, Math.floor(delta / (24 * 60 * 60 * 1000)));
+}
+
+function scoreFromQuotaRatio(ratio: number): number {
+    if (ratio >= 0.95) return 20;
+    if (ratio >= 0.8) return 55;
+    return 90;
+}
+
+function formatSyncTime(timestamp: string | null): string | null {
+    if (!timestamp) return null;
+    const parsed = new Date(timestamp);
+    if (!Number.isFinite(parsed.getTime())) return null;
+    return parsed.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function syncLevelColor(level: DashboardSyncResult['level']): string {
+    if (level === 'success') return '#10b981';
+    if (level === 'partial') return '#f59e0b';
+    return '#ef4444';
+}
+
+function isPendingInvoiceStatus(status: string | undefined | null): boolean {
+    return status === 'ny' || status === 'granskad';
+}
+
+function isCompletedInvoiceStatus(status: string | undefined | null): boolean {
+    return status === 'bokford' || status === 'betald';
+}
+
+function getCachedOrStoredInvoiceItems<T extends { status?: string }>(companyId: string): T[] {
+    const cachedItems = financeAgentService.getCachedInvoiceInbox(companyId) as unknown as T[];
+    if (cachedItems.length > 0) return cachedItems;
+    return readStoredJson<Record<string, T[]>>(STORAGE_KEYS.invoiceInbox)?.[companyId] || [];
+}
+
+function getReconciledPeriodsSet(companyId: string): Set<string> {
+    const cachedReconciliation = financeAgentService.getCachedReconciliation(companyId) as ReconciliationSnapshotEntry[];
+    if (cachedReconciliation.length > 0) {
+        return new Set(
+            cachedReconciliation
+                .filter((entry) => entry.status === 'reconciled' || entry.status === 'locked')
+                .map((entry) => entry.period)
+        );
+    }
+    return new Set(readStoredJson<Record<string, string[]>>(STORAGE_KEYS.reconciledPeriods)?.[companyId] || []);
+}
+
+function daysUntilDate(targetDate: Date, now: Date): number {
+    return Math.ceil((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function resolveDeadlineSeverity(daysUntil: number, criticalThreshold = 3): Deadline['severity'] {
+    if (daysUntil <= criticalThreshold) return 'critical';
+    if (daysUntil <= 7) return 'warning';
+    return 'info';
+}
+
+function getNextMonthlyDeadlineDate(now: Date, dayOfMonth: number): Date {
+    const month = now.getDate() <= dayOfMonth ? now.getMonth() : now.getMonth() + 1;
+    return new Date(now.getFullYear(), month, dayOfMonth);
+}
+
+function createMonthlyDeadline(id: string, titlePrefix: string, now: Date, dayOfMonth: number): Deadline {
+    const date = getNextMonthlyDeadlineDate(now, dayOfMonth);
+    const daysUntil = daysUntilDate(date, now);
+    return {
+        id,
+        title: `${titlePrefix} ${date.toLocaleDateString('sv-SE', { month: 'long' })}`,
+        date,
+        daysUntil,
+        severity: resolveDeadlineSeverity(daysUntil),
+    };
+}
+
+// =============================================================================
+// DATA AGGREGATION (existing economy logic)
 // =============================================================================
 
 function aggregateDashboardData(companyId: string): DashboardData {
     let resultat: number | null = null;
     let momssaldo: number | null = null;
-    try {
-        const vatRaw = localStorage.getItem(`latest_vat_report_${companyId}`);
-        if (vatRaw) {
-            const vatReport = JSON.parse(vatRaw);
-            resultat = vatReport?.summary?.result ?? null;
-            momssaldo = vatReport?.vat?.net_vat ?? null;
-        }
-    } catch { /* ignore */ }
+
+    const vatReport = readStoredJson<Record<string, unknown>>(`latest_vat_report_${companyId}`);
+    if (vatReport) {
+        const summary = vatReport.summary as { result?: number } | undefined;
+        const vat = vatReport.vat as { net_vat?: number } | undefined;
+        resultat = typeof summary?.result === 'number' ? summary.result : null;
+        momssaldo = typeof vat?.net_vat === 'number' ? vat.net_vat : null;
+    }
 
     const imports = bankImportService.getImports(companyId);
     const allTx = imports.flatMap(i => i.transactions);
@@ -83,23 +270,10 @@ function aggregateDashboardData(companyId: string): DashboardData {
         n.id.startsWith('guardian-') && (n.severity === 'critical' || n.severity === 'warning')
     ).length;
 
-    let pendingInvoices = 0;
-    try {
-        const inboxRaw = localStorage.getItem(STORAGE_KEYS.invoiceInbox);
-        if (inboxRaw) {
-            const inboxStore = JSON.parse(inboxRaw) as Record<string, Array<{ status: string }>>;
-            pendingInvoices = (inboxStore[companyId] || []).filter(i => i.status === 'ny' || i.status === 'granskad').length;
-        }
-    } catch { /* ignore */ }
+    const inboxItems = getCachedOrStoredInvoiceItems<InvoiceInboxEntry>(companyId);
+    const pendingInvoices = inboxItems.filter(i => isPendingInvoiceStatus(i.status)).length;
 
-    let reconciledSet = new Set<string>();
-    try {
-        const reconRaw = localStorage.getItem(STORAGE_KEYS.reconciledPeriods);
-        if (reconRaw) {
-            const reconStore = JSON.parse(reconRaw) as Record<string, string[]>;
-            reconciledSet = new Set(reconStore[companyId] || []);
-        }
-    } catch { /* ignore */ }
+    const reconciledSet = getReconciledPeriodsSet(companyId);
 
     const periodTxMap = new Map<string, number>();
     for (const tx of allTx) {
@@ -145,47 +319,24 @@ function computeDeadlines(companyId: string): Deadline[] {
     const now = new Date();
     const deadlines: Deadline[] = [];
 
-    const vatDay = 12;
-    const vatMonth = now.getDate() <= vatDay ? now.getMonth() : now.getMonth() + 1;
-    const vatDate = new Date(now.getFullYear(), vatMonth, vatDay);
-    const vatDays = Math.ceil((vatDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    deadlines.push({
-        id: 'vat-deadline',
-        title: `Momsdeklaration ${vatDate.toLocaleDateString('sv-SE', { month: 'long' })}`,
-        date: vatDate, daysUntil: vatDays,
-        severity: vatDays <= 3 ? 'critical' : vatDays <= 7 ? 'warning' : 'info',
-    });
+    deadlines.push(createMonthlyDeadline('vat-deadline', 'Momsdeklaration', now, 12));
+    deadlines.push(createMonthlyDeadline('employer-deadline', 'Arbetsgivaravgifter', now, 12));
 
-    const empMonth = now.getDate() <= vatDay ? now.getMonth() : now.getMonth() + 1;
-    const empDate = new Date(now.getFullYear(), empMonth, vatDay);
-    const empDays = Math.ceil((empDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    deadlines.push({
-        id: 'employer-deadline',
-        title: `Arbetsgivaravgifter ${empDate.toLocaleDateString('sv-SE', { month: 'long' })}`,
-        date: empDate, daysUntil: empDays,
-        severity: empDays <= 3 ? 'critical' : empDays <= 7 ? 'warning' : 'info',
-    });
-
-    try {
-        const inboxRaw = localStorage.getItem(STORAGE_KEYS.invoiceInbox);
-        if (inboxRaw) {
-            const inboxStore = JSON.parse(inboxRaw) as Record<string, Array<{ dueDate: string; supplierName: string; status: string }>>;
-            for (const inv of (inboxStore[companyId] || [])) {
-                if (inv.dueDate && inv.status !== 'betald') {
-                    const due = new Date(inv.dueDate);
-                    const days = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                    if (days >= -7 && days <= 30) {
-                        deadlines.push({
-                            id: `inv-${inv.dueDate}-${inv.supplierName}`,
-                            title: `Faktura ${inv.supplierName || 'okänd'}`,
-                            date: due, daysUntil: days,
-                            severity: days <= 0 ? 'critical' : days <= 7 ? 'warning' : 'info',
-                        });
-                    }
-                }
+    const invoices = getCachedOrStoredInvoiceItems<{ dueDate?: string; supplierName?: string; status?: string }>(companyId);
+    for (const inv of invoices) {
+        if (inv.dueDate && inv.status !== 'betald') {
+            const due = new Date(inv.dueDate);
+            const days = daysUntilDate(due, now);
+            if (days >= -7 && days <= 30) {
+                deadlines.push({
+                    id: `inv-${inv.dueDate}-${inv.supplierName}`,
+                    title: `Faktura ${inv.supplierName || 'okänd'}`,
+                    date: due, daysUntil: days,
+                    severity: resolveDeadlineSeverity(days, 0),
+                });
             }
         }
-    } catch { /* ignore */ }
+    }
 
     deadlines.sort((a, b) => a.date.getTime() - b.date.getTime());
     return deadlines.slice(0, 5);
@@ -225,22 +376,487 @@ const QUICK_ACTIONS = [
     { label: 'Fortnoxpanel', desc: 'Fakturor & Copilot', color: '#2563eb', nav: 'fortnox-panel', iconPath: 'M2 3h20v14H2zM8 21h8M12 17v4' },
 ];
 
+const TRIAGE_META: Record<TriageBucket, { title: string; border: string; bg: string }> = {
+    working: {
+        title: 'Fungerar',
+        border: 'rgba(16, 185, 129, 0.3)',
+        bg: 'rgba(16, 185, 129, 0.08)',
+    },
+    improve: {
+        title: 'Bör förbättras',
+        border: 'rgba(245, 158, 11, 0.3)',
+        bg: 'rgba(245, 158, 11, 0.08)',
+    },
+    add: {
+        title: 'Behöver läggas till',
+        border: 'rgba(59, 130, 246, 0.3)',
+        bg: 'rgba(59, 130, 246, 0.08)',
+    },
+};
+
 // =============================================================================
 // COMPONENT
 // =============================================================================
 
-export const DashboardPanel: FunctionComponent<DashboardPanelProps> = ({ onNavigate }) => {
+export const DashboardPanel: FunctionComponent<DashboardPanelProps> = ({ onNavigate, isAdmin, userId, timeWindowDays = 7 }) => {
     const [refreshKey, setRefreshKey] = useState(0);
+    const [apiUsage, setApiUsage] = useState<ApiUsageSnapshot | null>(null);
+    const [apiUsageUnavailable, setApiUsageUnavailable] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [syncResult, setSyncResult] = useState<DashboardSyncResult | null>(null);
+    const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+    const [complianceStats, setComplianceStats] = useState<{ totalAlerts: number; blockingAlerts: number; latestAgiStatus: string | null }>({
+        totalAlerts: 0,
+        blockingAlerts: 0,
+        latestAgiStatus: null,
+    });
+
     const companyId = useMemo(() => companyService.getCurrentId(), []);
     const company = useMemo(() => companyService.getCurrent(), []);
     const data = useMemo(() => aggregateDashboardData(companyId), [companyId, refreshKey]);
+
     const refresh = useCallback(() => setRefreshKey(k => k + 1), []);
+
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            await financeAgentService.preloadCompany(companyId);
+            await bankImportService.refreshImports(companyId);
+            if (!cancelled) refresh();
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [companyId, refresh]);
+
+    const reloadApiUsage = useCallback(async (options?: { cancelled?: () => boolean }): Promise<void> => {
+        const cancelled = options?.cancelled ?? (() => false);
+
+        if (!isAdmin || !userId) {
+            if (cancelled()) return;
+            setApiUsage(null);
+            setApiUsageUnavailable(false);
+            return;
+        }
+
+        try {
+            const { data: usage, error } = await supabase
+                .from('api_usage')
+                .select('hourly_count, daily_count')
+                .eq('user_id', userId)
+                .eq('endpoint', 'ai')
+                .maybeSingle();
+
+            if (cancelled()) return;
+            if (error) throw error;
+
+            const hourlyUsed = usage?.hourly_count ?? 0;
+            const dailyUsed = usage?.daily_count ?? 0;
+            const ratio = Math.max(hourlyUsed / 40, dailyUsed / 200);
+
+            setApiUsage({
+                hourlyUsed,
+                dailyUsed,
+                ratio,
+            });
+            setApiUsageUnavailable(false);
+        } catch (error) {
+            if (cancelled()) return;
+            logger.warn('Dashboard: kunde inte hämta api_usage', error);
+            setApiUsage(null);
+            setApiUsageUnavailable(true);
+            throw error;
+        }
+    }, [isAdmin, userId]);
 
     useEffect(() => {
         const handler = () => refresh();
         copilotService.addEventListener('copilot-updated', handler as EventListener);
         return () => copilotService.removeEventListener('copilot-updated', handler as EventListener);
     }, [refresh]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        void reloadApiUsage({ cancelled: () => cancelled }).catch(() => {
+            // Error is already logged in reloadApiUsage.
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [reloadApiUsage, refreshKey]);
+
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const [alerts, agiResult] = await Promise.all([
+                    financeAgentService.listComplianceAlerts(companyId),
+                    supabase
+                        .from('agi_runs')
+                        .select('status')
+                        .eq('company_id', companyId)
+                        .order('updated_at', { ascending: false })
+                        .limit(1)
+                        .maybeSingle(),
+                ]);
+
+                if (cancelled) return;
+                const blockingAlerts = alerts.filter((alert) => alert.severity === 'critical' || alert.severity === 'warning').length;
+                setComplianceStats({
+                    totalAlerts: alerts.length,
+                    blockingAlerts,
+                    latestAgiStatus: agiResult.data?.status || null,
+                });
+            } catch (error) {
+                if (cancelled) return;
+                logger.warn('Dashboard: kunde inte hämta compliance-status', error);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [companyId, refreshKey]);
+
+    const handleSyncNow = useCallback(async (): Promise<void> => {
+        if (isSyncing) return;
+
+        setIsSyncing(true);
+        setSyncResult(null);
+
+        const fallbackSteps: DashboardSyncSteps = {
+            quickRefresh: 'failed',
+            connectionCheck: 'failed',
+            fortnoxPreload: 'failed',
+            copilotCheck: 'failed',
+            apiUsageReload: 'failed',
+            finalRefresh: 'failed',
+        };
+
+        try {
+            const result = await runDashboardSync({
+                refreshLocal: refresh,
+                checkConnection: () => fortnoxContextService.checkConnection(),
+                preloadFortnoxData: () => fortnoxContextService.preloadData(),
+                forceCopilotCheck: () => copilotService.forceCheck(),
+                reloadApiUsage: () => reloadApiUsage(),
+                withTimeout,
+                logger,
+            });
+
+            setSyncResult(result);
+            setLastSyncedAt(result.at);
+        } catch (error) {
+            logger.warn('Dashboard: synk misslyckades oväntat', error);
+            const at = new Date().toISOString();
+            setSyncResult({
+                level: 'error',
+                message: 'Synk misslyckades',
+                at,
+                steps: fallbackSteps,
+            });
+            setLastSyncedAt(at);
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [isSyncing, refresh, reloadApiUsage]);
+
+    useEffect(() => {
+        if (!syncResult) return;
+        const timeoutId = window.setTimeout(() => {
+            setSyncResult(null);
+        }, 6000);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [syncResult]);
+
+    const platformSummary = useMemo<PlatformSummary | null>(() => {
+        if (!isAdmin || !userId) return null;
+
+        const now = new Date();
+        const windows = buildTimeWindows(now, timeWindowDays);
+
+        const imports = bankImportService.getImports(companyId);
+        const bankImportTimestamps = imports.map(i => i.importedAt);
+        const bankImportsCurrent = countIsoTimestampsInRange(bankImportTimestamps, windows.currentStart, windows.now);
+        const bankImportsPrevious = countIsoTimestampsInRange(bankImportTimestamps, windows.previousStart, windows.previousEnd);
+
+        const allPeriods = new Set<string>();
+        const currentPeriods = new Set<string>();
+        const previousPeriods = new Set<string>();
+
+        for (const imported of imports) {
+            for (const tx of imported.transactions) {
+                if (!tx.date) continue;
+                const period = tx.date.substring(0, 7);
+                if (period.length !== 7) continue;
+
+                const txDate = tx.date.length <= 10 ? `${tx.date}T12:00:00` : tx.date;
+                const txMs = parseDateMs(txDate);
+                if (txMs === null) continue;
+
+                allPeriods.add(period);
+                if (txMs >= windows.currentStart.getTime() && txMs < windows.now.getTime()) {
+                    currentPeriods.add(period);
+                } else if (txMs >= windows.previousStart.getTime() && txMs < windows.previousEnd.getTime()) {
+                    previousPeriods.add(period);
+                }
+            }
+        }
+
+        const reconciledSet = getReconciledPeriodsSet(companyId);
+
+        const activePeriods = allPeriods.size;
+        const reconciledPeriods = [...allPeriods].filter(period => reconciledSet.has(period)).length;
+
+        const currentReconciledPeriods = [...currentPeriods].filter(period => reconciledSet.has(period)).length;
+        const previousReconciledPeriods = [...previousPeriods].filter(period => reconciledSet.has(period)).length;
+
+        const currentReconciliationCoverage = currentPeriods.size === 0
+            ? 40
+            : Math.round((currentReconciledPeriods / currentPeriods.size) * 100);
+        const previousReconciliationCoverage = previousPeriods.size === 0
+            ? 40
+            : Math.round((previousReconciledPeriods / previousPeriods.size) * 100);
+
+        const invoiceItems = getCachedOrStoredInvoiceItems<InvoiceInboxEntry>(companyId);
+
+        let invoiceItemsCurrent = 0;
+        let invoiceItemsPrevious = 0;
+        let invoiceCompletedCurrent = 0;
+        let invoiceCompletedPrevious = 0;
+
+        for (const item of invoiceItems) {
+            const status = item.status || '';
+            const completed = isCompletedInvoiceStatus(status);
+
+            if (isTimestampInRange(item.uploadedAt, windows.currentStart, windows.now)) {
+                invoiceItemsCurrent += 1;
+                if (completed) invoiceCompletedCurrent += 1;
+            }
+
+            if (isTimestampInRange(item.uploadedAt, windows.previousStart, windows.previousEnd)) {
+                invoiceItemsPrevious += 1;
+                if (completed) invoiceCompletedPrevious += 1;
+            }
+        }
+
+        const invoiceFlowCurrentScore = invoiceItemsCurrent === 0
+            ? 20
+            : Math.round((invoiceCompletedCurrent / invoiceItemsCurrent) * 100);
+        const invoiceFlowPreviousScore = invoiceItemsPrevious === 0
+            ? 20
+            : Math.round((invoiceCompletedPrevious / invoiceItemsPrevious) * 100);
+
+        const latestVatReport = readStoredJson<Record<string, unknown>>(`latest_vat_report_${companyId}`);
+        const latestVatTimestamp = extractVatTimestamp(latestVatReport);
+        const vatAgeDays = getAgeDays(latestVatTimestamp, now);
+        const previousVatAgeDays = vatAgeDays === null
+            ? null
+            : Math.max(0, vatAgeDays - Math.max(1, Math.floor(timeWindowDays)));
+
+        const notifications = copilotService.getNotifications();
+        const criticalAlerts = notifications.filter(n => n.severity === 'critical').length;
+        const warningAlerts = notifications.filter(n => n.severity === 'warning').length;
+
+        const riskTimestamps = notifications
+            .filter(n => n.severity === 'critical' || n.severity === 'warning')
+            .map(n => n.createdAt);
+
+        const riskCurrentCount = countIsoTimestampsInRange(riskTimestamps, windows.currentStart, windows.now);
+        const riskPreviousCount = countIsoTimestampsInRange(riskTimestamps, windows.previousStart, windows.previousEnd);
+
+        const riskScoreCurrent = Math.max(0, 100 - Math.min(100, riskCurrentCount * 15));
+        const riskScorePrevious = Math.max(0, 100 - Math.min(100, riskPreviousCount * 15));
+
+        const quotaRatio = apiUsage ? apiUsage.ratio : null;
+        const operational = computeOperationalScore({
+            fortnoxConnected: data.fortnoxStatus === 'connected',
+            criticalAlerts,
+            warningAlerts,
+            overdueInvoices: data.overdueCount,
+            unbookedInvoices: data.unbookedCount,
+            quotaRatio: apiUsageUnavailable ? null : quotaRatio,
+        });
+
+        const adoption = computeAdoptionScore({
+            importsLast7: bankImportsCurrent,
+            invoiceItemsLast7: invoiceItemsCurrent,
+            invoiceCompletedLast7: invoiceCompletedCurrent,
+            activePeriods,
+            reconciledPeriods,
+            vatReportAgeDays: vatAgeDays,
+        });
+
+        const platformScore = computePlatformScore(operational.score, adoption.score);
+
+        const quotaMetricScore = apiUsage
+            ? scoreFromQuotaRatio(apiUsage.ratio)
+            : 70;
+
+        const quotaTrend = apiUsage
+            ? calcTrendDelta(Math.round(apiUsage.ratio * 100), Math.round(apiUsage.ratio * 100))
+            : calcTrendDelta(0, 0);
+
+        const metricsBase: Array<Omit<PlatformMetric, 'bucket'>> = [
+            {
+                id: 'risk-alerts',
+                title: 'Larm & risk',
+                value: `${criticalAlerts} kritiska · ${warningAlerts} varningar`,
+                details: 'Guardian och Copilot-risker i aktuell vy.',
+                score: Math.max(0, 100 - Math.min(100, criticalAlerts * 20 + warningAlerts * 10)),
+                trend: calcTrendDelta(riskScoreCurrent, riskScorePrevious),
+                trendPositiveDirection: 'up',
+                actionTool: 'fortnox-panel',
+                actionLabel: 'Öppna Fortnoxpanel',
+            },
+            {
+                id: 'quota-pressure',
+                title: 'Kvottryck',
+                value: apiUsage
+                    ? `${Math.round(apiUsage.ratio * 100)}% av gräns`
+                    : 'Data saknas',
+                details: apiUsage
+                    ? `Timme ${apiUsage.hourlyUsed}/40 · Dag ${apiUsage.dailyUsed}/200`
+                    : 'Kunde inte läsa api_usage. Neutral vikt i score.',
+                score: quotaMetricScore,
+                trend: quotaTrend,
+                trendPositiveDirection: 'down',
+            },
+            {
+                id: 'bank-activity',
+                title: 'Bankaktivitet',
+                value: `${bankImportsCurrent} importer`,
+                details: `Bankimporter senaste ${timeWindowDays} dagar.`,
+                score: adoption.bankCadenceScore,
+                trend: calcTrendDelta(bankImportsCurrent, bankImportsPrevious),
+                trendPositiveDirection: 'up',
+                actionTool: 'bank-import',
+                actionLabel: 'Öppna bankimport',
+            },
+            {
+                id: 'invoice-flow',
+                title: 'Fakturaflöde',
+                value: invoiceItemsCurrent === 0
+                    ? '0 fakturor'
+                    : `${invoiceCompletedCurrent}/${invoiceItemsCurrent} bokförda/betalda`,
+                details: `Flödesgrad ${invoiceFlowCurrentScore}% senaste ${timeWindowDays} dagar.`,
+                score: adoption.invoiceFlowScore,
+                trend: calcTrendDelta(invoiceFlowCurrentScore, invoiceFlowPreviousScore),
+                trendPositiveDirection: 'up',
+                actionTool: 'invoice-inbox',
+                actionLabel: 'Öppna fakturainkorg',
+            },
+            {
+                id: 'reconciliation-coverage',
+                title: 'Avstämningsgrad',
+                value: activePeriods === 0
+                    ? 'Inga perioder'
+                    : `${reconciledPeriods}/${activePeriods} avstämda`,
+                details: 'Täckning mellan importerade perioder och markerade avstämningar.',
+                score: adoption.reconciliationScore,
+                trend: calcTrendDelta(currentReconciliationCoverage, previousReconciliationCoverage),
+                trendPositiveDirection: 'up',
+                actionTool: 'reconciliation',
+                actionLabel: 'Öppna avstämning',
+            },
+            {
+                id: 'vat-freshness',
+                title: 'Momsaktualitet',
+                value: vatAgeDays === null
+                    ? 'Ingen rapport'
+                    : `${vatAgeDays} dagar sedan`,
+                details: 'Tid sedan senaste sparade momsrapport.',
+                score: adoption.vatFreshnessScore,
+                trend: calcTrendDelta(
+                    adoption.vatFreshnessScore,
+                    computeAdoptionScore({
+                        importsLast7: bankImportsCurrent,
+                        invoiceItemsLast7: invoiceItemsCurrent,
+                        invoiceCompletedLast7: invoiceCompletedCurrent,
+                        activePeriods,
+                        reconciledPeriods,
+                        vatReportAgeDays: previousVatAgeDays,
+                    }).vatFreshnessScore
+                ),
+                trendPositiveDirection: 'up',
+                actionTool: 'vat-report',
+                actionLabel: 'Öppna momsrapport',
+            },
+        ];
+
+        const metrics: PlatformMetric[] = metricsBase.map(metric => {
+            const isRiskMetric = metric.id === 'risk-alerts';
+            const isQuotaMetric = metric.id === 'quota-pressure';
+            const isBankMetric = metric.id === 'bank-activity';
+            const isInvoiceMetric = metric.id === 'invoice-flow';
+            const isVatMetric = metric.id === 'vat-freshness';
+
+            const hasBlocker = isRiskMetric
+                ? criticalAlerts > 0
+                : false;
+
+            const hasWarning = isRiskMetric
+                ? warningAlerts > 0
+                : isQuotaMetric
+                    ? (apiUsage ? apiUsage.ratio >= 0.8 : true)
+                    : metric.score < 75;
+
+            const missingCapability = isBankMetric
+                ? bankImportsCurrent === 0
+                : isInvoiceMetric
+                    ? invoiceItemsCurrent === 0
+                    : isVatMetric
+                        ? !latestVatTimestamp
+                        : isRiskMetric
+                            ? data.fortnoxStatus !== 'connected'
+                            : false;
+
+            return {
+                ...metric,
+                bucket: classifyTriageBucket({
+                    score: metric.score,
+                    hasBlocker,
+                    hasWarning,
+                    missingCapability,
+                }),
+            };
+        });
+
+        return {
+            platformScore,
+            operationalScore: operational.score,
+            adoptionScore: adoption.score,
+            quotaDataAvailable: apiUsage !== null,
+            metrics,
+        };
+    }, [
+        apiUsage,
+        apiUsageUnavailable,
+        companyId,
+        data.fortnoxStatus,
+        data.overdueCount,
+        data.unbookedCount,
+        isAdmin,
+        userId,
+        refreshKey,
+        timeWindowDays,
+    ]);
+
+    const triageBuckets = useMemo(() => {
+        const empty: Record<TriageBucket, PlatformMetric[]> = {
+            working: [],
+            improve: [],
+            add: [],
+        };
+
+        if (!platformSummary) return empty;
+        for (const metric of platformSummary.metrics) {
+            empty[metric.bucket].push(metric);
+        }
+        return empty;
+    }, [platformSummary]);
 
     const hasAnyData = data.resultat !== null || data.banksaldo !== 0 || data.pendingInvoices > 0 || data.overdueCount > 0 || data.guardianAlertCount > 0;
     const allClear = hasAnyData && data.overdueCount === 0 && data.unbookedCount === 0 && data.pendingInvoices === 0 && data.unreconciledCount === 0 && data.guardianAlertCount === 0;
@@ -252,6 +868,10 @@ export const DashboardPanel: FunctionComponent<DashboardPanelProps> = ({ onNavig
         inbox: data.pendingInvoices,
         unrecon: data.unreconciledCount,
     };
+    const formattedLastSyncedAt = useMemo(
+        () => formatSyncTime(lastSyncedAt),
+        [lastSyncedAt]
+    );
 
     return (
         <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
@@ -263,28 +883,201 @@ export const DashboardPanel: FunctionComponent<DashboardPanelProps> = ({ onNavig
                         {company.orgNumber ? ` \u00b7 ${company.orgNumber}` : ''}
                     </div>
                 </div>
-                <button
-                    onClick={refresh}
-                    className="panel-card panel-card--no-hover"
-                    style={{
-                        padding: '0.4rem 0.75rem',
-                        borderRadius: '10px',
-                        fontSize: '0.78rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                        color: 'var(--text-secondary)',
-                        fontWeight: 600,
-                    }}
-                >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
-                        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-                    </svg>
-                    Uppdatera
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.35rem' }}>
+                    <button
+                        onClick={() => void handleSyncNow()}
+                        disabled={isSyncing}
+                        data-testid="dashboard-sync-button"
+                        className="panel-card panel-card--no-hover"
+                        style={{
+                            padding: '0.4rem 0.75rem',
+                            borderRadius: '10px',
+                            fontSize: '0.78rem',
+                            cursor: isSyncing ? 'wait' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            color: 'var(--text-secondary)',
+                            fontWeight: 600,
+                            opacity: isSyncing ? 0.85 : 1,
+                        }}
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
+                            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                        </svg>
+                        {isSyncing ? 'Synkar...' : 'Synka nu'}
+                    </button>
+
+                    {(syncResult || lastSyncedAt) && (
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            gap: '0.4rem',
+                            flexWrap: 'wrap',
+                        }}
+                        data-testid="dashboard-sync-status-row"
+                        >
+                            {syncResult && (
+                                <span style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    color: syncLevelColor(syncResult.level),
+                                }}
+                                data-testid="dashboard-sync-status-message"
+                                >
+                                    {syncResult.message}
+                                </span>
+                            )}
+                            {formattedLastSyncedAt && (
+                                <span
+                                    style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}
+                                    data-testid="dashboard-sync-last-synced"
+                                >
+                                    Senast synkad {formattedLastSyncedAt}
+                                </span>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {/* Admin-only Platform Pulse */}
+            {isAdmin && userId && platformSummary && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div className="panel-section-title">Plattformspuls ({timeWindowDays} dagar)</div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                        <ScoreCard
+                            title="Total"
+                            value={platformSummary.platformScore}
+                            subtitle="Samlat plattformsbetyg"
+                            color="#2563eb"
+                        />
+                        <ScoreCard
+                            title="Stabilitet"
+                            value={platformSummary.operationalScore}
+                            subtitle="Drift, larm och kvot"
+                            color="#10b981"
+                        />
+                        <ScoreCard
+                            title="Användning"
+                            value={platformSummary.adoptionScore}
+                            subtitle="Användning i arbetsflöden"
+                            color="#8b5cf6"
+                        />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.75rem' }}>
+                        {platformSummary.metrics.map(metric => (
+                            <div key={metric.id} className="panel-card panel-card--gradient" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
+                                    <span className="panel-label" style={{ fontSize: '0.72rem' }}>{metric.title}</span>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                        {metric.score}/100
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    {metric.value}
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                                    {metric.details}
+                                </div>
+                                <TrendPill trend={metric.trend} positiveDirection={metric.trendPositiveDirection} />
+                            </div>
+                        ))}
+                    </div>
+
+                    {!platformSummary.quotaDataAvailable && (
+                        <div className="panel-card panel-card--no-hover" style={{
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                            background: 'rgba(245, 158, 11, 0.08)',
+                            color: '#f59e0b',
+                            fontSize: '0.82rem',
+                            lineHeight: 1.45,
+                        }}>
+                            Kvotmätning saknas just nu (`api_usage`). Plattformsscore använder neutral vikt utan kvotstraff.
+                        </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.75rem' }}>
+                        {(['working', 'improve', 'add'] as TriageBucket[]).map(bucket => (
+                            <div
+                                key={bucket}
+                                className="panel-card panel-card--no-hover"
+                                style={{
+                                    background: TRIAGE_META[bucket].bg,
+                                    border: `1px solid ${TRIAGE_META[bucket].border}`,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '0.55rem',
+                                }}
+                            >
+                                <div style={{
+                                    fontSize: '0.78rem',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.03em',
+                                    textTransform: 'uppercase',
+                                    color: 'var(--text-primary)',
+                                }}>
+                                    {TRIAGE_META[bucket].title}
+                                </div>
+
+                                {triageBuckets[bucket].length === 0 ? (
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                        Inga punkter just nu.
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+                                        {triageBuckets[bucket].map(metric => (
+                                            <div key={metric.id} style={{
+                                                padding: '0.65rem',
+                                                borderRadius: '10px',
+                                                border: '1px solid var(--surface-border)',
+                                                background: 'var(--surface-1)',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '0.35rem',
+                                            }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.6rem', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                                        {metric.title}
+                                                    </span>
+                                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                                                        {metric.score}/100
+                                                    </span>
+                                                </div>
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                                    {metric.value}
+                                                </span>
+                                                {metric.actionTool && (
+                                                    <button
+                                                        type="button"
+                                                        className="panel-card panel-card--interactive"
+                                                        onClick={() => onNavigate(metric.actionTool || '')}
+                                                        style={{
+                                                            marginTop: '0.2rem',
+                                                            padding: '0.4rem 0.6rem',
+                                                            borderRadius: '8px',
+                                                            fontSize: '0.74rem',
+                                                            fontWeight: 700,
+                                                            color: 'var(--text-primary)',
+                                                            textAlign: 'left',
+                                                        }}
+                                                    >
+                                                        {metric.actionLabel || 'Öppna'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* All-clear banner */}
             {allClear && (
@@ -340,6 +1133,25 @@ export const DashboardPanel: FunctionComponent<DashboardPanelProps> = ({ onNavig
                             }}>
                                 {data.fortnoxStatus === 'connected' ? 'Ansluten' : data.fortnoxStatus === 'checking' ? 'Kontrollerar...' : 'Ej ansluten'}
                             </span>
+                        </div>
+                    </div>
+                    <div className="panel-card panel-card--gradient" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            <div className="panel-icon" style={{
+                                background: complianceStats.blockingAlerts > 0 ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)',
+                                color: complianceStats.blockingAlerts > 0 ? '#ef4444' : '#10b981',
+                            }}>
+                                !
+                            </div>
+                            <span className="panel-label">Compliance / AGI</span>
+                        </div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 700, color: complianceStats.blockingAlerts > 0 ? '#ef4444' : '#10b981' }}>
+                            {complianceStats.blockingAlerts > 0
+                                ? `${complianceStats.blockingAlerts} blockerande varningar`
+                                : 'Inga blockerande varningar'}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                            AGI status: {complianceStats.latestAgiStatus || 'ingen körning'}
                         </div>
                     </div>
                 </div>
@@ -541,6 +1353,64 @@ const KPICard: FunctionComponent<KPICardProps> = ({ label, value, color, iconPat
                 </span>
             )}
         </div>
+    );
+};
+
+const ScoreCard: FunctionComponent<{
+    title: string;
+    value: number;
+    subtitle: string;
+    color: string;
+}> = ({ title, value, subtitle, color }) => {
+    return (
+        <div className="panel-card panel-card--gradient" style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+            <span className="panel-label">{title}</span>
+            <span className="panel-stat" style={{ color, fontSize: '2rem' }}>{value}</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{subtitle}</span>
+        </div>
+    );
+};
+
+const TrendPill: FunctionComponent<{
+    trend: TrendDelta;
+    positiveDirection: 'up' | 'down';
+}> = ({ trend, positiveDirection }) => {
+    const isFlat = trend.direction === 'flat';
+    const isPositive = trend.direction === positiveDirection;
+
+    const color = isFlat
+        ? 'var(--text-secondary)'
+        : isPositive
+            ? '#10b981'
+            : '#ef4444';
+
+    const bg = isFlat
+        ? 'rgba(148, 163, 184, 0.16)'
+        : isPositive
+            ? 'rgba(16, 185, 129, 0.16)'
+            : 'rgba(239, 68, 68, 0.16)';
+
+    const label = isFlat
+        ? 'Oförändrat vs föregående 7 dagar'
+        : trend.percentChange === null
+            ? 'Ny signal vs föregående 7 dagar'
+            : `${trend.delta > 0 ? '+' : ''}${Math.round(trend.delta)} (${trend.percentChange > 0 ? '+' : ''}${trend.percentChange}%) vs föregående 7 dagar`;
+
+    return (
+        <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            alignSelf: 'flex-start',
+            padding: '0.2rem 0.5rem',
+            borderRadius: '999px',
+            background: bg,
+            color,
+            fontSize: '0.67rem',
+            fontWeight: 700,
+            lineHeight: 1.2,
+        }}>
+            {label}
+        </span>
     );
 };
 

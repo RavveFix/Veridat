@@ -37,7 +37,7 @@ export function AgencyPanel({ onBack }: AgencyPanelProps) {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div data-testid="agency-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <button
                     type="button"
@@ -78,7 +78,7 @@ export function AgencyPanel({ onBack }: AgencyPanelProps) {
                 border: '1px solid var(--glass-border)',
                 background: 'rgba(255, 255, 255, 0.04)'
             }}>
-                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
+                <div data-testid="agency-company-list-title" style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
                     Klientbolag
                 </div>
                 {sortedCompanies.length === 0 ? (
@@ -92,6 +92,7 @@ export function AgencyPanel({ onBack }: AgencyPanelProps) {
                             return (
                                 <div
                                     key={company.id}
+                                    data-testid={`agency-company-row-${company.id}`}
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
@@ -128,6 +129,7 @@ export function AgencyPanel({ onBack }: AgencyPanelProps) {
                                         <button
                                             type="button"
                                             onClick={() => handleSwitch(company)}
+                                            data-testid={`agency-open-company-${company.id}`}
                                             style={{
                                                 padding: '0.45rem 0.9rem',
                                                 borderRadius: '8px',

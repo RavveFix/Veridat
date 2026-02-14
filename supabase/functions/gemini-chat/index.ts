@@ -978,6 +978,40 @@ async function executeFortnoxTool(
     };
     const fortnoxService = new FortnoxService(fortnoxConfig, supabaseClient, userId);
     const auditService = new AuditService(supabaseAdmin);
+    const resolveCompanyId = () => (companyId && companyId.trim().length > 0 ? companyId : 'default');
+    const buildIdempotencyKey = (operation: string, resource: string): string =>
+        `gemini_tool:${resolveCompanyId()}:${operation}:${resource}`.slice(0, 200);
+
+    const callFortnoxWrite = async (
+        action: string,
+        payload: Record<string, unknown>,
+        operation: string,
+        resource: string
+    ): Promise<Record<string, unknown>> => {
+        const response = await fetch(`${supabaseUrl}/functions/v1/fortnox`, {
+            method: 'POST',
+            headers: {
+                'Authorization': authHeader,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                action,
+                companyId: resolveCompanyId(),
+                payload: {
+                    ...payload,
+                    idempotencyKey: buildIdempotencyKey(operation, resource),
+                    sourceContext: 'gemini-chat-tool',
+                },
+            }),
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const message = typeof result?.error === 'string' ? result.error : `Fortnox write failed (${response.status})`;
+            throw new Error(message);
+        }
+        return (result || {}) as Record<string, unknown>;
+    };
 
     try {
         switch (toolName) {
@@ -1006,11 +1040,18 @@ async function executeFortnoxTool(
             }
             case 'create_supplier': {
                 const csArgs = toolArgs as CreateSupplierArgs;
-                const result = await fortnoxService.createSupplier({
-                    Name: csArgs.name,
-                    OrganisationNumber: csArgs.org_number || undefined,
-                    Email: csArgs.email || undefined,
-                } as any);
+                const result = await callFortnoxWrite(
+                    'createSupplier',
+                    {
+                        supplier: {
+                            Name: csArgs.name,
+                            OrganisationNumber: csArgs.org_number || undefined,
+                            Email: csArgs.email || undefined,
+                        },
+                    },
+                    'create_supplier',
+                    csArgs.org_number || csArgs.name
+                );
                 const supplier = (result as any).Supplier || result;
                 void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'create', resourceType: 'supplier', resourceId: supplier.SupplierNumber || '', newState: supplier });
                 return `Leverantör skapad!\n- Namn: ${supplier.Name || csArgs.name}\n- Nr: ${supplier.SupplierNumber || 'tilldelas'}`;
@@ -1020,18 +1061,28 @@ async function executeFortnoxTool(
                 const vatMul = 1 + (siArgs.vat_rate / 100);
                 const net = Math.round((siArgs.total_amount / vatMul) * 100) / 100;
                 const vat = Math.round((siArgs.total_amount - net) * 100) / 100;
-                const result = await fortnoxService.createSupplierInvoice({
-                    SupplierNumber: siArgs.supplier_number,
-                    InvoiceNumber: siArgs.invoice_number || undefined,
-                    InvoiceDate: new Date().toISOString().slice(0, 10),
-                    DueDate: siArgs.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-                    Total: siArgs.total_amount, VAT: vat, VATType: 'NORMAL', AccountingMethod: 'ACCRUAL',
-                    SupplierInvoiceRows: [
-                        { Account: siArgs.account, Debit: net, Credit: 0 },
-                        { Account: 2640, Debit: vat, Credit: 0 },
-                        { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
-                    ],
-                } as any);
+                const result = await callFortnoxWrite(
+                    'exportSupplierInvoice',
+                    {
+                        invoice: {
+                            SupplierNumber: siArgs.supplier_number,
+                            InvoiceNumber: siArgs.invoice_number || undefined,
+                            InvoiceDate: new Date().toISOString().slice(0, 10),
+                            DueDate: siArgs.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                            Total: siArgs.total_amount,
+                            VAT: vat,
+                            VATType: 'NORMAL',
+                            AccountingMethod: 'ACCRUAL',
+                            SupplierInvoiceRows: [
+                                { Account: siArgs.account, Debit: net, Credit: 0 },
+                                { Account: 2640, Debit: vat, Credit: 0 },
+                                { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
+                            ],
+                        },
+                    },
+                    'export_supplier_invoice',
+                    siArgs.invoice_number || String(siArgs.supplier_number)
+                );
                 void auditService.log({
                     userId,
                     companyId: companyId || undefined,
@@ -1049,14 +1100,32 @@ async function executeFortnoxTool(
                 if (!je) return `Kunde inte hitta verifikat ${ejArgs.journal_entry_id}.`;
                 const entries = typeof je.entries === 'string' ? JSON.parse(je.entries) : je.entries;
                 const rows = entries.map((e: any) => ({ Account: e.account, Debit: e.debit || 0, Credit: e.credit || 0, Description: e.accountName || je.description }));
-                const result = await fortnoxService.createVoucher({ Description: `${je.description} (${ejArgs.journal_entry_id})`, TransactionDate: new Date().toISOString().slice(0, 10), VoucherSeries: 'A', VoucherRows: rows } as any);
+                const result = await callFortnoxWrite(
+                    'exportVoucher',
+                    {
+                        voucher: {
+                            Description: `${je.description} (${ejArgs.journal_entry_id})`,
+                            TransactionDate: new Date().toISOString().slice(0, 10),
+                            VoucherSeries: 'A',
+                            VoucherRows: rows,
+                        },
+                        vatReportId: `je:${ejArgs.journal_entry_id}`,
+                    },
+                    'export_voucher',
+                    ejArgs.journal_entry_id
+                );
                 const v = (result as any).Voucher || result;
                 void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'export', resourceType: 'voucher', resourceId: ejArgs.journal_entry_id, newState: v });
                 return `Exporterat till Fortnox! Verifikat: ${v.VoucherSeries || 'A'}-${v.VoucherNumber || '?'}`;
             }
             case 'book_supplier_invoice': {
                 const bArgs = toolArgs as BookSupplierInvoiceArgs;
-                await fortnoxService.bookSupplierInvoice(Number(bArgs.invoice_number));
+                await callFortnoxWrite(
+                    'bookSupplierInvoice',
+                    { givenNumber: Number(bArgs.invoice_number) },
+                    'book_supplier_invoice',
+                    bArgs.invoice_number
+                );
                 void auditService.log({ userId, companyId: companyId || undefined, actorType: 'ai', action: 'update', resourceType: 'supplier_invoice', resourceId: bArgs.invoice_number });
                 return `Leverantörsfaktura ${bArgs.invoice_number} är nu bokförd.`;
             }
@@ -1841,6 +1910,39 @@ ANVÄNDARFRÅGA:
                 redirectUri: '',
             };
             const fortnoxService = new FortnoxService(fortnoxConfig, supabaseClient, userId);
+            const resolveCompanyId = () => (resolvedCompanyId && resolvedCompanyId.trim().length > 0 ? resolvedCompanyId : 'default');
+            const buildIdempotencyKey = (operation: string, resource: string): string =>
+                `gemini_tool:${resolveCompanyId()}:${operation}:${resource}`.slice(0, 200);
+            const callFortnoxWrite = async (
+                action: string,
+                payload: Record<string, unknown>,
+                operation: string,
+                resource: string
+            ): Promise<Record<string, unknown>> => {
+                const response = await fetch(`${supabaseUrl}/functions/v1/fortnox`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': req.headers.get('Authorization')!,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action,
+                        companyId: resolveCompanyId(),
+                        payload: {
+                            ...payload,
+                            idempotencyKey: buildIdempotencyKey(operation, resource),
+                            sourceContext: 'gemini-chat-tool',
+                        },
+                    }),
+                });
+
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    const message = typeof result?.error === 'string' ? result.error : `Fortnox write failed (${response.status})`;
+                    throw new Error(message);
+                }
+                return (result || {}) as Record<string, unknown>;
+            };
 
             let toolResult: any;
             let responseText = "";
@@ -1953,11 +2055,18 @@ ANVÄNDARFRÅGA:
                     }
                     case 'create_supplier': {
                         const csArgs = args as CreateSupplierArgs;
-                        toolResult = await fortnoxService.createSupplier({
-                            Name: csArgs.name,
-                            OrganisationNumber: csArgs.org_number || undefined,
-                            Email: csArgs.email || undefined,
-                        } as any);
+                        toolResult = await callFortnoxWrite(
+                            'createSupplier',
+                            {
+                                supplier: {
+                                    Name: csArgs.name,
+                                    OrganisationNumber: csArgs.org_number || undefined,
+                                    Email: csArgs.email || undefined,
+                                },
+                            },
+                            'create_supplier',
+                            csArgs.org_number || csArgs.name
+                        );
                         const supplier = toolResult.Supplier || toolResult;
                         responseText = `Leverantör skapad i Fortnox!\n- Namn: ${supplier.Name || csArgs.name}\n- Leverantörsnr: ${supplier.SupplierNumber || 'tilldelas'}`;
                         // Audit log
@@ -1978,21 +2087,28 @@ ANVÄNDARFRÅGA:
                         const netAmount = Math.round((siArgs.total_amount / vatMultiplier) * 100) / 100;
                         const vatAmount = Math.round((siArgs.total_amount - netAmount) * 100) / 100;
 
-                        toolResult = await fortnoxService.createSupplierInvoice({
-                            SupplierNumber: siArgs.supplier_number,
-                            InvoiceNumber: siArgs.invoice_number || undefined,
-                            InvoiceDate: new Date().toISOString().slice(0, 10),
-                            DueDate: siArgs.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-                            Total: siArgs.total_amount,
-                            VAT: vatAmount,
-                            VATType: 'NORMAL',
-                            AccountingMethod: 'ACCRUAL',
-                            SupplierInvoiceRows: [
-                                { Account: siArgs.account, Debit: netAmount, Credit: 0 },
-                                { Account: 2640, Debit: vatAmount, Credit: 0 },
-                                { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
-                            ],
-                        } as any);
+                        toolResult = await callFortnoxWrite(
+                            'exportSupplierInvoice',
+                            {
+                                invoice: {
+                                    SupplierNumber: siArgs.supplier_number,
+                                    InvoiceNumber: siArgs.invoice_number || undefined,
+                                    InvoiceDate: new Date().toISOString().slice(0, 10),
+                                    DueDate: siArgs.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                                    Total: siArgs.total_amount,
+                                    VAT: vatAmount,
+                                    VATType: 'NORMAL',
+                                    AccountingMethod: 'ACCRUAL',
+                                    SupplierInvoiceRows: [
+                                        { Account: siArgs.account, Debit: netAmount, Credit: 0 },
+                                        { Account: 2640, Debit: vatAmount, Credit: 0 },
+                                        { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
+                                    ],
+                                },
+                            },
+                            'export_supplier_invoice',
+                            siArgs.invoice_number || String(siArgs.supplier_number)
+                        );
                         responseText = `Leverantörsfaktura skapad i Fortnox!\n- Belopp: ${siArgs.total_amount} kr (${netAmount} + ${vatAmount} moms)\n- Konto: ${siArgs.account} (${siArgs.description})\n- Förfallodatum: ${siArgs.due_date || '30 dagar'}`;
                         void auditService.log({
                             userId,
@@ -2030,12 +2146,20 @@ ANVÄNDARFRÅGA:
                             Description: e.accountName || journalEntry.description,
                         }));
 
-                        toolResult = await fortnoxService.createVoucher({
-                            Description: `${journalEntry.description} (${ejArgs.journal_entry_id})`,
-                            TransactionDate: new Date().toISOString().slice(0, 10),
-                            VoucherSeries: 'A',
-                            VoucherRows: voucherRows,
-                        } as any);
+                        toolResult = await callFortnoxWrite(
+                            'exportVoucher',
+                            {
+                                voucher: {
+                                    Description: `${journalEntry.description} (${ejArgs.journal_entry_id})`,
+                                    TransactionDate: new Date().toISOString().slice(0, 10),
+                                    VoucherSeries: 'A',
+                                    VoucherRows: voucherRows,
+                                },
+                                vatReportId: `je:${ejArgs.journal_entry_id}`,
+                            },
+                            'export_voucher',
+                            ejArgs.journal_entry_id
+                        );
                         const voucher = toolResult.Voucher || toolResult;
                         responseText = `Verifikat exporterat till Fortnox!\n- Fortnox-verifikat: ${voucher.VoucherSeries || 'A'}-${voucher.VoucherNumber || '?'}\n- Ursprungligt ID: ${ejArgs.journal_entry_id}`;
                         void auditService.log({
@@ -2051,7 +2175,12 @@ ANVÄNDARFRÅGA:
                     }
                     case 'book_supplier_invoice': {
                         const bsiArgs = args as BookSupplierInvoiceArgs;
-                        toolResult = await fortnoxService.bookSupplierInvoice(Number(bsiArgs.invoice_number));
+                        toolResult = await callFortnoxWrite(
+                            'bookSupplierInvoice',
+                            { givenNumber: Number(bsiArgs.invoice_number) },
+                            'book_supplier_invoice',
+                            bsiArgs.invoice_number
+                        );
                         responseText = `Leverantörsfaktura ${bsiArgs.invoice_number} är nu bokförd i Fortnox.`;
                         void auditService.log({
                             userId,

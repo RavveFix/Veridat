@@ -10,6 +10,7 @@ import {
 import { createLogger } from '../../services/LoggerService.ts';
 import { FortnoxService } from '../../services/FortnoxService.ts';
 import { getUserPlan } from '../../services/PlanService.ts';
+import { createSwedishComplianceService, type CompanyForm } from '../../services/SwedishComplianceService.ts';
 
 const logger = createLogger('fortnox-guardian');
 type AdminClient = any;
@@ -205,6 +206,7 @@ async function runChecksForUser(
     };
 
     const fortnox = new FortnoxService(fortnoxConfig, supabaseAdmin, userId);
+    const complianceService = createSwedishComplianceService(supabaseAdmin);
     const activeFingerprints = new Set<string>();
     let created = 0;
     let updated = 0;
@@ -410,6 +412,37 @@ async function runChecksForUser(
             title: 'VAT-kontroll kunde inte slutföras',
             description: 'Guardian kunde inte verifiera momsunderlag fullt ut denna körning.',
             actionTarget: 'vat-report',
+            payload: { error: error instanceof Error ? error.message : String(error) },
+        });
+    }
+
+    // 5) Compliance engine checks (rule freshness + legal status)
+    try {
+        const { data: profile } = await supabaseAdmin
+            .from('accounting_profiles')
+            .select('company_form')
+            .eq('user_id', userId)
+            .eq('company_id', companyId)
+            .maybeSingle();
+
+        const companyForm: CompanyForm = profile?.company_form === 'enskild' ? 'enskild' : 'ab';
+        const complianceAlerts = await complianceService.buildCompanyComplianceAlerts(companyForm);
+
+        for (const alert of complianceAlerts) {
+            await registerAlert(`compliance_${alert.code}`, {
+                severity: alert.severity,
+                title: alert.title,
+                description: alert.description,
+                actionTarget: alert.actionTarget || 'dashboard',
+                payload: alert.payload,
+            });
+        }
+    } catch (error) {
+        await registerAlert('compliance_check_failed', {
+            severity: 'info',
+            title: 'Compliance-kontroll kunde inte slutföras',
+            description: 'Guardian kunde inte verifiera regelunderlag i denna körning.',
+            actionTarget: 'dashboard',
             payload: { error: error instanceof Error ? error.message : String(error) },
         });
     }

@@ -21,19 +21,18 @@ function resolvePayload(result: unknown): UnknownRecord | null {
     return root;
 }
 
-export function getFortnoxList<T>(result: unknown, key: string): T[] {
+function getPayloadValue(result: unknown, key: string): unknown {
     const payload = resolvePayload(result);
-    if (!payload) return [];
+    return payload ? payload[key] : undefined;
+}
 
-    const value = payload[key];
+export function getFortnoxList<T>(result: unknown, key: string): T[] {
+    const value = getPayloadValue(result, key);
     return Array.isArray(value) ? (value as T[]) : [];
 }
 
 export function getFortnoxObject<T>(result: unknown, key: string): T | null {
-    const payload = resolvePayload(result);
-    if (!payload) return null;
-
-    const value = payload[key];
+    const value = getPayloadValue(result, key);
     const record = asRecord(value);
     return record ? (record as T) : null;
 }

@@ -1,56 +1,34 @@
 import type { BankImport } from '../types/bank';
+import type { BankImportRecord } from '../types/finance';
 import { logger } from './LoggerService';
-import { STORAGE_KEYS } from '../constants/storageKeys';
-
-const STORAGE_KEY = STORAGE_KEYS.bankImports;
-const LEGACY_STORAGE_KEY = STORAGE_KEYS.bankImportsLegacy;
+import { financeAgentService } from './FinanceAgentService';
 
 type BankImportStore = Record<string, BankImport[]>;
 
 class BankImportService {
-    private readStore(): BankImportStore {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (parsed && typeof parsed === 'object') {
-                return parsed as BankImportStore;
-            }
-
-            // Backward compatibility: migrate old key if present.
-            const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
-            const legacyParsed = legacyRaw ? JSON.parse(legacyRaw) : null;
-            if (legacyParsed && typeof legacyParsed === 'object') {
-                const store = legacyParsed as BankImportStore;
-                this.writeStore(store);
-                return store;
-            }
-        } catch (error) {
-            logger.warn('Failed to read bank import store', error);
-        }
-        return {};
-    }
-
-    private writeStore(store: BankImportStore): void {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-        } catch (error) {
-            logger.warn('Failed to persist bank import store', error);
-        }
-    }
+    private cache: BankImportStore = {};
 
     getImports(companyId: string): BankImport[] {
-        const store = this.readStore();
-        return store[companyId] ? [...store[companyId]] : [];
+        return this.cache[companyId] ? [...this.cache[companyId]] : [];
     }
 
-    saveImport(companyId: string, data: BankImport): BankImport {
-        const store = this.readStore();
-        const imports = store[companyId] ? [...store[companyId]] : [];
-        imports.unshift(data);
-        store[companyId] = imports;
-        this.writeStore(store);
-        logger.info('Bank import saved', { companyId, importId: data.id, rows: data.rowCount });
-        return data;
+    async refreshImports(companyId: string): Promise<BankImport[]> {
+        try {
+            const imports = await financeAgentService.refreshBankImports(companyId);
+            this.cache[companyId] = imports as unknown as BankImport[];
+            return [...this.cache[companyId]];
+        } catch (error) {
+            logger.warn('Failed to refresh bank imports from finance-agent', error);
+            return this.getImports(companyId);
+        }
+    }
+
+    async saveImport(companyId: string, data: BankImport): Promise<BankImport> {
+        await financeAgentService.importBankTransactions(companyId, data as unknown as BankImportRecord);
+        const refreshed = await this.refreshImports(companyId);
+        const saved = refreshed.find((entry) => entry.id === data.id) || data;
+        logger.info('Bank import saved via finance-agent', { companyId, importId: saved.id, rows: saved.rowCount });
+        return saved;
     }
 }
 

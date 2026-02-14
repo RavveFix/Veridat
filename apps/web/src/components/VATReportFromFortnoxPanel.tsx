@@ -101,6 +101,7 @@ export function VATReportFromFortnoxPanel({ onBack }: VATReportFromFortnoxPanelP
                 <button
                     type="button"
                     onClick={fetchVATReport}
+                    data-testid="vat-report-refresh-button"
                     style={{
                         display: 'inline-flex',
                         alignItems: 'center',

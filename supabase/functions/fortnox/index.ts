@@ -30,6 +30,7 @@ const WRITE_ACTIONS_TO_OPERATION: Partial<Record<string, FortnoxOperation>> = {
     approveSupplierInvoiceBookkeep: 'approve_supplier_invoice_bookkeep',
     approveSupplierInvoicePayment: 'approve_supplier_invoice_payment',
     createSupplier: 'create_supplier',
+    findOrCreateSupplier: 'create_supplier',
 };
 
 const FAIL_CLOSED_RATE_LIMIT_ACTIONS = new Set<string>([
@@ -128,34 +129,40 @@ function getClientMetadata(req: Request): { ipAddress?: string; userAgent?: stri
     };
 }
 
-async function computeRequestHash(input: Record<string, unknown>): Promise<string> {
-    const encoded = new TextEncoder().encode(JSON.stringify(input));
-    const digest = await crypto.subtle.digest('SHA-256', encoded);
-    return Array.from(new Uint8Array(digest))
-        .map((byte) => byte.toString(16).padStart(2, '0'))
-        .join('');
-}
-
-async function resolveIdempotencyKey(
-    payload: Record<string, unknown> | undefined,
-    fallbackSeed: Record<string, unknown>
-): Promise<string> {
-    if (payload && typeof payload.idempotencyKey === 'string' && payload.idempotencyKey.trim().length >= 8) {
-        return payload.idempotencyKey.trim();
+function getWriteRequestMetadata(
+    actionName: string,
+    requestPayload: Record<string, unknown> | undefined
+): { idempotencyKey: string; sourceContext: string; aiDecisionId?: string } {
+    const payloadRecord = requireRecord(requestPayload, 'payload');
+    const idempotencyKey = requireString(payloadRecord.idempotencyKey, 'payload.idempotencyKey').trim();
+    if (idempotencyKey.length < 8) {
+        throw new RequestValidationError(
+            'INVALID_PAYLOAD',
+            'payload.idempotencyKey måste vara minst 8 tecken',
+            { action: actionName, field: 'payload.idempotencyKey' }
+        );
     }
-    const hash = await computeRequestHash(fallbackSeed);
-    return `auto:${hash}`;
+    const sourceContext = requireString(payloadRecord.sourceContext, 'payload.sourceContext').trim();
+    const aiDecisionId = typeof payloadRecord.aiDecisionId === 'string' && payloadRecord.aiDecisionId.trim().length > 0
+        ? payloadRecord.aiDecisionId.trim()
+        : undefined;
+
+    return { idempotencyKey, sourceContext, aiDecisionId };
 }
 
 function requireCompanyIdForWrite(action: string, companyId: string | undefined): string {
     const operation = WRITE_ACTIONS_TO_OPERATION[action];
     if (!operation) {
-        return companyId || 'default';
+        return companyId && companyId.trim().length > 0 ? companyId : 'default';
     }
     if (companyId && companyId.trim().length > 0) {
         return companyId;
     }
-    return 'default';
+    throw new RequestValidationError(
+        'MISSING_COMPANY_ID',
+        'Missing required field: companyId',
+        { action, field: 'companyId' }
+    );
 }
 
 function validationResponse(
@@ -339,12 +346,12 @@ Deno.serve(async (req: Request) => {
             cachedResult?: Record<string, unknown>;
         }> => {
             const resolvedCompanyId = requireCompanyIdForWrite(actionName, options?.companyId ?? companyId);
-            const idempotencyKey = await resolveIdempotencyKey(payload, {
-                userId,
-                companyId: resolvedCompanyId,
-                action: actionName,
-                requestPayload,
-            });
+            const writeMeta = getWriteRequestMetadata(actionName, payload);
+            const idempotencyKey = writeMeta.idempotencyKey;
+            const tracedRequestPayload = {
+                ...requestPayload,
+                sourceContext: writeMeta.sourceContext,
+            };
 
             const existing = await auditService.findIdempotentFortnoxSync(
                 userId,
@@ -380,8 +387,8 @@ Deno.serve(async (req: Request) => {
                 idempotencyKey,
                 vatReportId: options?.vatReportId,
                 transactionId: options?.transactionId,
-                aiDecisionId: options?.aiDecisionId,
-                requestPayload,
+                aiDecisionId: options?.aiDecisionId ?? writeMeta.aiDecisionId,
+                requestPayload: tracedRequestPayload,
                 ipAddress: requestMeta.ipAddress,
                 userAgent: requestMeta.userAgent,
             });
@@ -960,8 +967,31 @@ Deno.serve(async (req: Request) => {
                 const supplierDataRaw = requireRecord(payload?.supplier, 'payload.supplier');
                 requireString(supplierDataRaw.Name, 'payload.supplier.Name');
                 const supplierData = supplierDataRaw as unknown as FortnoxSupplier;
+                const write = await prepareWriteAction(
+                    'create_supplier',
+                    { supplier: supplierDataRaw },
+                    action
+                );
 
-                result = await fortnoxService.findOrCreateSupplier(supplierData);
+                if (write.cachedResult) {
+                    result = write.cachedResult;
+                    break;
+                }
+
+                syncId = write.syncId;
+                try {
+                    result = await fortnoxService.findOrCreateSupplier(supplierData);
+                    await auditService.completeFortnoxSync(syncId!, {
+                        fortnoxSupplierNumber: (result as { Supplier?: { SupplierNumber?: string } })?.Supplier?.SupplierNumber,
+                        responsePayload: result as unknown as Record<string, unknown>,
+                    }, requestMeta);
+                } catch (error) {
+                    if (syncId) {
+                        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                        await auditService.failFortnoxSync(syncId!, 'SUPPLIER_CREATE_ERROR', errorMessage, undefined, requestMeta);
+                    }
+                    throw error;
+                }
                 break;
             }
 

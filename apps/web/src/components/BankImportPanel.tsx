@@ -58,6 +58,12 @@ interface MatchResult {
     note?: string;
 }
 
+interface FortnoxPaymentPayload {
+    action: 'registerSupplierInvoicePayment' | 'registerInvoicePayment';
+    payment: Record<string, unknown>;
+    matchMeta: Record<string, unknown>;
+}
+
 const SAMPLE_CSV_URL = '/assets/handelsbanken-sample.csv';
 const MAX_PREVIEW_ROWS = 12;
 const MAX_MATCH_ROWS = 50;
@@ -261,6 +267,66 @@ function toNumber(value: number | string | null | undefined): number {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getOutstandingInvoiceAmount(
+    balance: number | string | null | undefined,
+    total: number | string | null | undefined
+): number {
+    const balanceAmount = toNumber(balance);
+    return balanceAmount > 0 ? balanceAmount : toNumber(total);
+}
+
+function buildFortnoxPaymentPayload(
+    match: MatchCandidate,
+    amount: number,
+    paymentDate: string,
+    reference: string
+): FortnoxPaymentPayload {
+    if (match.type === 'supplier') {
+        const invoice = match.invoice;
+        const invoiceNumber = invoice.InvoiceNumber || String(invoice.GivenNumber);
+        return {
+            action: 'registerSupplierInvoicePayment',
+            payment: {
+                InvoiceNumber: invoiceNumber,
+                Amount: amount,
+                PaymentDate: paymentDate,
+                Information: reference
+            },
+            matchMeta: {
+                type: 'supplier',
+                invoiceNumber,
+                supplierNumber: invoice.SupplierNumber,
+                supplierName: invoice.SupplierName,
+                dueDate: invoice.DueDate,
+                total: invoice.Total,
+                balance: invoice.Balance,
+                ocr: invoice.OCR
+            }
+        };
+    }
+
+    const invoice = match.invoice;
+    return {
+        action: 'registerInvoicePayment',
+        payment: {
+            InvoiceNumber: invoice.InvoiceNumber,
+            Amount: amount,
+            PaymentDate: paymentDate,
+            ExternalInvoiceReference1: reference
+        },
+        matchMeta: {
+            type: 'customer',
+            invoiceNumber: invoice.InvoiceNumber,
+            customerNumber: invoice.CustomerNumber,
+            customerName: invoice.CustomerName,
+            dueDate: invoice.DueDate,
+            total: invoice.Total,
+            balance: invoice.Balance,
+            ocr: invoice.OCR
+        }
+    };
+}
+
 function normalizeDigits(value?: string): string {
     return (value || '').replace(/\D+/g, '');
 }
@@ -305,8 +371,8 @@ function buildMatches(
     supplierInvoices: SupplierInvoiceSummary[],
     customerInvoices: CustomerInvoiceSummary[]
 ): MatchResult[] {
-    const supplierCandidates = supplierInvoices.filter((inv) => !inv.Booked && toNumber(inv.Balance || inv.Total) > 0);
-    const customerCandidates = customerInvoices.filter((inv) => !inv.Cancelled && toNumber(inv.Balance || inv.Total) > 0);
+    const supplierCandidates = supplierInvoices.filter((inv) => !inv.Booked && getOutstandingInvoiceAmount(inv.Balance, inv.Total) > 0);
+    const customerCandidates = customerInvoices.filter((inv) => !inv.Cancelled && getOutstandingInvoiceAmount(inv.Balance, inv.Total) > 0);
     const amountTolerance = 1;
 
     const scoreCandidate = (
@@ -358,57 +424,23 @@ function buildMatches(
         };
     };
 
-    return transactions.map((tx) => {
-        if (tx.amount === 0) {
-            return { transaction: tx, note: 'Belopp 0 (ingen matchning)' };
+    const findBestInvoiceMatch = <T,>(
+        tx: BankTransaction,
+        candidates: T[],
+        getMatchInfo: (invoice: T) => {
+            invoiceAmount: number;
+            dueDate?: string;
+            matchInfo?: { ocr?: string; invoiceNumber?: string; counterparty?: string };
         }
-
-        if (tx.amount < 0) {
-            let best: SupplierInvoiceSummary | null = null;
-            let bestScore = 0;
-            let bestConfidence: MatchResult['confidence'] = 'Låg';
-            let bestNote: string | undefined;
-
-            for (const invoice of supplierCandidates) {
-                const invoiceAmount = toNumber(invoice.Balance) > 0 ? toNumber(invoice.Balance) : toNumber(invoice.Total);
-                const scored = scoreCandidate(tx, invoiceAmount, invoice.DueDate, {
-                    ocr: invoice.OCR,
-                    invoiceNumber: invoice.InvoiceNumber || String(invoice.GivenNumber),
-                    counterparty: invoice.SupplierName
-                });
-                if (!scored) continue;
-                if (scored.score > bestScore) {
-                    bestScore = scored.score;
-                    best = invoice;
-                    bestConfidence = scored.confidence;
-                    bestNote = scored.note;
-                }
-            }
-
-            if (!best) {
-                return { transaction: tx, note: 'Ingen match hittad' };
-            }
-
-            return {
-                transaction: tx,
-                match: { type: 'supplier', invoice: best },
-                confidence: bestConfidence,
-                note: bestNote
-            };
-        }
-
-        let best: CustomerInvoiceSummary | null = null;
+    ): { invoice: T; confidence: MatchResult['confidence']; note?: string } | null => {
+        let best: T | null = null;
         let bestScore = 0;
         let bestConfidence: MatchResult['confidence'] = 'Låg';
         let bestNote: string | undefined;
 
-        for (const invoice of customerCandidates) {
-            const invoiceAmount = toNumber(invoice.Balance) > 0 ? toNumber(invoice.Balance) : toNumber(invoice.Total);
-            const scored = scoreCandidate(tx, invoiceAmount, invoice.DueDate, {
-                ocr: invoice.OCR,
-                invoiceNumber: String(invoice.InvoiceNumber),
-                counterparty: invoice.CustomerName
-            });
+        for (const invoice of candidates) {
+            const { invoiceAmount, dueDate, matchInfo } = getMatchInfo(invoice);
+            const scored = scoreCandidate(tx, invoiceAmount, dueDate, matchInfo);
             if (!scored) continue;
             if (scored.score > bestScore) {
                 bestScore = scored.score;
@@ -418,15 +450,56 @@ function buildMatches(
             }
         }
 
-        if (!best) {
+        return best
+            ? { invoice: best, confidence: bestConfidence, note: bestNote }
+            : null;
+    };
+
+    return transactions.map((tx) => {
+        if (tx.amount === 0) {
+            return { transaction: tx, note: 'Belopp 0 (ingen matchning)' };
+        }
+
+        if (tx.amount < 0) {
+            const bestMatch = findBestInvoiceMatch(tx, supplierCandidates, (invoice) => ({
+                invoiceAmount: getOutstandingInvoiceAmount(invoice.Balance, invoice.Total),
+                dueDate: invoice.DueDate,
+                matchInfo: {
+                    ocr: invoice.OCR,
+                    invoiceNumber: invoice.InvoiceNumber || String(invoice.GivenNumber),
+                    counterparty: invoice.SupplierName
+                }
+            }));
+            if (!bestMatch) {
+                return { transaction: tx, note: 'Ingen match hittad' };
+            }
+
+            return {
+                transaction: tx,
+                match: { type: 'supplier', invoice: bestMatch.invoice },
+                confidence: bestMatch.confidence,
+                note: bestMatch.note
+            };
+        }
+
+        const bestMatch = findBestInvoiceMatch(tx, customerCandidates, (invoice) => ({
+            invoiceAmount: getOutstandingInvoiceAmount(invoice.Balance, invoice.Total),
+            dueDate: invoice.DueDate,
+            matchInfo: {
+                ocr: invoice.OCR,
+                invoiceNumber: String(invoice.InvoiceNumber),
+                counterparty: invoice.CustomerName
+            }
+        }));
+        if (!bestMatch) {
             return { transaction: tx, note: 'Ingen match hittad' };
         }
 
         return {
             transaction: tx,
-            match: { type: 'customer', invoice: best },
-            confidence: bestConfidence,
-            note: bestNote
+            match: { type: 'customer', invoice: bestMatch.invoice },
+            confidence: bestMatch.confidence,
+            note: bestMatch.note
         };
     });
 }
@@ -449,6 +522,41 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
     const [aiLoadingId, setAiLoadingId] = useState<string | null>(null);
     const [selectedBank, setSelectedBank] = useState<string | null>(null);
     const [detectedBank, setDetectedBank] = useState<BankProfile | null>(null);
+
+    const getSessionAccessToken = async (): Promise<string | null> => {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ?? null;
+    };
+
+    const buildAuthHeaders = (accessToken: string): Record<string, string> => ({
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+    });
+
+    const postAuthedFunction = (
+        functionName: 'fortnox' | 'gemini-chat',
+        accessToken: string,
+        body: Record<string, unknown>
+    ): Promise<Response> => {
+        return fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`, {
+            method: 'POST',
+            headers: buildAuthHeaders(accessToken),
+            body: JSON.stringify(body)
+        });
+    };
+
+    const getResponseErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+        const errorData = await response.json().catch(() => ({} as { error?: unknown }));
+        return typeof errorData.error === 'string' ? errorData.error : fallback;
+    };
+
+    const setAiSuggestionMessage = (transactionId: string, message: string): void => {
+        setAiSuggestions(prev => {
+            const next = new Map(prev);
+            next.set(transactionId, message);
+            return next;
+        });
+    };
 
     const activeProfile = useMemo(() => {
         if (selectedBank === 'auto' || selectedBank === null) return detectedBank;
@@ -561,7 +669,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
         }
     };
 
-    const handleSaveImport = () => {
+    const handleSaveImport = async () => {
         if (!preview || normalizedTransactions.length === 0) {
             setError('Inga transaktioner kunde tolkas. Kontrollera mappningen.');
             return;
@@ -583,11 +691,20 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 transactions: normalizedTransactions
             };
 
-            bankImportService.saveImport(companyId, importData);
+            await bankImportService.saveImport(companyId, importData);
             setSaveMessage(`Import sparad (${normalizedTransactions.length} transaktioner).`);
         } catch (err) {
             logger.error('Failed to save import', err);
-            setError('Kunde inte spara importen.');
+            const message = err instanceof Error ? err.message : '';
+            if (message.includes('name resolution failed')) {
+                setError('Kunde inte nå lokala Edge Functions. Kör "npm run supabase:serve" och försök igen.');
+            } else if (message.includes('does not exist')) {
+                setError('Lokala databasmigrationer saknas. Kör "npm run supabase:setup" och försök igen.');
+            } else if (message) {
+                setError(`Kunde inte spara importen: ${message}`);
+            } else {
+                setError('Kunde inte spara importen.');
+            }
         } finally {
             setSaving(false);
         }
@@ -605,38 +722,22 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
         setActionError(null);
 
         try {
-            const { data: session } = await supabase.auth.getSession();
-            const accessToken = session?.session?.access_token;
+            const accessToken = await getSessionAccessToken();
             if (!accessToken) {
                 setMatchError('Du måste vara inloggad för att hämta Fortnox-data.');
                 return;
             }
 
             const [supplierResponse, customerResponse] = await Promise.all([
-                fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    body: JSON.stringify({ action: 'getSupplierInvoices' })
-                }),
-                fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    body: JSON.stringify({ action: 'getInvoices' })
-                })
+                postAuthedFunction('fortnox', accessToken, { action: 'getSupplierInvoices' }),
+                postAuthedFunction('fortnox', accessToken, { action: 'getInvoices' })
             ]);
 
             const errors: string[] = [];
 
             let supplierInvoices: SupplierInvoiceSummary[] = [];
             if (!supplierResponse.ok) {
-                const errorData = await supplierResponse.json().catch(() => ({}));
-                errors.push(errorData.error || 'Kunde inte hämta leverantörsfakturor.');
+                errors.push(await getResponseErrorMessage(supplierResponse, 'Kunde inte hämta leverantörsfakturor.'));
             } else {
                 const result = await supplierResponse.json();
                 supplierInvoices = getFortnoxList<SupplierInvoiceSummary>(result, 'SupplierInvoices');
@@ -644,8 +745,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
 
             let customerInvoices: CustomerInvoiceSummary[] = [];
             if (!customerResponse.ok) {
-                const errorData = await customerResponse.json().catch(() => ({}));
-                errors.push(errorData.error || 'Kunde inte hämta kundfakturor.');
+                errors.push(await getResponseErrorMessage(customerResponse, 'Kunde inte hämta kundfakturor.'));
             } else {
                 const result = await customerResponse.json();
                 customerInvoices = getFortnoxList<CustomerInvoiceSummary>(result, 'Invoices');
@@ -675,8 +775,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
         setActionError(null);
 
         try {
-            const { data: session } = await supabase.auth.getSession();
-            const accessToken = session?.session?.access_token;
+            const accessToken = await getSessionAccessToken();
             if (!accessToken) {
                 setActionError('Du måste vara inloggad för att skapa bokning.');
                 return;
@@ -687,6 +786,12 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
             const paymentDate = result.transaction.date;
             const reference = result.transaction.reference || result.transaction.ocr || result.transaction.description;
             const approvedAt = new Date().toISOString();
+            const { action, payment, matchMeta } = buildFortnoxPaymentPayload(
+                result.match,
+                amount,
+                paymentDate,
+                reference
+            );
 
             const baseTransactionMeta = {
                 transactionId: result.transaction.id,
@@ -708,73 +813,21 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 approvalMethod: 'manual_ok'
             };
 
-            let action = '';
-            let payment: Record<string, unknown> = {};
-            let matchMeta: Record<string, unknown> = {};
-
-            if (result.match.type === 'supplier') {
-                const invoice = result.match.invoice;
-                const invoiceNumber = invoice.InvoiceNumber || String(invoice.GivenNumber);
-                action = 'registerSupplierInvoicePayment';
-                payment = {
-                    InvoiceNumber: invoiceNumber,
-                    Amount: amount,
-                    PaymentDate: paymentDate,
-                    Information: reference
-                };
-                matchMeta = {
-                    type: 'supplier',
-                    invoiceNumber,
-                    supplierNumber: invoice.SupplierNumber,
-                    supplierName: invoice.SupplierName,
-                    dueDate: invoice.DueDate,
-                    total: invoice.Total,
-                    balance: invoice.Balance,
-                    ocr: invoice.OCR
-                };
-            } else {
-                const invoice = result.match.invoice;
-                action = 'registerInvoicePayment';
-                payment = {
-                    InvoiceNumber: invoice.InvoiceNumber,
-                    Amount: amount,
-                    PaymentDate: paymentDate,
-                    ExternalInvoiceReference1: reference
-                };
-                matchMeta = {
-                    type: 'customer',
-                    invoiceNumber: invoice.InvoiceNumber,
-                    customerNumber: invoice.CustomerNumber,
-                    customerName: invoice.CustomerName,
-                    dueDate: invoice.DueDate,
-                    total: invoice.Total,
-                    balance: invoice.Balance,
-                    ocr: invoice.OCR
-                };
-            }
-
             const meta = { ...baseTransactionMeta, match: matchMeta };
 
-            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`
-                },
-                body: JSON.stringify({
-                    action,
-                    companyId,
-                    payload: {
-                        idempotencyKey: buildMatchIdempotencyKey(companyId, result),
-                        payment,
-                        meta,
-                    }
-                })
+            const response = await postAuthedFunction('fortnox', accessToken, {
+                action,
+                companyId,
+                payload: {
+                    idempotencyKey: buildMatchIdempotencyKey(companyId, result),
+                    sourceContext: 'bank-import-panel',
+                    payment,
+                    meta,
+                }
             });
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                setActionError(errorData.error || 'Kunde inte skapa bokning i Fortnox.');
+                setActionError(await getResponseErrorMessage(response, 'Kunde inte skapa bokning i Fortnox.'));
                 return;
             }
 
@@ -802,54 +855,30 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
     const handleAiSuggestion = async (tx: BankTransaction) => {
         setAiLoadingId(tx.id);
         try {
-            const { data: session } = await supabase.auth.getSession();
-            const accessToken = session?.session?.access_token;
+            const accessToken = await getSessionAccessToken();
             if (!accessToken) {
-                setAiSuggestions(prev => {
-                    const next = new Map(prev);
-                    next.set(tx.id, 'Du maste vara inloggad.');
-                    return next;
-                });
+                setAiSuggestionMessage(tx.id, 'Du maste vara inloggad.');
                 return;
             }
 
             const prompt = `Du ar en svensk bokforingsexpert. Foreslå BAS-konto och momssats for denna banktransaktion. Svara kort, max 2 rader.\n\nDatum: ${tx.date}\nBeskrivning: ${tx.description}\nBelopp: ${tx.amount} SEK${tx.counterparty ? `\nMotpart: ${tx.counterparty}` : ''}${tx.reference ? `\nReferens: ${tx.reference}` : ''}`;
 
-            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`
-                },
-                body: JSON.stringify({
-                    message: prompt,
-                    skipHistory: true
-                })
+            const response = await postAuthedFunction('gemini-chat', accessToken, {
+                message: prompt,
+                skipHistory: true
             });
 
             if (!response.ok) {
-                setAiSuggestions(prev => {
-                    const next = new Map(prev);
-                    next.set(tx.id, 'Kunde inte hamta AI-forslag.');
-                    return next;
-                });
+                setAiSuggestionMessage(tx.id, 'Kunde inte hamta AI-forslag.');
                 return;
             }
 
             const result = await response.json();
             const suggestion = result.reply || result.message || 'Inget forslag.';
-            setAiSuggestions(prev => {
-                const next = new Map(prev);
-                next.set(tx.id, suggestion);
-                return next;
-            });
+            setAiSuggestionMessage(tx.id, suggestion);
         } catch (err) {
             logger.error('AI suggestion failed', err);
-            setAiSuggestions(prev => {
-                const next = new Map(prev);
-                next.set(tx.id, 'Ett fel uppstod.');
-                return next;
-            });
+            setAiSuggestionMessage(tx.id, 'Ett fel uppstod.');
         } finally {
             setAiLoadingId(null);
         }
@@ -1007,6 +1036,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                     <input
                         type="file"
                         accept=".csv,text/csv"
+                        data-testid="bank-import-file-input"
                         onChange={(event) => {
                             const file = event.currentTarget.files?.[0];
                             if (file) {
@@ -1196,6 +1226,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                             type="button"
                             onClick={handleSaveImport}
                             disabled={saving || missingMapping.length > 0 || normalizedTransactions.length === 0}
+                            data-testid="bank-import-save-button"
                             style={{
                                 padding: '0.5rem 1rem',
                                 borderRadius: '8px',

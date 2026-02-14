@@ -8,6 +8,7 @@ import { ModalWrapper } from './ModalWrapper';
 import { UsageDisplay } from './settings/UsageDisplay';
 import { ChangelogPanel } from './settings/ChangelogPanel';
 import { AccountingMemoryPanel } from './settings/AccountingMemoryPanel';
+import { SkillsHubPanel } from './settings/SkillsHubPanel';
 
 
 interface SettingsModalProps {
@@ -373,6 +374,19 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                         </section>
 
                         <ChangelogPanel />
+
+                        <section
+                            style={{ marginBottom: '2rem', borderTop: '1px solid var(--surface-border)', paddingTop: '1.5rem' }}
+                            data-testid="settings-test-agents-section"
+                        >
+                            <h3 style={{ fontSize: '1.1rem', marginBottom: '0.35rem', color: 'var(--text-primary)' }}>
+                                Testagenter
+                            </h3>
+                            <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                Kör och följ upp automatiska testsviter direkt i plattformen.
+                            </p>
+                            <SkillsHubPanel />
+                        </section>
 
                         <section style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1.5rem' }}>
                             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Konto</h3>

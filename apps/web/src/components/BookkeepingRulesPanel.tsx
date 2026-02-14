@@ -142,7 +142,11 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
     }), [patterns]);
 
     return (
-        <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div
+            className="panel-stagger"
+            data-testid="bookkeeping-rules-panel"
+            style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+        >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <button
                     type="button"
@@ -195,6 +199,7 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
                             key={opt.id}
                             type="button"
                             onClick={() => setFilter(opt.id)}
+                            data-testid={`bookkeeping-rules-filter-${opt.id}`}
                             style={{
                                 height: '34px',
                                 padding: '0 0.8rem',
@@ -216,6 +221,7 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
                     placeholder="Sök leverantör eller konto..."
                     value={search}
                     onInput={(e) => setSearch(e.currentTarget.value)}
+                    data-testid="bookkeeping-rules-search"
                     style={{
                         flex: 1,
                         minWidth: '180px',
@@ -276,7 +282,11 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
                                 const isTrusted = pattern.confirmation_count >= 4;
 
                                 return (
-                                    <tr key={pattern.id} style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                                    <tr
+                                        key={pattern.id}
+                                        data-testid={`bookkeeping-rules-row-${pattern.id}`}
+                                        style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}
+                                    >
                                         <td style={{ padding: '0.5rem', color: 'var(--text-primary)' }}>
                                             <div style={{ fontWeight: 600 }}>{pattern.supplier_name}</div>
                                             {pattern.description_keywords.length > 0 && (
@@ -324,6 +334,7 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
                                                 type="button"
                                                 onClick={() => void handleDelete(pattern.id, pattern.supplier_name)}
                                                 disabled={isDeleting}
+                                                data-testid={`bookkeeping-rules-delete-${pattern.id}`}
                                                 style={{
                                                     height: '28px',
                                                     padding: '0 0.6rem',

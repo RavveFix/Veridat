@@ -307,7 +307,7 @@ export function AdminPortal() {
         : null;
 
     return (
-        <div class="admin-page">
+        <div class="admin-page" data-testid="admin-portal">
             <div class="aurora-bg">
                 <div class="blob blob-1"></div>
                 <div class="blob blob-2"></div>
@@ -324,15 +324,15 @@ export function AdminPortal() {
                         </p>
                     </div>
                     <div class="admin-actions">
-                        <button class="admin-btn admin-btn-primary" onClick={() => setSelectedAccountId(null)}>Ny inbjudan</button>
-                        <button class="admin-btn admin-btn-ghost" onClick={loadAccounts}>Uppdatera</button>
-                        <button class="admin-btn admin-btn-ghost" onClick={() => setMaintenanceConfirmOpen(true)}>Kör underhåll</button>
-                        <button class="admin-btn admin-btn-ghost" onClick={handleSignOut}>Logga ut</button>
+                        <button class="admin-btn admin-btn-primary" data-testid="admin-new-invite" onClick={() => setSelectedAccountId(null)}>Ny inbjudan</button>
+                        <button class="admin-btn admin-btn-ghost" data-testid="admin-refresh" onClick={loadAccounts}>Uppdatera</button>
+                        <button class="admin-btn admin-btn-ghost" data-testid="admin-run-maintenance" onClick={() => setMaintenanceConfirmOpen(true)}>Kör underhåll</button>
+                        <button class="admin-btn admin-btn-ghost" data-testid="admin-signout" onClick={handleSignOut}>Logga ut</button>
                     </div>
                 </header>
 
                 {maintenanceConfirmOpen && (
-                    <div class="admin-modal-overlay" role="dialog" aria-modal="true">
+                    <div class="admin-modal-overlay" role="dialog" aria-modal="true" data-testid="admin-maintenance-modal">
                         <div class="admin-modal">
                             <h3>Bekräfta underhåll</h3>
                             <p>Detta uppdaterar status för periodslut, grace och trial‑slut.</p>
@@ -350,6 +350,7 @@ export function AdminPortal() {
                                     type="button"
                                     onClick={handleRunMaintenance}
                                     disabled={maintenanceRunning}
+                                    data-testid="admin-maintenance-confirm"
                                 >
                                     {maintenanceRunning ? 'Kör…' : 'Kör nu'}
                                 </button>
@@ -412,11 +413,13 @@ export function AdminPortal() {
                                         placeholder="Sök bolag, kontakt eller e-post"
                                         value={query}
                                         onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
+                                        data-testid="admin-account-search"
                                     />
                                 </div>
                                 <select
                                     value={planFilter}
                                     onChange={(event) => setPlanFilter((event.target as HTMLSelectElement).value as PlanFilter)}
+                                    data-testid="admin-plan-filter"
                                 >
                                     <option value="all">Alla planer</option>
                                     <option value="pro">Pro</option>
@@ -428,6 +431,7 @@ export function AdminPortal() {
                                     onChange={(event) =>
                                         setStatusFilter((event.target as HTMLSelectElement).value as StatusFilter)
                                     }
+                                    data-testid="admin-status-filter"
                                 >
                                     <option value="all">Alla statusar</option>
                                     <option value="active">Aktiva</option>
@@ -460,7 +464,7 @@ export function AdminPortal() {
                                             : '—';
 
                                     return (
-                                        <div class="admin-table-row" key={account.id}>
+                                        <div class="admin-table-row" key={account.id} data-testid={`admin-account-row-${account.id}`}>
                                             <div class="admin-company">
                                                 <div>
                                                     <strong>{account.company}</strong>
@@ -486,12 +490,14 @@ export function AdminPortal() {
                                                 <button
                                                     class="admin-btn admin-btn-ghost"
                                                     onClick={() => handleMarkPaid(account.id)}
+                                                    data-testid={`admin-mark-paid-${account.id}`}
                                                 >
                                                     Markera betald
                                                 </button>
                                                 <button
                                                     class="admin-btn admin-btn-outline"
                                                     onClick={() => setSelectedAccountId(account.id)}
+                                                    data-testid={`admin-edit-account-${account.id}`}
                                                 >
                                                     Ändra plan
                                                 </button>
@@ -512,7 +518,7 @@ export function AdminPortal() {
                                     : 'Bjud in och sätt plan direkt. Fakturan skapas i Fortnox.'}
                             </p>
                             {selectedAccount ? (
-                                <form class="admin-form" onSubmit={handleUpdateAccount}>
+                                <form class="admin-form" onSubmit={handleUpdateAccount} data-testid="admin-edit-form">
                                     <label>
                                         Plan
                                         <select
@@ -587,12 +593,12 @@ export function AdminPortal() {
                                             }
                                         />
                                     </label>
-                                    <button class="admin-btn admin-btn-primary" type="submit">
+                                    <button class="admin-btn admin-btn-primary" data-testid="admin-edit-submit" type="submit">
                                         Spara ändringar
                                     </button>
                                 </form>
                             ) : (
-                                <form class="admin-form" onSubmit={handleInviteSubmit}>
+                                <form class="admin-form" onSubmit={handleInviteSubmit} data-testid="admin-invite-form">
                                     <label>
                                         Kontaktperson
                                         <input
@@ -605,6 +611,7 @@ export function AdminPortal() {
                                                     fullName: (event.target as HTMLInputElement).value
                                                 })
                                             }
+                                            data-testid="admin-invite-full-name"
                                             required
                                         />
                                     </label>
@@ -620,6 +627,7 @@ export function AdminPortal() {
                                                     email: (event.target as HTMLInputElement).value
                                                 })
                                             }
+                                            data-testid="admin-invite-email"
                                             required
                                         />
                                     </label>
@@ -634,6 +642,7 @@ export function AdminPortal() {
                                                         plan: (event.target as HTMLSelectElement).value as PlanType
                                                     })
                                                 }
+                                                data-testid="admin-invite-plan"
                                             >
                                                 <option value="pro">Pro</option>
                                                 <option value="trial">Trial</option>
@@ -652,6 +661,7 @@ export function AdminPortal() {
                                                         periodDays: Number((event.target as HTMLInputElement).value)
                                                     })
                                                 }
+                                                data-testid="admin-invite-period-days"
                                             />
                                         </label>
                                     </div>
@@ -667,6 +677,7 @@ export function AdminPortal() {
                                                         invoiceId: (event.target as HTMLInputElement).value
                                                     })
                                                 }
+                                                data-testid="admin-invite-invoice-id"
                                             />
                                         </label>
                                         <label>
@@ -680,10 +691,11 @@ export function AdminPortal() {
                                                         invoiceDueDate: (event.target as HTMLInputElement).value
                                                     })
                                                 }
+                                                data-testid="admin-invite-invoice-due-date"
                                             />
                                         </label>
                                     </div>
-                                    <button class="admin-btn admin-btn-primary" type="submit">
+                                    <button class="admin-btn admin-btn-primary" data-testid="admin-invite-submit" type="submit">
                                         Skicka inbjudan
                                     </button>
                                 </form>

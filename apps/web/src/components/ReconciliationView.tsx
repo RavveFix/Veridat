@@ -10,8 +10,9 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { bankImportService } from '../services/BankImportService';
 import { companyService } from '../services/CompanyService';
+import { financeAgentService } from '../services/FinanceAgentService';
+import { logger } from '../services/LoggerService';
 import type { BankImport, BankTransaction } from '../types/bank';
-import { STORAGE_KEYS } from '../constants/storageKeys';
 
 interface ReconciliationViewProps {
     onBack: () => void;
@@ -29,28 +30,9 @@ interface MonthStatus {
     reconciledAt: string | null;
 }
 
-const RECONCILED_KEY = STORAGE_KEYS.reconciledPeriods;
-
-function loadReconciledPeriods(companyId: string): Set<string> {
-    try {
-        const raw = localStorage.getItem(RECONCILED_KEY);
-        if (!raw) return new Set();
-        const store = JSON.parse(raw) as Record<string, string[]>;
-        return new Set(store[companyId] || []);
-    } catch {
-        return new Set();
-    }
-}
-
-function saveReconciledPeriods(companyId: string, periods: Set<string>): void {
-    try {
-        const raw = localStorage.getItem(RECONCILED_KEY);
-        const store = raw ? JSON.parse(raw) as Record<string, string[]> : {};
-        store[companyId] = [...periods];
-        localStorage.setItem(RECONCILED_KEY, JSON.stringify(store));
-    } catch {
-        // Storage unavailable
-    }
+interface ReconciliationPeriodStatus {
+    period: string;
+    status?: string | null;
 }
 
 function formatAmount(value: number): string {
@@ -67,14 +49,53 @@ function getMonthLabel(period: string): string {
     return `${months[monthIndex] || month} ${year}`;
 }
 
+function setReconcileButtonBackground(button: HTMLButtonElement, isReconciled: boolean, isHover: boolean): void {
+    if (isReconciled) {
+        button.style.background = isHover ? '#059669' : '#10b981';
+        return;
+    }
+
+    button.style.background = isHover ? 'var(--surface-3)' : 'var(--surface-2)';
+}
+
+function isClosedReconciliationStatus(status: string | null | undefined): boolean {
+    return status === 'reconciled' || status === 'locked';
+}
+
+function toReconciledPeriodsSet(periods: ReconciliationPeriodStatus[]): Set<string> {
+    return new Set(
+        periods
+            .filter((period) => isClosedReconciliationStatus(period.status))
+            .map((period) => period.period)
+    );
+}
+
 export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationViewProps) {
     const [imports, setImports] = useState<BankImport[]>([]);
     const [reconciledPeriods, setReconciledPeriods] = useState<Set<string>>(new Set());
     const companyId = companyService.getCurrentId();
 
     useEffect(() => {
-        setImports(bankImportService.getImports(companyId));
-        setReconciledPeriods(loadReconciledPeriods(companyId));
+        let cancelled = false;
+        void (async () => {
+            try {
+                const [nextImports, periods] = await Promise.all([
+                    bankImportService.refreshImports(companyId),
+                    financeAgentService.refreshReconciliation(companyId),
+                ]);
+                if (cancelled) return;
+                setImports(nextImports);
+                setReconciledPeriods(toReconciledPeriodsSet(periods));
+            } catch (error) {
+                logger.warn('Failed to load reconciliation data', error);
+                if (cancelled) return;
+                setImports(bankImportService.getImports(companyId));
+                setReconciledPeriods(new Set());
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [companyId]);
 
     const allTransactions = useMemo(() => {
@@ -127,16 +148,26 @@ export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationV
     }), [monthStatuses, allTransactions]);
 
     const toggleReconciled = (period: string) => {
-        setReconciledPeriods(prev => {
+        const currentlyReconciled = reconciledPeriods.has(period);
+        const nextStatus = currentlyReconciled ? 'open' : 'reconciled';
+
+        setReconciledPeriods((prev) => {
             const next = new Set(prev);
-            if (next.has(period)) {
+            if (currentlyReconciled) {
                 next.delete(period);
             } else {
                 next.add(period);
             }
-            saveReconciledPeriods(companyId, next);
             return next;
         });
+
+        void financeAgentService
+            .setReconciliationStatus(companyId, period, nextStatus)
+            .catch(async (error) => {
+                logger.error('Failed to persist reconciliation status', error);
+                const periods = await financeAgentService.refreshReconciliation(companyId).catch(() => []);
+                setReconciledPeriods(toReconciledPeriodsSet(periods));
+            });
     };
 
     return (
@@ -283,6 +314,8 @@ export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationV
                             <button
                                 type="button"
                                 onClick={() => toggleReconciled(month.period)}
+                                data-testid={`reconciliation-toggle-${month.period}`}
+                                data-period={month.period}
                                 style={{
                                     height: '34px',
                                     padding: '0 0.9rem',
@@ -297,18 +330,10 @@ export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationV
                                     boxShadow: 'none'
                                 }}
                                 onMouseOver={(e) => {
-                                    if (month.reconciled) {
-                                        e.currentTarget.style.background = '#059669';
-                                    } else {
-                                        e.currentTarget.style.background = 'var(--surface-3)';
-                                    }
+                                    setReconcileButtonBackground(e.currentTarget, month.reconciled, true);
                                 }}
                                 onMouseOut={(e) => {
-                                    if (month.reconciled) {
-                                        e.currentTarget.style.background = '#10b981';
-                                    } else {
-                                        e.currentTarget.style.background = 'var(--surface-2)';
-                                    }
+                                    setReconcileButtonBackground(e.currentTarget, month.reconciled, false);
                                 }}
                             >
                                 {month.reconciled ? 'Avstämd' : 'Markera som avstämd'}

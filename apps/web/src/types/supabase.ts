@@ -194,6 +194,474 @@ export type Database = {
         }
         Relationships: []
       }
+      accounting_profiles: {
+        Row: {
+          bookkeeping_method: string
+          company_form: string
+          company_id: string
+          created_at: string
+          fiscal_year_start_month: number
+          payroll_enabled: boolean
+          updated_at: string
+          user_id: string
+          vat_periodicity: string
+        }
+        Insert: {
+          bookkeeping_method?: string
+          company_form?: string
+          company_id: string
+          created_at?: string
+          fiscal_year_start_month?: number
+          payroll_enabled?: boolean
+          updated_at?: string
+          user_id: string
+          vat_periodicity?: string
+        }
+        Update: {
+          bookkeeping_method?: string
+          company_form?: string
+          company_id?: string
+          created_at?: string
+          fiscal_year_start_month?: number
+          payroll_enabled?: boolean
+          updated_at?: string
+          user_id?: string
+          vat_periodicity?: string
+        }
+        Relationships: []
+      }
+      agi_runs: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          company_id: string
+          control_results: Json
+          created_at: string
+          id: string
+          period: string
+          source_type: string
+          status: string
+          totals: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          company_id: string
+          control_results?: Json
+          created_at?: string
+          id?: string
+          period: string
+          source_type?: string
+          status?: string
+          totals?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          company_id?: string
+          control_results?: Json
+          created_at?: string
+          id?: string
+          period?: string
+          source_type?: string
+          status?: string
+          totals?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      auto_post_policies: {
+        Row: {
+          allow_with_active_rule_only: boolean
+          company_id: string
+          created_at: string
+          enabled: boolean
+          max_amount_sek: number
+          min_confidence: number
+          require_known_counterparty: boolean
+          require_manual_for_deviating_vat: boolean
+          require_manual_for_locked_period: boolean
+          require_manual_for_new_supplier: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allow_with_active_rule_only?: boolean
+          company_id: string
+          created_at?: string
+          enabled?: boolean
+          max_amount_sek?: number
+          min_confidence?: number
+          require_known_counterparty?: boolean
+          require_manual_for_deviating_vat?: boolean
+          require_manual_for_locked_period?: boolean
+          require_manual_for_new_supplier?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allow_with_active_rule_only?: boolean
+          company_id?: string
+          created_at?: string
+          enabled?: boolean
+          max_amount_sek?: number
+          min_confidence?: number
+          require_known_counterparty?: boolean
+          require_manual_for_deviating_vat?: boolean
+          require_manual_for_locked_period?: boolean
+          require_manual_for_new_supplier?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      bank_imports: {
+        Row: {
+          company_id: string
+          created_at: string
+          filename: string
+          id: string
+          idempotency_key: string | null
+          imported_at: string
+          mapping: Json
+          row_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          filename?: string
+          id: string
+          idempotency_key?: string | null
+          imported_at?: string
+          mapping?: Json
+          row_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          filename?: string
+          id?: string
+          idempotency_key?: string | null
+          imported_at?: string
+          mapping?: Json
+          row_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      bank_transactions: {
+        Row: {
+          account: string | null
+          ai_decision_id: string | null
+          amount: number
+          company_id: string
+          counterparty: string | null
+          created_at: string
+          currency: string
+          description: string
+          fortnox_ref: Json
+          id: string
+          import_id: string | null
+          match_status: string
+          ocr: string | null
+          raw: Json
+          reference: string | null
+          tx_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account?: string | null
+          ai_decision_id?: string | null
+          amount?: number
+          company_id: string
+          counterparty?: string | null
+          created_at?: string
+          currency?: string
+          description?: string
+          fortnox_ref?: Json
+          id: string
+          import_id?: string | null
+          match_status?: string
+          ocr?: string | null
+          raw?: Json
+          reference?: string | null
+          tx_date: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account?: string | null
+          ai_decision_id?: string | null
+          amount?: number
+          company_id?: string
+          counterparty?: string | null
+          created_at?: string
+          currency?: string
+          description?: string
+          fortnox_ref?: Json
+          id?: string
+          import_id?: string | null
+          match_status?: string
+          ocr?: string | null
+          raw?: Json
+          reference?: string | null
+          tx_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      invoice_inbox_items: {
+        Row: {
+          ai_decision_id: string | null
+          ai_extracted: boolean
+          ai_raw_response: string
+          ai_review_note: string
+          bas_account: string
+          bas_account_name: string
+          company_id: string
+          created_at: string
+          currency: string
+          due_date: string | null
+          file_bucket: string
+          file_name: string
+          file_path: string
+          file_url: string
+          fortnox_balance: number | null
+          fortnox_booked: boolean
+          fortnox_given_number: number | null
+          fortnox_supplier_number: string
+          fortnox_sync_status: string
+          id: string
+          invoice_date: string | null
+          invoice_number: string
+          ocr_number: string
+          source: string
+          status: string
+          supplier_name: string
+          supplier_org_nr: string
+          total_amount: number | null
+          updated_at: string
+          uploaded_at: string
+          user_id: string
+          vat_amount: number | null
+          vat_rate: number | null
+        }
+        Insert: {
+          ai_decision_id?: string | null
+          ai_extracted?: boolean
+          ai_raw_response?: string
+          ai_review_note?: string
+          bas_account?: string
+          bas_account_name?: string
+          company_id: string
+          created_at?: string
+          currency?: string
+          due_date?: string | null
+          file_bucket?: string
+          file_name?: string
+          file_path?: string
+          file_url?: string
+          fortnox_balance?: number | null
+          fortnox_booked?: boolean
+          fortnox_given_number?: number | null
+          fortnox_supplier_number?: string
+          fortnox_sync_status?: string
+          id: string
+          invoice_date?: string | null
+          invoice_number?: string
+          ocr_number?: string
+          source?: string
+          status?: string
+          supplier_name?: string
+          supplier_org_nr?: string
+          total_amount?: number | null
+          updated_at?: string
+          uploaded_at?: string
+          user_id: string
+          vat_amount?: number | null
+          vat_rate?: number | null
+        }
+        Update: {
+          ai_decision_id?: string | null
+          ai_extracted?: boolean
+          ai_raw_response?: string
+          ai_review_note?: string
+          bas_account?: string
+          bas_account_name?: string
+          company_id?: string
+          created_at?: string
+          currency?: string
+          due_date?: string | null
+          file_bucket?: string
+          file_name?: string
+          file_path?: string
+          file_url?: string
+          fortnox_balance?: number | null
+          fortnox_booked?: boolean
+          fortnox_given_number?: number | null
+          fortnox_supplier_number?: string
+          fortnox_sync_status?: string
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string
+          ocr_number?: string
+          source?: string
+          status?: string
+          supplier_name?: string
+          supplier_org_nr?: string
+          total_amount?: number | null
+          updated_at?: string
+          uploaded_at?: string
+          user_id?: string
+          vat_amount?: number | null
+          vat_rate?: number | null
+        }
+        Relationships: []
+      }
+      invoice_inbox_events: {
+        Row: {
+          ai_decision_id: string | null
+          company_id: string
+          created_at: string
+          event_type: string
+          fingerprint: string | null
+          id: string
+          idempotency_key: string | null
+          item_id: string
+          new_status: string | null
+          payload: Json
+          previous_status: string | null
+          user_id: string
+        }
+        Insert: {
+          ai_decision_id?: string | null
+          company_id: string
+          created_at?: string
+          event_type: string
+          fingerprint?: string | null
+          id?: string
+          idempotency_key?: string | null
+          item_id: string
+          new_status?: string | null
+          payload?: Json
+          previous_status?: string | null
+          user_id: string
+        }
+        Update: {
+          ai_decision_id?: string | null
+          company_id?: string
+          created_at?: string
+          event_type?: string
+          fingerprint?: string | null
+          id?: string
+          idempotency_key?: string | null
+          item_id?: string
+          new_status?: string | null
+          payload?: Json
+          previous_status?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      reconciliation_periods: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          locked_at: string | null
+          notes: string
+          period: string
+          reconciled_at: string | null
+          reconciled_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          locked_at?: string | null
+          notes?: string
+          period: string
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          locked_at?: string | null
+          notes?: string
+          period?: string
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      regulatory_rules: {
+        Row: {
+          company_form: string
+          created_at: string
+          domain: string
+          effective_from: string
+          effective_to: string | null
+          id: string
+          last_verified_at: string | null
+          legal_status: string
+          payload: Json
+          rule_key: string
+          source_urls: string[]
+          updated_at: string
+        }
+        Insert: {
+          company_form?: string
+          created_at?: string
+          domain: string
+          effective_from: string
+          effective_to?: string | null
+          id?: string
+          last_verified_at?: string | null
+          legal_status?: string
+          payload?: Json
+          rule_key: string
+          source_urls?: string[]
+          updated_at?: string
+        }
+        Update: {
+          company_form?: string
+          created_at?: string
+          domain?: string
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          last_verified_at?: string | null
+          legal_status?: string
+          payload?: Json
+          rule_key?: string
+          source_urls?: string[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       files: {
         Row: {
           company_id: string | null

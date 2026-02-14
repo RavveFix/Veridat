@@ -3,15 +3,16 @@
  *
  * Drag-and-drop PDF/image upload, Gemini-powered data extraction,
  * editable fields, pipeline status tracking, and Fortnox export.
- * Invoice data is persisted in localStorage per company.
+ * Invoice data is persisted via finance-agent (Supabase-backed).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { companyService } from '../services/CompanyService';
 import { fileService } from '../services/FileService';
+import { financeAgentService } from '../services/FinanceAgentService';
 import { logger } from '../services/LoggerService';
-import { STORAGE_KEYS } from '../constants/storageKeys';
+import type { InvoiceInboxRecord } from '../types/finance';
 import { getFortnoxList, getFortnoxObject } from '../utils/fortnoxResponse';
 
 // =============================================================================
@@ -65,8 +66,6 @@ interface InvoiceInboxPanelProps {
 // CONSTANTS
 // =============================================================================
 
-const STORAGE_KEY = STORAGE_KEYS.invoiceInbox;
-
 const STATUS_CONFIG: Record<InvoiceStatus, { label: string; color: string; bg: string }> = {
     ny: { label: 'Ny', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },
     granskad: { label: 'Granskad', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)' },
@@ -81,6 +80,8 @@ const FORTNOX_SYNC_STATUS_LABELS: Record<FortnoxSyncStatus, string> = {
     booked: 'Bokförd i Fortnox',
     attested: 'Attesterad i Fortnox',
 };
+const FORTNOX_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`;
+const GEMINI_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`;
 
 // =============================================================================
 // HELPERS
@@ -88,6 +89,24 @@ const FORTNOX_SYNC_STATUS_LABELS: Record<FortnoxSyncStatus, string> = {
 
 function generateId(): string {
     return `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getFunctionErrorMessage(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object') {
+        return null;
+    }
+
+    const error = (payload as Record<string, unknown>).error;
+    if (typeof error === 'string' && error.trim()) {
+        return error;
+    }
+
+    const message = (payload as Record<string, unknown>).message;
+    if (typeof message === 'string' && message.trim()) {
+        return message;
+    }
+
+    return null;
 }
 
 function generateIdempotencyKey(
@@ -123,36 +142,54 @@ function normalizeStatus(status: InvoiceStatus | undefined, fortnoxSyncStatus: F
     return nextStatus;
 }
 
-function loadInbox(companyId: string): InvoiceInboxItem[] {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return [];
-        const store = JSON.parse(raw) as Record<string, Partial<InvoiceInboxItem>[]>;
-        return (store[companyId] || []).map(item => {
-            const fortnoxSyncStatus = inferFortnoxSyncStatus(item);
-            return {
-                ...item,
-                source: item.source || 'upload',
-                status: normalizeStatus(item.status, fortnoxSyncStatus),
-                fortnoxSyncStatus,
-                fortnoxBalance: item.fortnoxBalance ?? null,
-                aiReviewNote: item.aiReviewNote || '',
-            } as InvoiceInboxItem;
-        });
-    } catch {
-        return [];
-    }
+function getBookedStatus(status: InvoiceStatus): InvoiceStatus {
+    return status === 'betald' ? 'betald' : 'bokford';
 }
 
-function saveInbox(companyId: string, items: InvoiceInboxItem[]): void {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        const store = raw ? JSON.parse(raw) as Record<string, InvoiceInboxItem[]> : {};
-        store[companyId] = items;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-    } catch {
-        // Storage unavailable
-    }
+function withFortnoxBookedState(
+    item: InvoiceInboxItem,
+    fortnoxSyncStatus: 'booked' | 'attested'
+): InvoiceInboxItem {
+    return {
+        ...item,
+        fortnoxBooked: true,
+        fortnoxSyncStatus,
+        status: getBookedStatus(item.status),
+    };
+}
+
+function toInboxItem(item: Partial<InvoiceInboxRecord>): InvoiceInboxItem {
+    const fortnoxSyncStatus = inferFortnoxSyncStatus(item as Partial<InvoiceInboxItem>);
+    return {
+        id: item.id || generateId(),
+        fileName: item.fileName || '',
+        fileUrl: item.fileUrl || '',
+        filePath: item.filePath || '',
+        fileBucket: item.fileBucket || '',
+        uploadedAt: item.uploadedAt || new Date().toISOString(),
+        status: normalizeStatus(item.status as InvoiceStatus | undefined, fortnoxSyncStatus),
+        source: (item.source as InvoiceSource | undefined) || 'upload',
+        supplierName: item.supplierName || '',
+        supplierOrgNr: item.supplierOrgNr || '',
+        invoiceNumber: item.invoiceNumber || '',
+        invoiceDate: item.invoiceDate || '',
+        dueDate: item.dueDate || '',
+        totalAmount: item.totalAmount ?? null,
+        vatAmount: item.vatAmount ?? null,
+        vatRate: item.vatRate ?? null,
+        ocrNumber: item.ocrNumber || '',
+        basAccount: item.basAccount || '',
+        basAccountName: item.basAccountName || '',
+        currency: item.currency || 'SEK',
+        fortnoxSyncStatus,
+        fortnoxSupplierNumber: item.fortnoxSupplierNumber || '',
+        fortnoxGivenNumber: item.fortnoxGivenNumber ?? null,
+        fortnoxBooked: item.fortnoxBooked === true,
+        fortnoxBalance: item.fortnoxBalance ?? null,
+        aiExtracted: item.aiExtracted === true,
+        aiRawResponse: item.aiRawResponse || '',
+        aiReviewNote: item.aiReviewNote || '',
+    };
 }
 
 function formatAmount(value: number | null): string {
@@ -230,19 +267,118 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const companyId = companyService.getCurrentId();
 
-    // Load from localStorage
+    const getSessionAccessToken = useCallback(async (): Promise<string | null> => {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ?? null;
+    }, []);
+
+    const buildAuthHeaders = useCallback((accessToken: string): Record<string, string> => ({
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+    }), []);
+
+    const callFortnox = useCallback(async (
+        action: string,
+        payload: Record<string, unknown>
+    ): Promise<{ ok: true; status: number; data: unknown } | { ok: false; status: number; error: string | null }> => {
+        const accessToken = await getSessionAccessToken();
+        if (!accessToken) {
+            return { ok: false, status: 401, error: 'Du måste vara inloggad.' };
+        }
+
+        const response = await fetch(FORTNOX_FUNCTION_URL, {
+            method: 'POST',
+            headers: buildAuthHeaders(accessToken),
+            body: JSON.stringify({
+                action,
+                companyId,
+                payload,
+            }),
+        });
+
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+            return { ok: false, status: response.status, error: getFunctionErrorMessage(body) };
+        }
+
+        return { ok: true, status: response.status, data: body };
+    }, [buildAuthHeaders, companyId, getSessionAccessToken]);
+
+    const callGemini = useCallback(async (
+        payload: Record<string, unknown>
+    ): Promise<{ ok: true; response: Response } | { ok: false; status: number }> => {
+        const accessToken = await getSessionAccessToken();
+        if (!accessToken) {
+            return { ok: false, status: 401 };
+        }
+
+        const response = await fetch(GEMINI_FUNCTION_URL, {
+            method: 'POST',
+            headers: buildAuthHeaders(accessToken),
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            return { ok: false, status: response.status };
+        }
+
+        return { ok: true, response };
+    }, [buildAuthHeaders, getSessionAccessToken]);
+
+    // Load from finance-agent
     useEffect(() => {
-        setItems(loadInbox(companyId));
+        let cancelled = false;
+        void (async () => {
+            try {
+                const loaded = await financeAgentService.refreshInvoiceInbox(companyId);
+                if (cancelled) return;
+                setItems(loaded.map((item) => toInboxItem(item)));
+            } catch (err) {
+                logger.warn('Failed to load invoice inbox from finance-agent', err);
+                if (!cancelled) {
+                    setItems(financeAgentService.getCachedInvoiceInbox(companyId).map((item) => toInboxItem(item)));
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [companyId]);
 
     // Persist changes
     const updateItems = useCallback((updater: (prev: InvoiceInboxItem[]) => InvoiceInboxItem[]) => {
         setItems(prev => {
             const next = updater(prev);
-            saveInbox(companyId, next);
+            const prevById = new Map(prev.map((item) => [item.id, item]));
+            const nextIds = new Set(next.map((item) => item.id));
+            const changedItems = next.filter((item) => JSON.stringify(prevById.get(item.id)) !== JSON.stringify(item));
+            const removedIds = prev.filter((item) => !nextIds.has(item.id)).map((item) => item.id);
+
+            for (const item of changedItems) {
+                void financeAgentService.upsertInvoiceInboxItem(companyId, item as unknown as InvoiceInboxRecord).catch((err) => {
+                    logger.warn('Failed to persist invoice inbox item', { itemId: item.id, err });
+                });
+            }
+            for (const removedId of removedIds) {
+                void financeAgentService.deleteInvoiceInboxItem(companyId, removedId, {
+                    idempotencyKey: `invoice_inbox:${companyId}:delete:${removedId}`,
+                    fingerprint: `delete:${removedId}`,
+                }).catch((err) => {
+                    logger.warn('Failed to delete invoice inbox item', { removedId, err });
+                });
+            }
             return next;
         });
     }, [companyId]);
+
+    const updateItemById = useCallback(
+        (itemId: string, updater: (item: InvoiceInboxItem) => InvoiceInboxItem): void => {
+            updateItems((prev) => prev.map((item) => (
+                item.id === itemId ? updater(item) : item
+            )));
+        },
+        [updateItems]
+    );
 
     // Auto-dismiss messages
     useEffect(() => {
@@ -358,12 +494,6 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         setError(null);
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                setError('Du måste vara inloggad för AI-extraktion.');
-                return;
-            }
-
             // Download file and convert to base64 for Gemini
             const freshUrl = await fileService.createSignedUrl(item.fileBucket, item.filePath);
             const fileResp = await fetch(freshUrl);
@@ -380,27 +510,22 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 reader.readAsDataURL(blob);
             });
 
-            const response = await fetch(
-                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                        message: EXTRACTION_PROMPT,
-                        fileData: { data: base64, mimeType: blob.type || 'application/pdf' },
-                        fileName: item.fileName,
-                        skipHistory: true,
-                        stream: false,
-                    }),
-                }
-            );
+            const geminiCall = await callGemini({
+                message: EXTRACTION_PROMPT,
+                fileData: { data: base64, mimeType: blob.type || 'application/pdf' },
+                fileName: item.fileName,
+                skipHistory: true,
+                stream: false,
+            });
 
-            if (!response.ok) {
-                throw new Error(`AI-extraktion misslyckades (${response.status})`);
+            if (!geminiCall.ok) {
+                if (geminiCall.status === 401) {
+                    setError('Du måste vara inloggad för AI-extraktion.');
+                    return;
+                }
+                throw new Error(`AI-extraktion misslyckades (${geminiCall.status})`);
             }
+            const response = geminiCall.response;
 
             // gemini-chat returns SSE stream - read and collect all text chunks
             let aiText = '';
@@ -432,18 +557,14 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
             const jsonMatch = aiText.match(/\{[\s\S]*?\}/);
             if (!jsonMatch) {
                 setError('AI kunde inte extrahera fakturadata. Fyll i manuellt.');
-                updateItems(prev => prev.map(i =>
-                    i.id === item.id ? { ...i, aiRawResponse: aiText } : i
-                ));
+                updateItemById(item.id, (current) => ({ ...current, aiRawResponse: aiText }));
                 return;
             }
 
             const extracted = JSON.parse(jsonMatch[0]);
 
-            updateItems(prev => prev.map(i => {
-                if (i.id !== item.id) return i;
-                return {
-                    ...i,
+            updateItemById(item.id, (current) => ({
+                ...current,
                     supplierName: extracted.supplierName || '',
                     supplierOrgNr: extracted.supplierOrgNr || '',
                     invoiceNumber: extracted.invoiceNumber || '',
@@ -458,8 +579,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                     currency: extracted.currency || 'SEK',
                     aiExtracted: true,
                     aiRawResponse: aiText,
-                };
-            }));
+                }));
 
             setSuccessMsg(`Faktura från "${extracted.supplierName || item.fileName}" extraherad.`);
         } catch (err) {
@@ -468,7 +588,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         } finally {
             setExtractingId(null);
         }
-    }, [updateItems]);
+    }, [callGemini, updateItemById]);
 
     // =========================================================================
     // FORTNOX EXPORT
@@ -484,12 +604,6 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         setError(null);
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                setError('Du måste vara inloggad.');
-                return;
-            }
-
             const supplierInvoice = {
                 SupplierNumber: item.fortnoxSupplierNumber || '',
                 InvoiceNumber: item.invoiceNumber,
@@ -507,32 +621,17 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 Comments: `Importerad via Veridat fakturainkorg från ${item.fileName}`,
             };
 
-            const response = await fetch(
-                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                        action: 'exportSupplierInvoice',
-                        companyId,
-                        payload: {
-                            idempotencyKey: generateIdempotencyKey('export_supplier_invoice', companyId, item),
-                            invoice: supplierInvoice,
-                        },
-                    }),
-                }
-            );
+            const response = await callFortnox('exportSupplierInvoice', {
+                idempotencyKey: generateIdempotencyKey('export_supplier_invoice', companyId, item),
+                sourceContext: 'invoice-inbox-panel',
+                invoice: supplierInvoice,
+            });
 
             if (!response.ok) {
-                const errData = await response.json().catch(() => null);
-                throw new Error(errData?.error || `Fortnox-export misslyckades (${response.status})`);
+                throw new Error(response.error || `Fortnox-export misslyckades (${response.status})`);
             }
 
-            const result = await response.json();
-            const supplierInvoiceResult = getFortnoxObject<{ GivenNumber?: number | string }>(result, 'SupplierInvoice');
+            const supplierInvoiceResult = getFortnoxObject<{ GivenNumber?: number | string }>(response.data, 'SupplierInvoice');
             const givenNumberRaw = supplierInvoiceResult?.GivenNumber;
             const givenNumber = typeof givenNumberRaw === 'number'
                 ? givenNumberRaw
@@ -541,13 +640,10 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                     : null;
             const hasGivenNumber = typeof givenNumber === 'number' && Number.isFinite(givenNumber);
 
-            updateItems(prev => prev.map(i => {
-                if (i.id !== item.id) return i;
-                return {
-                    ...i,
-                    fortnoxGivenNumber: hasGivenNumber ? givenNumber : null,
-                    fortnoxSyncStatus: hasGivenNumber ? 'exported' : i.fortnoxSyncStatus,
-                };
+            updateItemById(item.id, (current) => ({
+                ...current,
+                fortnoxGivenNumber: hasGivenNumber ? givenNumber : null,
+                fortnoxSyncStatus: hasGivenNumber ? 'exported' : current.fortnoxSyncStatus,
             }));
 
             setSuccessMsg(`Faktura ${item.invoiceNumber} exporterad till Fortnox${hasGivenNumber ? ` (Nr ${givenNumber})` : ''}.`);
@@ -557,7 +653,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         } finally {
             setExportingId(null);
         }
-    }, [companyId, updateItems]);
+    }, [callFortnox, companyId, updateItemById]);
 
     // =========================================================================
     // FORTNOX SYNC
@@ -568,30 +664,8 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         setError(null);
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                setError('Du måste vara inloggad.');
-                return;
-            }
-
-            const response = await fetch(
-                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                        action: 'getSupplierInvoices',
-                        companyId,
-                        payload: {},
-                    }),
-                }
-            );
-
+            const response = await callFortnox('getSupplierInvoices', {});
             if (!response.ok) {
-                const errData = await response.json().catch(() => null);
                 if (response.status === 403) {
                     throw new Error('Saknar behörighet i Fortnox — koppla om med leverantörs-behörighet i Integrationer.');
                 }
@@ -601,11 +675,10 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 if (response.status === 429) {
                     throw new Error('För många anrop till Fortnox — vänta en stund och försök igen.');
                 }
-                throw new Error(errData?.error || `Kunde inte hämta fakturor (${response.status})`);
+                throw new Error(response.error || `Kunde inte hämta fakturor (${response.status})`);
             }
 
-            const result = await response.json();
-            const invoices = getFortnoxList<Record<string, unknown>>(result, 'SupplierInvoices');
+            const invoices = getFortnoxList<Record<string, unknown>>(response.data, 'SupplierInvoices');
 
             if (invoices.length === 0) {
                 setSuccessMsg('Inga leverantörsfakturor hittades i Fortnox.');
@@ -646,7 +719,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                                 totalAmount: inv.Total != null ? Number(inv.Total) : updatedPrev[idx].totalAmount,
                                 vatAmount: inv.VAT != null ? Number(inv.VAT) : updatedPrev[idx].vatAmount,
                                 status: fortnoxBooked
-                                    ? (updatedPrev[idx].status === 'betald' ? 'betald' : 'bokford')
+                                    ? getBookedStatus(updatedPrev[idx].status)
                                     : normalizeStatus(updatedPrev[idx].status, nextSyncStatus),
                             };
                         }
@@ -696,7 +769,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         } finally {
             setSyncing(false);
         }
-    }, [companyId, updateItems]);
+    }, [callFortnox, updateItems]);
 
     // =========================================================================
     // FORTNOX BOOK / APPROVE
@@ -712,45 +785,17 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         setError(null);
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                setError('Du måste vara inloggad.');
-                return;
-            }
-
-            const response = await fetch(
-                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                        action: 'bookSupplierInvoice',
-                        companyId,
-                        payload: {
-                            givenNumber: item.fortnoxGivenNumber,
-                            idempotencyKey: generateIdempotencyKey('book_supplier_invoice', companyId, item),
-                        },
-                    }),
-                }
-            );
+            const response = await callFortnox('bookSupplierInvoice', {
+                givenNumber: item.fortnoxGivenNumber,
+                idempotencyKey: generateIdempotencyKey('book_supplier_invoice', companyId, item),
+                sourceContext: 'invoice-inbox-panel',
+            });
 
             if (!response.ok) {
-                const errData = await response.json().catch(() => null);
-                throw new Error(errData?.error || `Bokföring misslyckades (${response.status})`);
+                throw new Error(response.error || `Bokföring misslyckades (${response.status})`);
             }
 
-            updateItems(prev => prev.map(i => {
-                if (i.id !== item.id) return i;
-                return {
-                    ...i,
-                    fortnoxBooked: true,
-                    fortnoxSyncStatus: 'booked',
-                    status: i.status === 'betald' ? 'betald' : 'bokford',
-                };
-            }));
+            updateItemById(item.id, (current) => withFortnoxBookedState(current, 'booked'));
             setSuccessMsg(`Faktura ${item.invoiceNumber || item.fortnoxGivenNumber} bokförd i Fortnox.`);
         } catch (err) {
             logger.error('Fortnox booking failed:', err);
@@ -758,7 +803,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         } finally {
             setBookingId(null);
         }
-    }, [companyId, updateItems]);
+    }, [callFortnox, companyId, updateItemById]);
 
     const approveInFortnox = useCallback(async (item: InvoiceInboxItem) => {
         if (!item.fortnoxGivenNumber) return;
@@ -767,45 +812,17 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         setError(null);
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                setError('Du måste vara inloggad.');
-                return;
-            }
-
-            const response = await fetch(
-                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                        action: 'approveSupplierInvoiceBookkeep',
-                        companyId,
-                        payload: {
-                            givenNumber: item.fortnoxGivenNumber,
-                            idempotencyKey: generateIdempotencyKey('approve_supplier_invoice_bookkeep', companyId, item),
-                        },
-                    }),
-                }
-            );
+            const response = await callFortnox('approveSupplierInvoiceBookkeep', {
+                givenNumber: item.fortnoxGivenNumber,
+                idempotencyKey: generateIdempotencyKey('approve_supplier_invoice_bookkeep', companyId, item),
+                sourceContext: 'invoice-inbox-panel',
+            });
 
             if (!response.ok) {
-                const errData = await response.json().catch(() => null);
-                throw new Error(errData?.error || `Attestering misslyckades (${response.status})`);
+                throw new Error(response.error || `Attestering misslyckades (${response.status})`);
             }
 
-            updateItems(prev => prev.map(i => {
-                if (i.id !== item.id) return i;
-                return {
-                    ...i,
-                    fortnoxBooked: true,
-                    fortnoxSyncStatus: 'attested',
-                    status: i.status === 'betald' ? 'betald' : 'bokford',
-                };
-            }));
+            updateItemById(item.id, (current) => withFortnoxBookedState(current, 'attested'));
             setSuccessMsg(`Faktura ${item.invoiceNumber || item.fortnoxGivenNumber} attesterad.`);
         } catch (err) {
             logger.error('Fortnox approval failed:', err);
@@ -813,7 +830,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         } finally {
             setBookingId(null);
         }
-    }, [companyId, updateItems]);
+    }, [callFortnox, companyId, updateItemById]);
 
     // =========================================================================
     // AI REVIEW
@@ -824,12 +841,6 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
         setError(null);
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                setError('Du måste vara inloggad.');
-                return;
-            }
-
             const prompt = `Granska denna leverantörsfaktura och föreslå BAS-konto. Svara kort (max 3 meningar).
 
 FAKTURA:
@@ -871,55 +882,44 @@ REGLER (BAS 2024):
 
 Föreslå korrekt kontering med debet/kredit.`;
 
-            const response = await fetch(
-                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                        message: prompt,
-                        skipHistory: true,
-                        stream: false,
-                    }),
-                }
-            );
+            const geminiCall = await callGemini({
+                message: prompt,
+                skipHistory: true,
+                stream: false,
+            });
 
-            if (!response.ok) {
-                throw new Error(`AI-granskning misslyckades (${response.status})`);
+            if (!geminiCall.ok) {
+                if (geminiCall.status === 401) {
+                    setError('Du måste vara inloggad.');
+                    return;
+                }
+                throw new Error(`AI-granskning misslyckades (${geminiCall.status})`);
             }
+            const response = geminiCall.response;
 
             const result = await response.json();
             const reviewText = result.data || result.response || result.text || '';
 
-            updateItems(prev => prev.map(i =>
-                i.id === item.id ? { ...i, aiReviewNote: reviewText } : i
-            ));
+            updateItemById(item.id, (current) => ({ ...current, aiReviewNote: reviewText }));
         } catch (err) {
             logger.error('AI review failed:', err);
             setError('AI-granskning misslyckades.');
         } finally {
             setReviewingId(null);
         }
-    }, [updateItems]);
+    }, [callGemini, updateItemById]);
 
     // =========================================================================
     // ITEM ACTIONS
     // =========================================================================
 
     const updateField = useCallback((itemId: string, field: keyof InvoiceInboxItem, value: string | number | null) => {
-        updateItems(prev => prev.map(i =>
-            i.id === itemId ? { ...i, [field]: value } : i
-        ));
-    }, [updateItems]);
+        updateItemById(itemId, (current) => ({ ...current, [field]: value }));
+    }, [updateItemById]);
 
     const setStatus = useCallback((itemId: string, status: InvoiceStatus) => {
-        updateItems(prev => prev.map(i =>
-            i.id === itemId ? { ...i, status } : i
-        ));
-    }, [updateItems]);
+        updateItemById(itemId, (current) => ({ ...current, status }));
+    }, [updateItemById]);
 
     const removeItem = useCallback((itemId: string) => {
         updateItems(prev => prev.filter(i => i.id !== itemId));
@@ -1233,7 +1233,9 @@ function InvoiceCard({
         <div className="panel-card panel-card--no-hover" style={{
             border: `1px solid ${overdue ? 'rgba(239, 68, 68, 0.4)' : 'var(--surface-border)'}`,
             background: overdue ? 'rgba(239, 68, 68, 0.04)' : undefined,
-        }}>
+        }}
+        data-testid={`invoice-card-${item.id}`}
+        >
             {/* Top row: status + supplier + actions */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
                 {/* Status badge */}
@@ -1434,6 +1436,7 @@ function InvoiceCard({
                     <ActionButton
                         label="Markera som granskad"
                         color={STATUS_CONFIG.granskad.color}
+                        testId={`invoice-status-review-${item.id}`}
                         onClick={() => onSetStatus('granskad')}
                     />
                 )}
@@ -1470,6 +1473,7 @@ function InvoiceCard({
                     <ActionButton
                         label="Markera som betald"
                         color={STATUS_CONFIG.betald.color}
+                        testId={`invoice-status-paid-${item.id}`}
                         onClick={() => onSetStatus('betald')}
                     />
                 )}
@@ -1570,18 +1574,20 @@ function EditForm({
 }
 
 function ActionButton({
-    label, color, disabled, onClick,
+    label, color, disabled, onClick, testId,
 }: {
     label: string;
     color: string;
     disabled?: boolean;
     onClick: () => void;
+    testId?: string;
 }) {
     return (
         <button
             type="button"
             onClick={onClick}
             disabled={disabled}
+            data-testid={testId}
             style={{
                 height: '30px',
                 padding: '0 0.7rem',

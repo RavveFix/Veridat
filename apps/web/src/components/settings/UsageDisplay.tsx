@@ -11,6 +11,49 @@ interface UsageDisplayProps {
     formatResetAt: (resetIso: string | null, windowMs: number) => string;
 }
 
+function setUpgradeButtonBackground(link: HTMLAnchorElement, isHover: boolean): void {
+    link.style.background = isHover ? '#1d4ed8' : '#2563eb';
+}
+
+function getUsageProgressPercent(used: number, limit: number): number {
+    if (limit <= 0) return 0;
+    return Math.min(100, (used / limit) * 100);
+}
+
+function UsageProgressRow({
+    label,
+    used,
+    limit,
+    resetText,
+}: {
+    label: string;
+    used: number;
+    limit: number;
+    resetText: string;
+}) {
+    return (
+        <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>{label}</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.9rem' }}>
+                    {used}/{limit}
+                </span>
+            </div>
+            <div style={{ height: '8px', background: 'var(--surface-3)', borderRadius: '999px', overflow: 'hidden' }}>
+                <div style={{
+                    width: `${getUsageProgressPercent(used, limit)}%`,
+                    height: '100%',
+                    background: '#2563eb',
+                    borderRadius: '999px'
+                }} />
+            </div>
+            <div style={{ marginTop: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                Återställs {resetText}
+            </div>
+        </div>
+    );
+}
+
 export function UsageDisplay({ usage, usageError, plan, planLimits, formatResetAt }: UsageDisplayProps) {
     const isPro = plan === 'pro' || plan === 'trial';
     const planLabel = plan === 'pro'
@@ -64,44 +107,20 @@ export function UsageDisplay({ usage, usageError, plan, planLimits, formatResetA
                     boxShadow: 'var(--surface-shadow)'
                 }}>
                     <div style={{ marginBottom: '1rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Denna timme</span>
-                            <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.9rem' }}>
-                                {(usage?.hourlyUsed ?? 0)}/{planLimits.hourly}
-                            </span>
-                        </div>
-                        <div style={{ height: '8px', background: 'var(--surface-3)', borderRadius: '999px', overflow: 'hidden' }}>
-                            <div style={{
-                                width: `${Math.min(100, ((usage?.hourlyUsed ?? 0) / planLimits.hourly) * 100)}%`,
-                                height: '100%',
-                                background: '#2563eb',
-                                borderRadius: '999px'
-                            }} />
-                        </div>
-                        <div style={{ marginTop: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                            Återställs {formatResetAt(usage?.hourlyReset ?? null, 60 * 60 * 1000)}
-                        </div>
+                        <UsageProgressRow
+                            label="Denna timme"
+                            used={usage?.hourlyUsed ?? 0}
+                            limit={planLimits.hourly}
+                            resetText={formatResetAt(usage?.hourlyReset ?? null, 60 * 60 * 1000)}
+                        />
                     </div>
 
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Idag</span>
-                            <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.9rem' }}>
-                                {(usage?.dailyUsed ?? 0)}/{planLimits.daily}
-                            </span>
-                        </div>
-                        <div style={{ height: '8px', background: 'var(--surface-3)', borderRadius: '999px', overflow: 'hidden' }}>
-                            <div style={{
-                                width: `${Math.min(100, ((usage?.dailyUsed ?? 0) / planLimits.daily) * 100)}%`,
-                                height: '100%',
-                                background: '#2563eb',
-                                borderRadius: '999px'
-                            }} />
-                        </div>
-                        <div style={{ marginTop: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                            Återställs {formatResetAt(usage?.dailyReset ?? null, 24 * 60 * 60 * 1000)}
-                        </div>
-                    </div>
+                    <UsageProgressRow
+                        label="Idag"
+                        used={usage?.dailyUsed ?? 0}
+                        limit={planLimits.daily}
+                        resetText={formatResetAt(usage?.dailyReset ?? null, 24 * 60 * 60 * 1000)}
+                    />
 
                     {plan !== 'pro' && (
                         <a
@@ -120,12 +139,8 @@ export function UsageDisplay({ usage, usageError, plan, planLimits, formatResetA
                                 boxShadow: 'none',
                                 border: 'none'
                             }}
-                            onMouseOver={(e) => {
-                                e.currentTarget.style.background = '#1d4ed8';
-                            }}
-                            onMouseOut={(e) => {
-                                e.currentTarget.style.background = '#2563eb';
-                            }}
+                            onMouseOver={(e) => setUpgradeButtonBackground(e.currentTarget, true)}
+                            onMouseOut={(e) => setUpgradeButtonBackground(e.currentTarget, false)}
                         >
                             Uppgradera till Pro (40/t, 200/d)
                         </a>

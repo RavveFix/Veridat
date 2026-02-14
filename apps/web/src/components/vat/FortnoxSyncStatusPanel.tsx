@@ -17,69 +17,76 @@ interface FortnoxSyncStatusPanelProps {
 
 export type { FortnoxSyncStatus };
 
+function formatDate(dateStr: string | null): string {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('sv-SE', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+function getStatusIcon(statusValue: FortnoxSyncStatus['status']) {
+    switch (statusValue) {
+        case 'success':
+            return (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+            );
+        case 'failed':
+            return (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="15" y1="9" x2="9" y2="15"></line>
+                    <line x1="9" y1="9" x2="15" y2="15"></line>
+                </svg>
+            );
+        case 'pending':
+        case 'in_progress':
+            return (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" class="spin">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+            );
+        default:
+            return (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+            );
+    }
+}
+
+function getStatusText(status: FortnoxSyncStatus): string {
+    switch (status.status) {
+        case 'success':
+            return `Exporterad som ${status.fortnoxVoucherSeries}-${status.fortnoxDocumentNumber}`;
+        case 'failed':
+            return 'Export misslyckades';
+        case 'pending':
+            return 'Väntar på export...';
+        case 'in_progress':
+            return 'Exporterar...';
+        default:
+            return 'Ej exporterad till Fortnox';
+    }
+}
+
+function shouldShowExportButton(statusValue: FortnoxSyncStatus['status']): boolean {
+    return statusValue === null || statusValue === 'not_synced' || statusValue === 'failed';
+}
+
 export const FortnoxSyncStatusPanel: FunctionComponent<FortnoxSyncStatusPanelProps> = ({ status, loading, error, onExport }) => {
-    const formatDate = (dateStr: string | null) => {
-        if (!dateStr) return '';
-        const date = new Date(dateStr);
-        return date.toLocaleDateString('sv-SE', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-    };
-
-    const getStatusIcon = () => {
-        switch (status.status) {
-            case 'success':
-                return (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2">
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                    </svg>
-                );
-            case 'failed':
-                return (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="15" y1="9" x2="9" y2="15"></line>
-                        <line x1="9" y1="9" x2="15" y2="15"></line>
-                    </svg>
-                );
-            case 'pending':
-            case 'in_progress':
-                return (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" class="spin">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                );
-            default:
-                return (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                    </svg>
-                );
-        }
-    };
-
-    const getStatusText = () => {
-        switch (status.status) {
-            case 'success':
-                return `Exporterad som ${status.fortnoxVoucherSeries}-${status.fortnoxDocumentNumber}`;
-            case 'failed':
-                return 'Export misslyckades';
-            case 'pending':
-                return 'Väntar på export...';
-            case 'in_progress':
-                return 'Exporterar...';
-            default:
-                return 'Ej exporterad till Fortnox';
-        }
-    };
+    const statusText = getStatusText(status);
+    const showExportButton = shouldShowExportButton(status.status);
 
     return (
         <div class={`fortnox-sync-panel ${status.status || 'not_synced'}`}>
@@ -92,8 +99,8 @@ export const FortnoxSyncStatusPanel: FunctionComponent<FortnoxSyncStatusPanelPro
                     <span>Fortnox Integration</span>
                 </div>
                 <div class="fortnox-status">
-                    {getStatusIcon()}
-                    <span class="status-text">{getStatusText()}</span>
+                    {getStatusIcon(status.status)}
+                    <span class="status-text">{statusText}</span>
                 </div>
             </div>
 
@@ -117,7 +124,7 @@ export const FortnoxSyncStatusPanel: FunctionComponent<FortnoxSyncStatusPanelPro
                 </div>
             )}
 
-            {(status.status === null || status.status === 'not_synced' || status.status === 'failed') && (
+            {showExportButton && (
                 <>
                     <button
                         class="btn-fortnox"

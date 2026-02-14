@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
+import type { JSX } from 'preact';
 import { supabase } from '../../lib/supabase';
 import { companyManager } from '../../services/CompanyService';
 import { logger } from '../../services/LoggerService';
@@ -87,6 +88,62 @@ const getMemoryText = (memory: AccountingMemoryRow): string => {
     return 'Saknar beskrivning';
 };
 
+const FILTER_SELECT_STYLE = {
+    padding: '0.5rem 0.75rem',
+    borderRadius: '8px',
+    border: '1px solid var(--surface-border)',
+    background: 'var(--input-bg)',
+    color: 'var(--text-primary)'
+};
+
+const REFRESH_BUTTON_STYLE = {
+    borderRadius: '12px',
+    padding: '0.5rem 1.1rem',
+    border: '1px solid var(--surface-border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text-primary)',
+    boxShadow: 'none',
+    fontSize: '0.85rem',
+    fontWeight: 600,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem'
+};
+
+function buildActionButtonStyle(background: string) {
+    return {
+        borderRadius: '10px',
+        padding: '0.45rem 0.85rem',
+        border: 'none',
+        background,
+        color: '#fff',
+        cursor: 'pointer',
+        fontSize: '0.85rem',
+        fontWeight: 600,
+        boxShadow: 'none'
+    };
+}
+
+function setButtonBackground(event: JSX.TargetedMouseEvent<HTMLButtonElement>, color: string): void {
+    event.currentTarget.style.background = color;
+}
+
+function buildHoverHandlers(
+    baseColor: string,
+    hoverColor: string,
+    enabled = true
+): Pick<JSX.HTMLAttributes<HTMLButtonElement>, 'onMouseOver' | 'onMouseOut'> {
+    return {
+        onMouseOver: (event) => {
+            if (!enabled) return;
+            setButtonBackground(event, hoverColor);
+        },
+        onMouseOut: (event) => {
+            setButtonBackground(event, baseColor);
+        }
+    };
+}
+
 export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelProps) {
     const [memories, setMemories] = useState<AccountingMemoryRow[]>([]);
     const [loading, setLoading] = useState(false);
@@ -150,47 +207,51 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
         }
     }
 
-    async function updateStatus(memoryId: string, status: 'confirmed' | 'needs_review') {
-        if (!memoryId) return;
+    async function runMutationAndReload(
+        operation: () => PromiseLike<{ error: unknown }>,
+        logMessage: string,
+        userMessage: string
+    ): Promise<void> {
+        setLoading(true);
         try {
-            setLoading(true);
-            const { error: updateError } = await supabase
-                .from('accounting_memories')
-                .update({ review_status: status })
-                .eq('id', memoryId)
-                .eq('user_id', userId)
-                .eq('company_id', companyId);
-
-            if (updateError) throw updateError;
+            const { error: mutationError } = await operation();
+            if (mutationError) throw mutationError;
             await loadMemories();
-        } catch (updateError) {
-            logger.warn('Failed to update accounting memory status', updateError);
-            setError('Kunde inte uppdatera status.');
+        } catch (mutationError) {
+            logger.warn(logMessage, mutationError);
+            setError(userMessage);
         } finally {
             setLoading(false);
         }
     }
 
+    async function updateStatus(memoryId: string, status: 'confirmed' | 'needs_review') {
+        if (!memoryId) return;
+        await runMutationAndReload(
+            () => supabase
+                .from('accounting_memories')
+                .update({ review_status: status })
+                .eq('id', memoryId)
+                .eq('user_id', userId)
+                .eq('company_id', companyId),
+            'Failed to update accounting memory status',
+            'Kunde inte uppdatera status.'
+        );
+    }
+
     async function deleteMemory(memoryId: string) {
         if (!memoryId) return;
         if (!confirm('Är du säker på att du vill radera minnet?')) return;
-        try {
-            setLoading(true);
-            const { error: deleteError } = await supabase
+        await runMutationAndReload(
+            () => supabase
                 .from('accounting_memories')
                 .delete()
                 .eq('id', memoryId)
                 .eq('user_id', userId)
-                .eq('company_id', companyId);
-
-            if (deleteError) throw deleteError;
-            await loadMemories();
-        } catch (deleteError) {
-            logger.warn('Failed to delete accounting memory', deleteError);
-            setError('Kunde inte radera minnet.');
-        } finally {
-            setLoading(false);
-        }
+                .eq('company_id', companyId),
+            'Failed to delete accounting memory',
+            'Kunde inte radera minnet.'
+        );
     }
 
     if (!isPro) {
@@ -213,27 +274,10 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                     onClick={() => void loadMemories()}
                     disabled={loading}
                     style={{
-                        borderRadius: '12px',
-                        padding: '0.5rem 1.1rem',
-                        border: '1px solid var(--surface-border)',
-                        background: 'var(--surface-2)',
-                        color: 'var(--text-primary)',
+                        ...REFRESH_BUTTON_STYLE,
                         cursor: loading ? 'not-allowed' : 'pointer',
-                        boxShadow: 'none',
-                        fontSize: '0.85rem',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem'
                     }}
-                    onMouseOver={(e) => {
-                        if (!loading) {
-                            e.currentTarget.style.background = 'var(--surface-3)';
-                        }
-                    }}
-                    onMouseOut={(e) => {
-                        e.currentTarget.style.background = 'var(--surface-2)';
-                    }}
+                    {...buildHoverHandlers('var(--surface-2)', 'var(--surface-3)', !loading)}
                 >
                     {loading ? 'Laddar...' : 'Uppdatera'}
                 </button>
@@ -252,13 +296,7 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                     <select
                         value={statusFilter}
                         onChange={(event) => setStatusFilter((event.target as HTMLSelectElement).value as typeof statusFilter)}
-                        style={{
-                            padding: '0.5rem 0.75rem',
-                            borderRadius: '8px',
-                            border: '1px solid var(--surface-border)',
-                            background: 'var(--input-bg)',
-                            color: 'var(--text-primary)'
-                        }}
+                        style={FILTER_SELECT_STYLE}
                     >
                         {STATUS_FILTERS.map((status) => (
                             <option value={status} key={status}>
@@ -274,13 +312,7 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                     <select
                         value={sourceFilter}
                         onChange={(event) => setSourceFilter((event.target as HTMLSelectElement).value as typeof sourceFilter)}
-                        style={{
-                            padding: '0.5rem 0.75rem',
-                            borderRadius: '8px',
-                            border: '1px solid var(--surface-border)',
-                            background: 'var(--input-bg)',
-                            color: 'var(--text-primary)'
-                        }}
+                        style={FILTER_SELECT_STYLE}
                     >
                         {SOURCE_FILTERS.map((source) => (
                             <option value={source} key={source}>
@@ -357,23 +389,8 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                                             type="button"
                                             onClick={() => void updateStatus(memory.id, 'confirmed')}
                                             disabled={loading}
-                                            style={{
-                                                borderRadius: '10px',
-                                                padding: '0.45rem 0.85rem',
-                                                border: 'none',
-                                                background: '#10b981',
-                                                color: '#fff',
-                                                cursor: 'pointer',
-                                                fontSize: '0.85rem',
-                                                fontWeight: '600',
-                                                boxShadow: 'none'
-                                            }}
-                                            onMouseOver={(e) => {
-                                                e.currentTarget.style.background = '#059669';
-                                            }}
-                                            onMouseOut={(e) => {
-                                                e.currentTarget.style.background = '#10b981';
-                                            }}
+                                            style={buildActionButtonStyle('#10b981')}
+                                            {...buildHoverHandlers('#10b981', '#059669')}
                                         >
                                             Godkänn
                                         </button>
@@ -382,23 +399,8 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                                             type="button"
                                             onClick={() => void updateStatus(memory.id, 'needs_review')}
                                             disabled={loading}
-                                            style={{
-                                                borderRadius: '10px',
-                                                padding: '0.45rem 0.85rem',
-                                                border: 'none',
-                                                background: '#f59e0b',
-                                                color: '#fff',
-                                                cursor: 'pointer',
-                                                fontSize: '0.85rem',
-                                                fontWeight: '600',
-                                                boxShadow: 'none'
-                                            }}
-                                            onMouseOver={(e) => {
-                                                e.currentTarget.style.background = '#d97706';
-                                            }}
-                                            onMouseOut={(e) => {
-                                                e.currentTarget.style.background = '#f59e0b';
-                                            }}
+                                            style={buildActionButtonStyle('#f59e0b')}
+                                            {...buildHoverHandlers('#f59e0b', '#d97706')}
                                         >
                                             Pausa
                                         </button>
@@ -407,23 +409,8 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                                         type="button"
                                         onClick={() => void deleteMemory(memory.id)}
                                         disabled={loading}
-                                        style={{
-                                            borderRadius: '10px',
-                                            padding: '0.45rem 0.85rem',
-                                            border: 'none',
-                                            background: '#ef4444',
-                                            color: '#fff',
-                                            cursor: 'pointer',
-                                            fontSize: '0.85rem',
-                                            fontWeight: '600',
-                                            boxShadow: 'none'
-                                        }}
-                                        onMouseOver={(e) => {
-                                            e.currentTarget.style.background = '#dc2626';
-                                        }}
-                                        onMouseOut={(e) => {
-                                            e.currentTarget.style.background = '#ef4444';
-                                        }}
+                                        style={buildActionButtonStyle('#ef4444')}
+                                        {...buildHoverHandlers('#ef4444', '#dc2626')}
                                     >
                                         Radera
                                     </button>

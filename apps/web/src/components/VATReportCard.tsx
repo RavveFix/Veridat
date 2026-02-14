@@ -165,6 +165,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                         companyId: data.company?.org_number || 'unknown',
                         payload: {
                             idempotencyKey: `vat_export:${reportId}:${data.period}:${voucherSeries}`,
+                            sourceContext: 'vat-report-card',
                             vatReportId: reportId,
                             voucher: {
                                 Description: `Momsredovisning ${data.period}`,

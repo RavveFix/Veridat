@@ -19,6 +19,7 @@ import { logger } from './LoggerService';
 import { fortnoxContextService } from './FortnoxContextService';
 import { companyService } from './CompanyService';
 import { bankImportService } from './BankImportService';
+import { financeAgentService } from './FinanceAgentService';
 import { STORAGE_KEYS } from '../constants/storageKeys';
 import { getFortnoxList } from '../utils/fortnoxResponse';
 
@@ -87,6 +88,17 @@ interface GuardianAlert {
     created_at: string;
 }
 
+interface ReconciliationSnapshotEntry {
+    period: string;
+    status?: string | null;
+}
+
+interface InvoiceInboxSnapshotItem {
+    status?: string;
+    dueDate?: string;
+    totalAmount?: number | null;
+}
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -149,6 +161,10 @@ class CopilotServiceClass extends EventTarget {
         const newNotifications: CopilotNotification[] = [];
 
         try {
+            const activeCompanyId = companyService.getCurrentId();
+            await financeAgentService.preloadCompany(activeCompanyId);
+            await bankImportService.refreshImports(activeCompanyId);
+
             // ---- Fortnox-based checks (only if connected) ----
             if (fortnoxContextService.isConnected()) {
                 const [supplierInvoices, customerInvoices] = await Promise.all([
@@ -199,7 +215,10 @@ class CopilotServiceClass extends EventTarget {
                 }
             }
 
-            // 11. Action suggestions
+            // 11. Compliance alerts from finance-agent
+            await this.checkComplianceAlerts(newNotifications);
+
+            // 12. Action suggestions
             this.generateActionSuggestions(newNotifications);
 
         } catch (err) {
@@ -278,23 +297,15 @@ class CopilotServiceClass extends EventTarget {
         }
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
+            const response = await this.callAuthedFunction('fortnox-guardian', {
+                action: 'resolve_alert',
+                payload: { alertId },
+            });
+
+            if (!response) {
                 this.dismiss(notificationId);
                 return;
             }
-
-            const response = await fetch(`${this.supabaseUrl}/functions/v1/fortnox-guardian`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({
-                    action: 'resolve_alert',
-                    payload: { alertId },
-                }),
-            });
 
             if (!response.ok) {
                 const err = await response.json().catch(() => ({}));
@@ -521,9 +532,7 @@ class CopilotServiceClass extends EventTarget {
     private checkBankReconciliation(out: CopilotNotification[]): void {
         try {
             const companyId = companyService.getCurrentId();
-            const raw = localStorage.getItem(STORAGE_KEYS.reconciledPeriods);
-            const reconciledStore = raw ? JSON.parse(raw) as Record<string, string[]> : {};
-            const reconciledPeriods = new Set(reconciledStore[companyId] || []);
+            const reconciledPeriods = this.getReconciledPeriodsSet(companyId);
 
             const imports = bankImportService.getImports(companyId);
             if (!imports || imports.length === 0) return;
@@ -558,11 +567,7 @@ class CopilotServiceClass extends EventTarget {
     private checkInvoiceInbox(out: CopilotNotification[]): void {
         try {
             const companyId = companyService.getCurrentId();
-            const raw = localStorage.getItem(STORAGE_KEYS.invoiceInbox);
-            if (!raw) return;
-
-            const store = JSON.parse(raw) as Record<string, Array<{ status: string; dueDate?: string; totalAmount?: number }>>;
-            const items = store[companyId];
+            const items = this.getInvoiceInboxItems(companyId);
             if (!items || items.length === 0) return;
 
             const pending = items.filter(i => i.status === 'ny' || i.status === 'granskad');
@@ -624,36 +629,18 @@ class CopilotServiceClass extends EventTarget {
 
         const mappedTypes = new Set<NotificationType>();
 
-        const mapGuardianCheckToNotificationType = (check: string): NotificationType | null => {
-            switch (check) {
-                case 'overdue_supplier_invoices':
-                    return 'overdue_invoice';
-                case 'unbooked_supplier_invoices':
-                    return 'unbooked_invoice';
-                case 'duplicate_supplier_invoices':
-                    return 'anomaly_duplicate';
-                case 'unusual_supplier_amounts':
-                    return 'anomaly_amount';
-                default:
-                    return null;
-            }
-        };
-
         for (const alert of alerts) {
             if (alert.status !== 'open') continue;
             const checkKey = typeof alert.payload?.check === 'string' ? alert.payload.check : '';
-            const mappedType = checkKey ? mapGuardianCheckToNotificationType(checkKey) : null;
+            const mappedType = checkKey ? this.mapGuardianCheckToNotificationType(checkKey) : null;
             if (mappedType) {
                 mappedTypes.add(mappedType);
             }
-            const category: NotificationCategory = alert.severity === 'critical' || alert.severity === 'warning'
-                ? 'varning'
-                : 'insikt';
 
             out.push({
                 id: `guardian-${alert.id}`,
                 type: mappedType ?? 'guardian_alert',
-                category,
+                category: this.mapSeverityToCategory(alert.severity),
                 title: alert.title,
                 description: alert.description,
                 severity: alert.severity,
@@ -667,76 +654,59 @@ class CopilotServiceClass extends EventTarget {
         return mappedTypes;
     }
 
+    private async checkComplianceAlerts(out: CopilotNotification[]): Promise<void> {
+        try {
+            const companyId = companyService.getCurrentId();
+            const alerts = await financeAgentService.listComplianceAlerts(companyId);
+            for (const alert of alerts) {
+                const code = typeof alert.code === 'string' ? alert.code : 'compliance_alert';
+                const severity = (typeof alert.severity === 'string' ? alert.severity : 'warning') as NotificationSeverity;
+                const title = typeof alert.title === 'string' ? alert.title : 'Compliance-alert';
+                const description = typeof alert.description === 'string' ? alert.description : 'Kontroll kräver uppmärksamhet.';
+                const actionTarget = typeof alert.actionTarget === 'string' ? alert.actionTarget : undefined;
+
+                out.push({
+                    id: `compliance-${code}`,
+                    type: 'guardian_alert',
+                    category: this.mapSeverityToCategory(severity),
+                    title,
+                    description,
+                    severity,
+                    prompt: `${title}\n${description}`,
+                    action: actionTarget,
+                    createdAt: new Date().toISOString(),
+                    read: false,
+                });
+            }
+        } catch (error) {
+            logger.warn('Failed to fetch finance compliance alerts', error);
+        }
+    }
+
     // =========================================================================
     // DATA FETCHING
     // =========================================================================
 
     private async fetchSupplierInvoices(): Promise<SupplierInvoiceSummary[]> {
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) return [];
-
-            const response = await fetch(`${this.supabaseUrl}/functions/v1/fortnox`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({ action: 'getSupplierInvoices' }),
-            });
-
-            if (!response.ok) return [];
-            const result = await response.json();
-            return getFortnoxList<SupplierInvoiceSummary>(result, 'SupplierInvoices');
-        } catch {
-            return [];
-        }
+        return this.fetchFortnoxList<SupplierInvoiceSummary>('getSupplierInvoices', 'SupplierInvoices');
     }
 
     private async fetchCustomerInvoices(): Promise<CustomerInvoiceSummary[]> {
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) return [];
-
-            const response = await fetch(`${this.supabaseUrl}/functions/v1/fortnox`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({ action: 'getInvoices' }),
-            });
-
-            if (!response.ok) return [];
-            const result = await response.json();
-            return getFortnoxList<CustomerInvoiceSummary>(result, 'Invoices');
-        } catch {
-            return [];
-        }
+        return this.fetchFortnoxList<CustomerInvoiceSummary>('getInvoices', 'Invoices');
     }
 
     private async fetchGuardianAlerts(): Promise<GuardianAlert[]> {
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) return [];
-
-            const response = await fetch(`${this.supabaseUrl}/functions/v1/fortnox-guardian`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${session.access_token}`,
+            const response = await this.callAuthedFunction('fortnox-guardian', {
+                action: 'list_alerts',
+                payload: {
+                    limit: 10,
+                    companyId: companyService.getCurrentId(),
                 },
-                body: JSON.stringify({
-                    action: 'list_alerts',
-                    payload: {
-                        limit: 10,
-                        companyId: companyService.getCurrentId(),
-                    },
-                }),
             });
 
-            if (!response.ok) return [];
-            const result = await response.json();
+            if (!response?.ok) return [];
+            const result = await response.json().catch(() => ({}));
             return Array.isArray(result?.alerts) ? (result.alerts as GuardianAlert[]) : [];
         } catch {
             return [];
@@ -823,6 +793,89 @@ class CopilotServiceClass extends EventTarget {
         const d = new Date();
         d.setDate(d.getDate() + days);
         return d.toISOString().slice(0, 10);
+    }
+
+    private async getSessionAccessToken(): Promise<string | null> {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ?? null;
+    }
+
+    private async callAuthedFunction(
+        functionName: 'fortnox' | 'fortnox-guardian',
+        body: Record<string, unknown>
+    ): Promise<Response | null> {
+        const accessToken = await this.getSessionAccessToken();
+        if (!accessToken) return null;
+
+        return fetch(`${this.supabaseUrl}/functions/v1/${functionName}`, {
+            method: 'POST',
+            headers: this.buildAuthHeaders(accessToken),
+            body: JSON.stringify(body),
+        });
+    }
+
+    private async fetchFortnoxList<T>(action: string, key: string): Promise<T[]> {
+        try {
+            const response = await this.callAuthedFunction('fortnox', { action });
+            if (!response?.ok) return [];
+            const result = await response.json().catch(() => ({}));
+            return getFortnoxList<T>(result, key);
+        } catch {
+            return [];
+        }
+    }
+
+    private buildAuthHeaders(accessToken: string): Record<string, string> {
+        return {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+        };
+    }
+
+    private mapGuardianCheckToNotificationType(check: string): NotificationType | null {
+        switch (check) {
+            case 'overdue_supplier_invoices':
+                return 'overdue_invoice';
+            case 'unbooked_supplier_invoices':
+                return 'unbooked_invoice';
+            case 'duplicate_supplier_invoices':
+                return 'anomaly_duplicate';
+            case 'unusual_supplier_amounts':
+                return 'anomaly_amount';
+            default:
+                return null;
+        }
+    }
+
+    private mapSeverityToCategory(severity: NotificationSeverity): NotificationCategory {
+        return severity === 'critical' || severity === 'warning' ? 'varning' : 'insikt';
+    }
+
+    private getReconciledPeriodsSet(companyId: string): Set<string> {
+        const cachedPeriods = financeAgentService.getCachedReconciliation(companyId) as ReconciliationSnapshotEntry[];
+        if (cachedPeriods.length > 0) {
+            return new Set(
+                cachedPeriods
+                    .filter((entry) => entry.status === 'reconciled' || entry.status === 'locked')
+                    .map((entry) => entry.period)
+            );
+        }
+
+        const raw = localStorage.getItem(STORAGE_KEYS.reconciledPeriods);
+        const reconciledStore = raw ? JSON.parse(raw) as Record<string, string[]> : {};
+        return new Set(reconciledStore[companyId] || []);
+    }
+
+    private getInvoiceInboxItems(companyId: string): InvoiceInboxSnapshotItem[] {
+        const cachedItems = financeAgentService.getCachedInvoiceInbox(companyId);
+        if (cachedItems.length > 0) {
+            return cachedItems;
+        }
+
+        const raw = localStorage.getItem(STORAGE_KEYS.invoiceInbox);
+        if (!raw) return [];
+        const store = JSON.parse(raw) as Record<string, InvoiceInboxSnapshotItem[]>;
+        return store[companyId] || [];
     }
 
     private toNumber(value: number | string | null | undefined): number {

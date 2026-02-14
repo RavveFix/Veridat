@@ -236,7 +236,9 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
             zIndex: 10000,
             padding: '1rem',
             animation: 'fadeIn 0.3s ease-out'
-        }}>
+        }}
+            data-testid="legal-consent-modal"
+        >
             <style>{`
                 @keyframes fadeIn {
                     from { opacity: 0; }
@@ -378,6 +380,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                             onInput={(e) => setFullName((e.target as HTMLInputElement).value)}
                             placeholder="T.ex. Anna Andersson"
                             class="input-glass"
+                            data-testid="legal-consent-full-name"
                             style={{
                                 width: '100%',
                                 padding: '0.75rem 0.9rem',
@@ -400,6 +403,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                             type="checkbox"
                             checked={hasAllDocs}
                             onChange={toggleRequiredDocs}
+                            data-testid="legal-consent-checkbox"
                         />
                         <span>
                             Jag godkänner{' '}
@@ -428,6 +432,7 @@ export function LegalConsentModal({ onAccepted, mode = 'authenticated' }: LegalC
                 <button
                     onClick={handleAccept}
                     disabled={isAccepting || !isValid}
+                    data-testid="legal-consent-accept-button"
                     style={{
                         width: '100%',
                         background: isAccepting || !isValid
