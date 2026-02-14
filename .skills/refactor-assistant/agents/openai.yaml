@@ -1,0 +1,6 @@
+interface:
+  display_name: "Refactor Assistant"
+  short_description: "Säker PR-refactor för frontend TS/TSX"
+  default_prompt: "Use $refactor-assistant to identify and implement small safe refactors in changed frontend files."
+policy:
+  allow_implicit_invocation: false

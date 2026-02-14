@@ -1,0 +1,324 @@
+import { render } from 'preact';
+import { act } from 'preact/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FortnoxPanel } from './FortnoxPanel';
+
+const { getSessionMock, getCurrentIdMock, loggerMock } = vi.hoisted(() => ({
+    getSessionMock: vi.fn(),
+    getCurrentIdMock: vi.fn(() => 'company-test'),
+    loggerMock: {
+        error: vi.fn(),
+        warn: vi.fn(),
+        info: vi.fn(),
+        debug: vi.fn()
+    }
+}));
+
+vi.mock('../lib/supabase', () => ({
+    supabase: {
+        auth: {
+            getSession: getSessionMock
+        }
+    }
+}));
+
+vi.mock('../services/CompanyService', () => ({
+    companyService: {
+        getCurrentId: getCurrentIdMock
+    }
+}));
+
+vi.mock('../services/LoggerService', () => ({
+    logger: loggerMock
+}));
+
+vi.mock('./CopilotPanel', () => ({
+    CopilotPanel: () => <div data-testid="copilot-panel-mock">Copilot mock</div>
+}));
+
+interface Deferred<T> {
+    promise: Promise<T>;
+    resolve: (value: T) => void;
+    reject: (reason?: unknown) => void;
+}
+
+function createDeferred<T>(): Deferred<T> {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+}
+
+function createJsonResponse(body: unknown, ok = true): Response {
+    return {
+        ok,
+        json: async () => body
+    } as Response;
+}
+
+let container: HTMLDivElement;
+
+function getByTestId(testId: string): HTMLElement {
+    const element = container.querySelector(`[data-testid="${testId}"]`);
+    expect(element).not.toBeNull();
+    return element as HTMLElement;
+}
+
+function queryByTestId(testId: string): HTMLElement | null {
+    return container.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+}
+
+async function renderPanel(): Promise<void> {
+    await act(async () => {
+        render(<FortnoxPanel onBack={vi.fn()} />, container);
+    });
+}
+
+async function click(element: HTMLElement): Promise<void> {
+    await act(async () => {
+        element.click();
+    });
+}
+
+async function waitForAssertion(assertion: () => void, timeoutMs = 2000): Promise<void> {
+    const startedAt = Date.now();
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        try {
+            assertion();
+            return;
+        } catch (error) {
+            if (Date.now() - startedAt >= timeoutMs) {
+                throw error;
+            }
+            await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            });
+        }
+    }
+}
+
+describe('FortnoxPanel', () => {
+    beforeEach(() => {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        getSessionMock.mockResolvedValue({
+            data: { session: { access_token: 'test-token' } }
+        });
+        getCurrentIdMock.mockReturnValue('company-test');
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+    });
+
+    afterEach(() => {
+        act(() => {
+            render(null, container);
+        });
+        container.remove();
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+        getSessionMock.mockReset();
+        getCurrentIdMock.mockReset();
+    });
+
+    it('switches between supplier and customer view', async () => {
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? '{}')) as { action?: string };
+            if (body.action === 'getSupplierInvoices') {
+                return createJsonResponse({
+                    SupplierInvoices: [{
+                        GivenNumber: 101,
+                        SupplierNumber: 'LEV-1',
+                        InvoiceNumber: 'S-101',
+                        DueDate: '2025-01-15',
+                        Total: 100,
+                        Balance: 100,
+                        Booked: false
+                    }]
+                });
+            }
+            if (body.action === 'getInvoices') {
+                return createJsonResponse({
+                    Invoices: [{
+                        InvoiceNumber: 201,
+                        CustomerNumber: 'KUND-1',
+                        DueDate: '2025-01-20',
+                        Total: 200,
+                        Balance: 50,
+                        Booked: true
+                    }]
+                });
+            }
+            throw new Error(`Unexpected action: ${body.action}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await renderPanel();
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('fortnox-supplier-row-101')).not.toBeNull();
+            expect(container.textContent).toContain('Leverantörsfakturor');
+        });
+
+        await click(getByTestId('fortnox-view-customer'));
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('fortnox-customer-row-201')).not.toBeNull();
+            expect(container.textContent).toContain('Kundfakturor');
+        });
+    });
+
+    it('applies supplier filters and shows empty state for authorizepending', async () => {
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? '{}')) as {
+                action?: string;
+                payload?: { filter?: string };
+            };
+            if (body.action === 'getSupplierInvoices') {
+                if (body.payload?.filter === 'authorizepending') {
+                    return createJsonResponse({ SupplierInvoices: [] });
+                }
+                return createJsonResponse({
+                    SupplierInvoices: [
+                        {
+                            GivenNumber: 111,
+                            SupplierNumber: 'LEV-A',
+                            InvoiceNumber: 'S-111',
+                            DueDate: '2025-01-10',
+                            Total: 120,
+                            Balance: 120,
+                            Booked: false
+                        },
+                        {
+                            GivenNumber: 112,
+                            SupplierNumber: 'LEV-B',
+                            InvoiceNumber: 'S-112',
+                            DueDate: '2025-01-11',
+                            Total: 130,
+                            Balance: 130,
+                            Booked: true
+                        }
+                    ]
+                });
+            }
+            throw new Error(`Unexpected action: ${body.action}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await renderPanel();
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('fortnox-supplier-row-111')).not.toBeNull();
+            expect(queryByTestId('fortnox-supplier-row-112')).not.toBeNull();
+        });
+
+        await click(getByTestId('fortnox-filter-unbooked'));
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('fortnox-supplier-row-111')).not.toBeNull();
+            expect(queryByTestId('fortnox-supplier-row-112')).toBeNull();
+        });
+
+        await click(getByTestId('fortnox-filter-authorizepending'));
+
+        await waitForAssertion(() => {
+            expect(container.textContent).toContain('Inga fakturor att visa.');
+        });
+    });
+
+    it('renders action column only when authorizepending filter is active', async () => {
+        const pendingInvoice = {
+            GivenNumber: 121,
+            SupplierNumber: 'LEV-P',
+            InvoiceNumber: 'S-121',
+            DueDate: '2025-01-12',
+            Total: 300,
+            Balance: 300,
+            Booked: true,
+            PaymentPending: true
+        };
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? '{}')) as {
+                action?: string;
+                payload?: { filter?: string };
+            };
+            if (body.action === 'getSupplierInvoices') {
+                if (body.payload?.filter === 'authorizepending') {
+                    return createJsonResponse({ SupplierInvoices: [pendingInvoice] });
+                }
+                return createJsonResponse({ SupplierInvoices: [pendingInvoice] });
+            }
+            throw new Error(`Unexpected action: ${body.action}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await renderPanel();
+
+        await waitForAssertion(() => {
+            const headers = Array.from(container.querySelectorAll('th')).map((header) => header.textContent?.trim());
+            expect(headers.includes('Åtgärd')).toBe(false);
+            expect(queryByTestId('fortnox-approve-bookkeep-121')).toBeNull();
+        });
+
+        await click(getByTestId('fortnox-filter-authorizepending'));
+
+        await waitForAssertion(() => {
+            const headers = Array.from(container.querySelectorAll('th')).map((header) => header.textContent?.trim());
+            expect(headers.includes('Åtgärd')).toBe(true);
+            expect(queryByTestId('fortnox-approve-bookkeep-121')).not.toBeNull();
+            expect(queryByTestId('fortnox-approve-payment-121')).not.toBeNull();
+        });
+    });
+
+    it('shows loading label while approve action is pending', async () => {
+        const pendingInvoice = {
+            GivenNumber: 131,
+            SupplierNumber: 'LEV-L',
+            InvoiceNumber: 'S-131',
+            DueDate: '2025-01-12',
+            Total: 450,
+            Balance: 450,
+            Booked: true,
+            PaymentPending: true
+        };
+        const approveDeferred = createDeferred<Response>();
+
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? '{}')) as {
+                action?: string;
+                payload?: { filter?: string };
+            };
+            if (body.action === 'getSupplierInvoices') {
+                return createJsonResponse({ SupplierInvoices: [pendingInvoice] });
+            }
+            if (body.action === 'approveSupplierInvoiceBookkeep') {
+                return approveDeferred.promise;
+            }
+            throw new Error(`Unexpected action: ${body.action}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await renderPanel();
+        await click(getByTestId('fortnox-filter-authorizepending'));
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('fortnox-approve-bookkeep-131')).not.toBeNull();
+        });
+
+        await click(getByTestId('fortnox-approve-bookkeep-131'));
+
+        await waitForAssertion(() => {
+            const button = getByTestId('fortnox-approve-bookkeep-131');
+            expect(button.textContent).toContain('Attesterar...');
+        });
+
+        approveDeferred.resolve(createJsonResponse({ ok: true }));
+
+        await waitForAssertion(() => {
+            const button = getByTestId('fortnox-approve-bookkeep-131');
+            expect(button.textContent).toContain('Godkänn bokföring');
+        });
+    });
+});

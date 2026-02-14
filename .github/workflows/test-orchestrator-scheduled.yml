@@ -1,0 +1,48 @@
+name: Test Orchestrator Scheduled
+
+on:
+  schedule:
+    - cron: '45 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-orchestrator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Trigger test-orchestrator run_all
+        env:
+          SUPABASE_FUNCTIONS_URL: ${{ secrets.SUPABASE_FUNCTIONS_URL }}
+          TEST_ORCHESTRATOR_SECRET: ${{ secrets.TEST_ORCHESTRATOR_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_FUNCTIONS_URL:-}" ]; then
+            echo "Missing SUPABASE_FUNCTIONS_URL secret" >&2
+            exit 1
+          fi
+
+          if [ -z "${TEST_ORCHESTRATOR_SECRET:-}" ]; then
+            echo "Missing TEST_ORCHESTRATOR_SECRET secret" >&2
+            exit 1
+          fi
+
+          ENDPOINT_BASE="${SUPABASE_FUNCTIONS_URL%/}"
+          if [[ "$ENDPOINT_BASE" != */functions/v1 ]]; then
+            ENDPOINT_BASE="${ENDPOINT_BASE}/functions/v1"
+          fi
+
+          curl --fail-with-body -sS -X POST "${ENDPOINT_BASE}/test-orchestrator" \
+            -H 'Content-Type: application/json' \
+            -H "x-test-orchestrator-secret: ${TEST_ORCHESTRATOR_SECRET}" \
+            --data '{"action":"run_all","mode":"scheduled"}' | tee orchestrator-response.json
+
+      - name: Upload orchestrator response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-orchestrator-response-${{ github.run_id }}-${{ github.run_attempt }}
+          path: orchestrator-response.json
+          if-no-files-found: warn
+          retention-days: 14
