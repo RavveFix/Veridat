@@ -39,7 +39,7 @@ export async function sendMessageToClaude(
 ): Promise<ClaudeResponse> {
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) {
-        throw new Error('ANTHROPIC_API_KEY not found in environment');
+        throw new Error('ANTHROPIC_API_KEY saknas — Claude-fallback ej tillgänglig.');
     }
 
     const model = Deno.env.get('CLAUDE_MODEL') || DEFAULT_MODEL;

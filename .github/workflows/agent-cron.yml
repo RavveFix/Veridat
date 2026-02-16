@@ -41,7 +41,7 @@ jobs:
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X POST "${SUPABASE_URL}/functions/v1/agent-orchestrator" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${AGENT_CRON_SECRET}" \
+            -H "x-agent-cron-secret: ${AGENT_CRON_SECRET}" \
             -d "${PAYLOAD}")
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)

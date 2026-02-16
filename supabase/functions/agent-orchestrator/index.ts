@@ -152,7 +152,7 @@ async function handleDispatch(
     // Auto-execute: claim and run the task immediately
     const taskId = String(task.id);
     try {
-        await supabaseAdmin
+        const { data: claimed } = await supabaseAdmin
             .from("agent_tasks")
             .update({
                 status: "running",
@@ -160,7 +160,13 @@ async function handleDispatch(
                 started_at: new Date().toISOString(),
             })
             .eq("id", taskId)
-            .eq("status", "pending");
+            .eq("status", "pending")
+            .select("id")
+            .maybeSingle();
+
+        if (!claimed) {
+            return { ok: true, task: { ...task, status: "claimed" }, message: "Task redan claimad av annan process." };
+        }
 
         const result = await executeAgentHandler(supabaseAdmin, {
             taskId,
@@ -384,6 +390,7 @@ async function executeAgentHandler(
                     action: "run_checks",
                     payload: { userId, companyId, limit: 1 },
                 }),
+                signal: AbortSignal.timeout(60_000),
             });
 
             const guardianResult = await guardianResponse.json().catch(() => ({}));
@@ -425,6 +432,7 @@ async function executeAgentHandler(
                         _agentTaskId: params.taskId,
                     },
                 }),
+                signal: AbortSignal.timeout(60_000),
             });
 
             const financeResult = await financeResponse.json().catch(() => ({}));

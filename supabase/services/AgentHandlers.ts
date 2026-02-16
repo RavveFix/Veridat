@@ -703,7 +703,14 @@ Föreslå rätt BAS-konto, kontonamn och momssats. Svara ENBART med JSON:
     }
 }
 
+function validatePeriod(period: string): void {
+    if (!/^\d{4}-\d{2}$/.test(period)) {
+        throw new Error('Ogiltigt periodformat. Använd YYYY-MM.');
+    }
+}
+
 function nextPeriodStart(period: string): string {
+    validatePeriod(period);
     const [yearStr, monthStr] = period.split('-');
     const year = Number.parseInt(yearStr, 10);
     const month = Number.parseInt(monthStr, 10);
