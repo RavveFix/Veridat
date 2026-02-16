@@ -323,7 +323,7 @@ export function SkillsHubPanel() {
     }
 
     return (
-        <section className="skills-hub" data-testid="skills-hub-root">
+        <section className="skills-hub skills-hub--stagger" data-testid="skills-hub-root">
             <div className="skills-hub__header">
                 <div>
                     <h3 className="skills-hub__title">Skills & Automationer</h3>

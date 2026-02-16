@@ -1,0 +1,58 @@
+name: Agent Swarm Cron
+
+on:
+  schedule:
+    # Guardian — daglig compliance-check kl 02:00 UTC
+    - cron: '0 2 * * *'
+    # Momsagent — den 12:e varje månad kl 06:00 UTC
+    - cron: '0 6 12 * *'
+    # AGI-agent — den 1:a varje månad kl 06:00 UTC
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+    inputs:
+      agent_type:
+        description: 'Specific agent type to trigger (leave empty for scheduled tick)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - guardian
+          - moms
+          - agi
+
+jobs:
+  schedule-tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger agent orchestrator schedule_tick
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          AGENT_CRON_SECRET: ${{ secrets.AGENT_CRON_SECRET }}
+        run: |
+          PAYLOAD='{"action":"schedule_tick"}'
+
+          # If manual dispatch with specific agent, add it to payload
+          if [ -n "${{ github.event.inputs.agent_type }}" ]; then
+            PAYLOAD="{\"action\":\"schedule_tick\",\"agent_type\":\"${{ github.event.inputs.agent_type }}\"}"
+          fi
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "${SUPABASE_URL}/functions/v1/agent-orchestrator" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${AGENT_CRON_SECRET}" \
+            -d "${PAYLOAD}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP Status: ${HTTP_CODE}"
+          echo "Response: ${BODY}"
+
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "::error::Agent orchestrator schedule_tick failed with HTTP ${HTTP_CODE}"
+            exit 1
+          fi
+
+          echo "schedule_tick completed successfully"

@@ -11,6 +11,7 @@ import {
 import { createLogger } from "../../services/LoggerService.ts";
 import { AuditService } from "../../services/AuditService.ts";
 import { createSwedishComplianceService, type CompanyForm } from "../../services/SwedishComplianceService.ts";
+import { dispatchAgentAction, type HandlerContext } from "../../services/AgentHandlers.ts";
 
 const logger = createLogger('finance-agent');
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -26,7 +27,15 @@ type FinanceAction =
     | 'listInvoiceInboxItems'
     | 'runAgiDraft'
     | 'approveAgiDraft'
-    | 'listComplianceAlerts';
+    | 'listComplianceAlerts'
+    // Agent swarm actions (delegated to AgentHandlers)
+    | 'processInvoice'
+    | 'matchInvoiceToTransaction'
+    | 'reconcileBankTransactions'
+    | 'calculateVATReport'
+    | 'exportVATToFortnox'
+    | 'createJournalEntryFromInvoice'
+    | 'autoPostTransaction';
 
 type AdminClient = SupabaseClient<any, any, any, any, any>;
 
@@ -776,6 +785,26 @@ Deno.serve(async (req: Request) => {
                 return jsonResponse(corsHeaders, 200, {
                     alerts: [...ruleAlerts, ...guardianAlerts],
                 });
+            }
+
+            // Agent swarm actions — delegated to AgentHandlers
+            case 'processInvoice':
+            case 'matchInvoiceToTransaction':
+            case 'reconcileBankTransactions':
+            case 'calculateVATReport':
+            case 'exportVATToFortnox':
+            case 'createJournalEntryFromInvoice':
+            case 'autoPostTransaction': {
+                const resolvedCompanyId = requireCompanyId();
+                const agentTaskId = typeof payload._agentTaskId === 'string' ? payload._agentTaskId : '';
+                const handlerCtx: HandlerContext = {
+                    supabase: supabaseAdmin,
+                    userId,
+                    companyId: resolvedCompanyId,
+                    taskId: agentTaskId,
+                };
+                const result = await dispatchAgentAction(handlerCtx, action, payload);
+                return jsonResponse(corsHeaders, 200, { ok: true, ...result });
             }
 
             default:

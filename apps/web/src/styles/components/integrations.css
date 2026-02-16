@@ -1,0 +1,248 @@
+/* ==========================================================================
+   INTEGRATIONS PAGE — Extends panel design system
+   ========================================================================== */
+
+/* --- Integration Card Icon (48×48, brand-colored) --- */
+.integ-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 1.1rem;
+    font-weight: 800;
+    font-family: var(--font-display);
+    transition: box-shadow 0.2s ease;
+}
+
+.integ-icon--fortnox {
+    background: linear-gradient(135deg, #1a6b3c, #22925a);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(26, 107, 60, 0.3);
+}
+
+.integ-icon--visma {
+    background: linear-gradient(135deg, #e6007e, #ff3399);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(230, 0, 126, 0.25);
+}
+
+.integ-icon--bankid {
+    background: linear-gradient(135deg, #235971, #3a8fb7);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(35, 89, 113, 0.3);
+}
+
+/* --- Status Badges (integration cards) --- */
+.integ-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.integ-badge--connected {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.integ-badge--disconnected {
+    background: rgba(148, 163, 184, 0.08);
+    color: var(--text-secondary);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.integ-badge--connecting {
+    background: rgba(59, 130, 246, 0.12);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.integ-badge--error {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.integ-badge--coming-soon {
+    background: rgba(148, 163, 184, 0.06);
+    color: var(--text-secondary);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.integ-badge--pro {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* --- Tool Badges (Nytt / Pro / Beta) --- */
+.integ-tool-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-transform: uppercase;
+}
+
+.integ-tool-badge--new {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.integ-tool-badge--pro {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.integ-tool-badge--beta {
+    background: rgba(59, 130, 246, 0.12);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+/* --- Tool Card Icon (36×36, matches panel-icon) --- */
+.integ-tool-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* --- Alert Count Badges (guardian / compliance) --- */
+.integ-alert-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.integ-alert-count--critical {
+    background: #ef4444;
+    color: #fff;
+}
+
+.integ-alert-count--warning {
+    background: #f59e0b;
+    color: #0f172a;
+}
+
+/* --- Connected Card Gradient Overlay --- */
+.integ-card--connected {
+    background: linear-gradient(135deg, var(--surface-1) 0%, rgba(16, 185, 129, 0.04) 100%) !important;
+    border-color: rgba(16, 185, 129, 0.2) !important;
+}
+
+/* --- Action Buttons --- */
+.integ-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-family: var(--font-display);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: none;
+    white-space: nowrap;
+}
+
+.integ-btn:disabled {
+    cursor: wait;
+    opacity: 0.75;
+}
+
+.integ-btn--connect {
+    background: var(--accent-gradient);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.integ-btn--connect:hover:not(:disabled) {
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.35);
+    transform: translateY(-1px);
+}
+
+.integ-btn--disconnect {
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    border: 1px solid var(--surface-border);
+}
+
+.integ-btn--disconnect:hover:not(:disabled) {
+    background: var(--surface-3);
+    color: var(--text-primary);
+}
+
+.integ-btn--upgrade {
+    background: var(--accent-gradient);
+    color: #fff;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.integ-btn--upgrade:hover {
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.35);
+    transform: translateY(-1px);
+}
+
+/* --- Info Card (Hur fungerar det?) --- */
+.integ-info-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.integ-info-card__icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(14, 165, 233, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--accent-primary);
+}
+
+/* --- Disabled Tool Card --- */
+.integ-tool-card--disabled {
+    opacity: 0.6;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
+.integ-tool-card--disabled:hover {
+    transform: none !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* --- Extend stagger delays for larger grids --- */
+.integ-stagger > *:nth-child(9)  { animation-delay: 480ms; }
+.integ-stagger > *:nth-child(10) { animation-delay: 540ms; }
+.integ-stagger > *:nth-child(11) { animation-delay: 600ms; }
+.integ-stagger > *:nth-child(12) { animation-delay: 660ms; }

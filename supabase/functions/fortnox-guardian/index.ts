@@ -447,6 +447,88 @@ async function runChecksForUser(
         });
     }
 
+    // 6) Agent swarm: permanently failed tasks
+    try {
+        const { data: failedTasks } = await supabaseAdmin
+            .from('agent_tasks')
+            .select('id, agent_type, error_message')
+            .eq('user_id', userId)
+            .eq('company_id', companyId)
+            .eq('status', 'failed')
+            .limit(50);
+
+        const permFailed = (failedTasks || []).filter(
+            (t: Record<string, unknown>) => typeof t.id === 'string'
+        );
+
+        if (permFailed.length > 0) {
+            const agentTypes = [...new Set(permFailed.map((t: Record<string, unknown>) => t.agent_type))];
+            await registerAlert('agent_tasks_permanently_failed', {
+                severity: permFailed.length >= 5 ? 'critical' : 'warning',
+                title: `${permFailed.length} agent-task(s) permanent misslyckade`,
+                description: `Agenttyper: ${agentTypes.join(', ')}. Kontrollera task-kön.`,
+                actionTarget: 'agent-dashboard',
+                payload: { failed_count: permFailed.length, agent_types: agentTypes },
+            });
+        }
+    } catch (error) {
+        logger.warn('Agent task failed-check skipped', { error });
+    }
+
+    // 7) Agent swarm: stale open reconciliation periods
+    try {
+        const now = new Date();
+        const twoMonthsAgo = `${now.getFullYear()}-${String(Math.max(1, now.getMonth() - 1)).padStart(2, '0')}`;
+
+        const { data: stalePeriods } = await supabaseAdmin
+            .from('reconciliation_periods')
+            .select('id, period')
+            .eq('user_id', userId)
+            .eq('company_id', companyId)
+            .eq('status', 'open')
+            .lt('period', twoMonthsAgo)
+            .limit(20);
+
+        if (stalePeriods && stalePeriods.length > 0) {
+            const oldest = stalePeriods[stalePeriods.length - 1]?.period || '';
+            await registerAlert('stale_open_reconciliation', {
+                severity: stalePeriods.length >= 3 ? 'warning' : 'info',
+                title: `${stalePeriods.length} öppna avstämningsperiod(er) äldre än 2 månader`,
+                description: `Äldsta: ${oldest}. Stäng eller lås perioderna.`,
+                actionTarget: 'reconciliation',
+                payload: { stale_count: stalePeriods.length, oldest_period: oldest },
+            });
+        }
+    } catch (error) {
+        logger.warn('Reconciliation stale-check skipped', { error });
+    }
+
+    // 8) Agent swarm: unprocessed invoices older than 14 days
+    try {
+        const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+        const { data: staleInvoices } = await supabaseAdmin
+            .from('invoice_inbox_items')
+            .select('id, supplier_name, uploaded_at')
+            .eq('user_id', userId)
+            .eq('company_id', companyId)
+            .eq('status', 'ny')
+            .lt('uploaded_at', fourteenDaysAgo)
+            .limit(20);
+
+        if (staleInvoices && staleInvoices.length > 0) {
+            await registerAlert('stale_unprocessed_invoices', {
+                severity: staleInvoices.length >= 5 ? 'warning' : 'info',
+                title: `${staleInvoices.length} faktura(or) obehandlade > 14 dagar`,
+                description: 'Fakturor i inkorgen har legat obearbetade länge. Granska eller kör fakturaagenten.',
+                actionTarget: 'invoice-inbox',
+                payload: { stale_count: staleInvoices.length },
+            });
+        }
+    } catch (error) {
+        logger.warn('Invoice stale-check skipped', { error });
+    }
+
     const resolved = await resolveStaleAlerts(supabaseAdmin, userId, companyId, activeFingerprints);
     return { created, updated, resolved };
 }

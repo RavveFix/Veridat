@@ -24,6 +24,8 @@ export interface ExcelPanelElements {
   titleIcon?: HTMLElement;
   /** Optional panel tabs for VAT report navigation */
   panelTabs?: HTMLElement;
+  /** Optional header actions container for action buttons */
+  headerActions?: HTMLElement;
 }
 
 /**

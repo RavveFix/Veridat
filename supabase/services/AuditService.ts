@@ -22,7 +22,7 @@ const logger = createLogger('audit');
 
 export type ActorType = 'user' | 'system' | 'ai' | 'fortnox_sync';
 
-export type AIProvider = 'gemini' | 'openai' | 'claude';
+export type AIProvider = 'gemini' | 'openai' | 'claude' | 'system';
 
 export type FortnoxOperation =
     | 'export_voucher'

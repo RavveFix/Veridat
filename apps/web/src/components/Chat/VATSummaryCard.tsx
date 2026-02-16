@@ -80,7 +80,7 @@ export const VATSummaryCard: FunctionComponent<VATSummaryCardProps> = ({
             {/* Content */}
             <div class="vat-summary-content">
                 <div class="vat-summary-header">
-                    <span class="vat-summary-title">Momsredovisning klar</span>
+                    <span class="vat-summary-title">Bokföringsunderlag klart</span>
                     <span class="vat-summary-period">{period}</span>
                 </div>
 
@@ -104,7 +104,7 @@ export const VATSummaryCard: FunctionComponent<VATSummaryCardProps> = ({
                 onClick={handleOpenPanel}
                 title="Öppna fullständig rapport"
             >
-                <span>Öppna rapport</span>
+                <span>Öppna underlag</span>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M5 12h14M12 5l7 7-7 7"/>
                 </svg>

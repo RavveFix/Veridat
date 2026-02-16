@@ -34,6 +34,10 @@ import './styles/components/thinking-steps.css';
 import './styles/components/fortnox-sidebar.css';
 import './styles/components/smart-actions.css';
 import './styles/components/skills-hub.css';
+import './styles/components/agent-dashboard.css';
+import './styles/components/bokforingsunderlag.css';
+import './styles/components/spreadsheet-viewer.css';
+import './styles/components/integrations.css';
 
 logger.debug('main.ts module loading...');
 

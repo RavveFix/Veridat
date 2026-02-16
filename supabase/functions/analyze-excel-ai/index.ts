@@ -15,6 +15,9 @@ import { getRateLimitConfigForPlan, getUserPlan } from "../../services/PlanServi
 import { CompanyMemoryService, buildMemoryPatchFromVatReport } from "../../services/CompanyMemoryService.ts";
 import { ExpensePatternService, PatternSuggestion } from "../../services/ExpensePatternService.ts";
 import { AuditService } from "../../services/AuditService.ts";
+import { resolveGeminiModel } from "../../services/AIRouter.ts";
+import { sendMessageToClaude } from "../../services/ClaudeService.ts";
+import type { UserPlan } from "../../services/PlanService.ts";
 
 // Swedish accounting services
 import { roundToOre, safeSum, validateVATCalculation } from "../../services/SwedishRounding.ts";
@@ -576,13 +579,10 @@ type ColumnMapping = {
   date_column: string | null;
 };
 
-type OpenAIChatCompletion = {
-  choices?: Array<{
-    message?: {
-      tool_calls?: Array<{
-        function?: { name?: string; arguments?: string };
-      }>;
-      content?: string | null;
+type GeminiGenerateResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>;
     };
   }>;
 };
@@ -594,48 +594,16 @@ function normalizeMappedColumn(columns: string[], value: unknown): string | null
   return columns.includes(trimmed) ? trimmed : null;
 }
 
-async function mapColumnsWithOpenAI(
+async function mapColumnsWithAI(
   columns: string[],
   sampleRows: Array<Record<string, unknown>>,
   filename: string,
   auditService?: AuditService,
   userId?: string,
   companyId?: string,
+  plan?: UserPlan,
 ): Promise<{ mapping: ColumnMapping; aiDecisionId?: string }> {
   const startTimeRef = performance.now();
-  const apiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY saknas. Jag kan inte tolka den här Excel-mallen utan OpenAI-mappning.');
-  }
-
-  const baseUrl = (Deno.env.get('OPENAI_BASE_URL') || 'https://api.openai.com/v1').replace(/\/$/, '');
-  const model = Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini';
-  const usesMaxCompletionTokens = /^gpt-5/i.test(model) || /^o\d/i.test(model);
-
-  const tool = {
-    type: 'function',
-    function: {
-      name: 'map_excel_columns',
-      description: 'Mappar Excel-kolumner till ett normaliserat transaktionsschema (utan att räkna).',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          amount_column: { type: ['string', 'null'] },
-          amount_kind: { type: 'string', enum: ['gross', 'net', 'unknown'] },
-          net_amount_column: { type: ['string', 'null'] },
-          vat_amount_column: { type: ['string', 'null'] },
-          vat_rate_column: { type: ['string', 'null'] },
-          debit_column: { type: ['string', 'null'] },
-          credit_column: { type: ['string', 'null'] },
-          supplier_column: { type: ['string', 'null'] },
-          description_column: { type: ['string', 'null'] },
-          date_column: { type: ['string', 'null'] },
-        },
-        required: ['amount_kind'],
-      },
-    },
-  } as const;
 
   const prompt = `Du får en Excel-export (kolumner + exempelrader). Ditt jobb är att MAPPA kolumner till fälten nedan.
 
@@ -647,6 +615,10 @@ VIKTIGT:
 - Om beloppet ligger i två kolumner (debet/kredit), sätt debit_column/credit_column och amount_column = null.
 - amount_kind: gross|net|unknown.
 
+Svara ENBART med ett JSON-objekt med dessa fält:
+amount_column, amount_kind, net_amount_column, vat_amount_column, vat_rate_column,
+debit_column, credit_column, supplier_column, description_column, date_column.
+
 Filen heter: ${filename}
 
 KOLUMNER:
@@ -655,52 +627,121 @@ ${JSON.stringify(columns)}
 EXEMPELRADER (första 20):
 ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
 
-  const payload: Record<string, unknown> = {
-    model,
-    temperature: 0,
-    tools: [tool],
-    tool_choice: { type: 'function', function: { name: 'map_excel_columns' } },
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  };
+  let responseText = '';
+  let aiProvider: 'gemini' | 'claude' = 'gemini';
+  const geminiModel = resolveGeminiModel(plan);
+  let aiModel = geminiModel;
 
-  if (usesMaxCompletionTokens) {
-    payload.max_completion_tokens = 800;
-    payload.reasoning_effort = 'none';
-  } else {
-    payload.max_tokens = 800;
+  // --- Try Gemini first (with structured output) ---
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  if (apiKey) {
+    try {
+      const responseSchema = {
+        type: 'OBJECT',
+        properties: {
+          amount_column: { type: 'STRING', nullable: true },
+          amount_kind: { type: 'STRING', enum: ['gross', 'net', 'unknown'] },
+          net_amount_column: { type: 'STRING', nullable: true },
+          vat_amount_column: { type: 'STRING', nullable: true },
+          vat_rate_column: { type: 'STRING', nullable: true },
+          debit_column: { type: 'STRING', nullable: true },
+          credit_column: { type: 'STRING', nullable: true },
+          supplier_column: { type: 'STRING', nullable: true },
+          description_column: { type: 'STRING', nullable: true },
+          date_column: { type: 'STRING', nullable: true },
+        },
+        required: ['amount_kind'],
+      };
+
+      const payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 800,
+          responseMimeType: 'application/json',
+          responseSchema,
+        },
+      };
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          const status = res.status;
+          // Fallback-worthy errors: 429, 500, 502, 503
+          if (status === 429 || status >= 500) {
+            throw new Error(`Gemini API error (${status}): ${errText || res.statusText}`);
+          }
+          throw new Error(`AI-mappning misslyckades (${status}): ${errText || res.statusText}`);
+        }
+
+        const data = (await res.json()) as GeminiGenerateResponse;
+        responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (geminiError) {
+      const msg = geminiError instanceof Error ? geminiError.message.toLowerCase() : '';
+      const shouldFallback = /\b(429|500|502|503)\b/.test(msg)
+        || /timeout|timed?\s*out|aborted/i.test(msg)
+        || /resource.*exhausted|quota.*exceeded/i.test(msg);
+
+      if (shouldFallback) {
+        logger.warn('Gemini failed for column mapping, falling back to Claude', {
+          error: geminiError instanceof Error ? geminiError.message : String(geminiError),
+        });
+        // Will try Claude below
+      } else {
+        throw geminiError;
+      }
+    }
   }
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  // --- Fallback to Claude if Gemini didn't produce a response ---
+  if (!responseText) {
+    const claudeApiKey = Deno.env.get('ANTHROPIC_API_KEY');
+    if (!claudeApiKey) {
+      throw new Error('Varken Gemini eller Claude är tillgänglig. Kan inte tolka Excel-mallen.');
+    }
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`OpenAI-mappning misslyckades (${res.status}): ${text || res.statusText}`);
+    logger.info('Using Claude for column mapping fallback');
+    aiProvider = 'claude';
+
+    const claudeResponse = await sendMessageToClaude(
+      prompt,
+      undefined,
+      'Du är en expert på att analysera Excel-filer för svensk bokföring. Svara ENBART med JSON, ingen annan text.',
+    );
+    responseText = claudeResponse.text;
+    aiModel = claudeResponse.model;
   }
 
-  const data = (await res.json()) as OpenAIChatCompletion;
-  const call = data.choices?.[0]?.message?.tool_calls?.[0];
-  const args = call?.function?.arguments || '';
-  if (!args) {
-    throw new Error('OpenAI returnerade ingen kolumnmappning.');
+  if (!responseText) {
+    throw new Error('AI returnerade ingen kolumnmappning.');
+  }
+
+  // Extract JSON from response (handle markdown code blocks)
+  let jsonText = responseText.trim();
+  const jsonMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    jsonText = jsonMatch[1].trim();
   }
 
   let parsed: Partial<ColumnMapping>;
   try {
-    parsed = JSON.parse(args) as Partial<ColumnMapping>;
+    parsed = JSON.parse(jsonText) as Partial<ColumnMapping>;
   } catch {
-    throw new Error('OpenAI returnerade ogiltig JSON för kolumnmappning.');
+    throw new Error('AI returnerade ogiltig JSON för kolumnmappning.');
   }
 
   const mapping: ColumnMapping = {
@@ -725,8 +766,8 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
     aiDecisionId = await auditService.logAIDecision({
       userId,
       companyId,
-      aiProvider: 'openai',
-      aiModel: model,
+      aiProvider,
+      aiModel,
       aiFunction: 'map_excel_columns',
       inputData: {
         columns,
@@ -734,7 +775,7 @@ ${JSON.stringify(sampleRows.slice(0, 20), null, 2)}`;
         filename,
       },
       outputData: mapping as unknown as Record<string, unknown>,
-      confidence: 0.8, // Column mapping has moderate confidence
+      confidence: 0.8,
       processingTimeMs: Math.round(endTime - startTimeRef),
     });
   }
@@ -788,7 +829,8 @@ Deno.serve(async (req: Request) => {
     return createForbiddenOriginResponse(requestOrigin);
   }
 
-  // Require auth and resolve actual user id from token (don’t trust client-provided IDs)
+  try {
+  // Require auth and resolve actual user id from token (don't trust client-provided IDs)
   const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
   if (!authHeader) {
     return new Response(
@@ -1221,7 +1263,7 @@ Deno.serve(async (req: Request) => {
       } else {
         // ═══════════════════════════════════════════════════════════════
         // GENERELL FIL: Deterministisk analys (exakt matematik)
-        // - Kolumnmappning: heuristik → (fallback) OpenAI-mappning
+        // - Kolumnmappning: heuristik → (fallback) Gemini AI-mappning
         // - Summeringar: beräknas alltid deterministiskt (öre)
         // ═══════════════════════════════════════════════════════════════
 
@@ -1370,13 +1412,14 @@ Deno.serve(async (req: Request) => {
             thinking_steps: analysisContext.thinking_steps,
             confidence: analysisContext.confidence
           });
-          const aiResult = await mapColumnsWithOpenAI(
+          const aiResult = await mapColumnsWithAI(
             columns,
             rowObjects.slice(0, 50),
             body.filename,
             auditService,
             userId,
-            body.org_number || body.company_name
+            body.org_number || body.company_name,
+            plan
           );
           mapping = aiResult.mapping;
           // aiResult.aiDecisionId is now logged for BFL compliance
@@ -1879,11 +1922,16 @@ Deno.serve(async (req: Request) => {
 
     } catch (error) {
       logger.error('Analysis failed', error);
-      await sendProgress({
-        step: 'error',
-        error: error instanceof Error ? error.message : 'Okänt fel uppstod'
-      });
-      await writer.close();
+      try {
+        await sendProgress({
+          step: 'error',
+          error: error instanceof Error ? error.message : 'Okänt fel uppstod'
+        });
+        await writer.close();
+      } catch {
+        // Writer already closed or broken — nothing we can do
+        try { await writer.close(); } catch { /* ignore */ }
+      }
     }
   })();
 
@@ -1895,4 +1943,16 @@ Deno.serve(async (req: Request) => {
       'Connection': 'keep-alive'
     }
   });
+
+  } catch (error) {
+    // Top-level catch: handles errors before stream setup (auth, env vars, etc.)
+    const logger = createLogger('analyze-excel-ai');
+    logger.error('Top-level handler error', error);
+    const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
+    const headers = getCorsHeaders(requestOrigin);
+    return new Response(
+      JSON.stringify({ error: error instanceof Error ? error.message : 'Serverfel', message: error instanceof Error ? error.message : 'Serverfel' }),
+      { status: 500, headers: { ...headers, 'Content-Type': 'application/json' } }
+    );
+  }
 });

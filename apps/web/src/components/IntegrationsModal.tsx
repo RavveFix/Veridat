@@ -83,92 +83,139 @@ function isFortnoxTool(tool: IntegrationTool | null | undefined): boolean {
     return !!tool && FORTNOX_LOCKED_TOOLS.includes(tool);
 }
 
-function setSurfaceButtonBackground(button: HTMLButtonElement, isHover: boolean): void {
-    button.style.background = isHover ? 'var(--surface-3)' : 'var(--surface-2)';
+// ---------------------------------------------------------------------------
+// Tool Groups — data-driven rendering
+// ---------------------------------------------------------------------------
+
+interface ToolDef {
+    id: IntegrationTool;
+    title: string;
+    description: string;
+    iconPath: string;
+    iconColor: string;
+    badge: 'new' | 'pro' | 'beta';
+    testId: string;
+    requiresPro?: boolean;
 }
 
-function setPrimaryButtonBackground(button: HTMLButtonElement, isHover: boolean): void {
-    button.style.background = isHover ? '#1d4ed8' : '#2563eb';
-}
+const TOOL_GROUPS: { title: string; tools: ToolDef[] }[] = [
+    {
+        title: 'Fortnox-verktyg',
+        tools: [
+            {
+                id: 'fortnox-panel',
+                title: 'Fortnoxpanel',
+                description: 'Se leverantörsfakturor, status och Copilot i en vy.',
+                iconPath: 'M2 3h20v14H2zM8 21h8M12 17v4',
+                iconColor: '#2563eb',
+                badge: 'pro',
+                testId: 'integration-tool-fortnox-panel',
+                requiresPro: true,
+            },
+            {
+                id: 'vat-report',
+                title: 'Momsdeklaration',
+                description: 'Hämta momsrapport direkt från Fortnox med intäkter, kostnader och momsavräkning.',
+                iconPath: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8',
+                iconColor: '#3b82f6',
+                badge: 'pro',
+                testId: 'integration-tool-vat-report',
+                requiresPro: true,
+            },
+            {
+                id: 'invoice-inbox',
+                title: 'Fakturainkorg',
+                description: 'Ladda upp leverantörsfakturor (PDF/bild), AI-extrahera och exportera till Fortnox.',
+                iconPath: 'M22 12h-6l-2 3H10l-2-3H2M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z',
+                iconColor: '#8b5cf6',
+                badge: 'pro',
+                testId: 'integration-tool-invoice-inbox',
+                requiresPro: true,
+            },
+        ],
+    },
+    {
+        title: 'Bokföring och Bank',
+        tools: [
+            {
+                id: 'dashboard',
+                title: 'Översikt',
+                description: 'Dashboard med ekonomisk status, deadlines och snabbåtgärder.',
+                iconPath: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
+                iconColor: '#10b981',
+                badge: 'new',
+                testId: 'integration-tool-dashboard',
+            },
+            {
+                id: 'bank-import',
+                title: 'Bankimport (CSV)',
+                description: 'Importera kontoutdrag (Handelsbanken, SEB, Nordea, Swedbank) och matcha mot fakturor.',
+                iconPath: 'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12',
+                iconColor: '#0ea5e9',
+                badge: 'beta',
+                testId: 'integration-tool-bank-import',
+            },
+            {
+                id: 'reconciliation',
+                title: 'Bankavstämning',
+                description: 'Översikt per period, markera månader som avstämda.',
+                iconPath: 'M22 11.08V12a10 10 0 11-5.93-9.14M22 4L12 14.01l-3-3',
+                iconColor: '#10b981',
+                badge: 'new',
+                testId: 'integration-tool-reconciliation',
+            },
+            {
+                id: 'bookkeeping-rules',
+                title: 'Bokföringsregler',
+                description: 'Visa och hantera automatiska konteringsregler (leverantör \u2192 konto).',
+                iconPath: 'M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z',
+                iconColor: '#f59e0b',
+                badge: 'new',
+                testId: 'integration-tool-bookkeeping-rules',
+            },
+        ],
+    },
+    {
+        title: 'Administration',
+        tools: [
+            {
+                id: 'agency',
+                title: 'Byråvy',
+                description: 'Byt snabbt mellan klientbolag och få en enkel översikt.',
+                iconPath: 'M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14v4M12 14v4M16 14v4',
+                iconColor: '#6366f1',
+                badge: 'new',
+                testId: 'integration-tool-agency',
+            },
+        ],
+    },
+];
 
-function getDisconnectButtonStyle(isBusy: boolean) {
-    return {
-        padding: '0.5rem 1rem',
-        borderRadius: '8px',
-        border: '1px solid var(--surface-border)',
-        background: 'var(--surface-2)',
-        color: 'var(--text-secondary)',
-        cursor: isBusy ? 'wait' : 'pointer',
-        fontSize: '0.85rem',
-        fontWeight: 600,
-        boxShadow: 'none'
-    } as const;
-}
+// ---------------------------------------------------------------------------
+// Integration icon mapping
+// ---------------------------------------------------------------------------
 
-function getConnectButtonStyle(isBusy: boolean) {
-    return {
-        padding: '0.5rem 1rem',
-        borderRadius: '8px',
-        border: 'none',
-        background: '#2563eb',
-        color: '#fff',
-        cursor: isBusy ? 'wait' : 'pointer',
-        fontSize: '0.85rem',
-        fontWeight: 700,
-        boxShadow: 'none'
-    } as const;
-}
+const ICON_MAP: Record<string, { letter: string; className: string }> = {
+    fortnox: { letter: 'F', className: 'integ-icon integ-icon--fortnox' },
+    visma: { letter: 'V', className: 'integ-icon integ-icon--visma' },
+    bankid: { letter: 'B', className: 'integ-icon integ-icon--bankid' },
+};
 
-const UPGRADE_LINK_STYLE = {
-    display: 'inline-block',
-    padding: '0.5rem 1rem',
-    borderRadius: '8px',
-    border: 'none',
-    background: '#2563eb',
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-    fontWeight: 700,
-    textDecoration: 'none',
-    boxShadow: 'none'
-} as const;
+const STATUS_CLASS_MAP: Record<IntegrationStatus, string> = {
+    connected: 'integ-badge--connected',
+    disconnected: 'integ-badge--disconnected',
+    connecting: 'integ-badge--connecting',
+    error: 'integ-badge--error',
+    coming_soon: 'integ-badge--coming-soon',
+};
 
-const TOOL_BUTTON_BASE_STYLE = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '1rem',
-    padding: '0.9rem 1rem',
-    borderRadius: '10px',
-    border: '1px solid var(--surface-border)',
-    background: 'var(--surface-2)',
-    color: 'var(--text-primary)',
-} as const;
-
-function getToolButtonStyle(options?: { disabled?: boolean; highlighted?: boolean }) {
-    const disabled = options?.disabled === true;
-    return {
-        ...TOOL_BUTTON_BASE_STYLE,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.65 : 1,
-        boxShadow: options?.highlighted ? 'inset 0 1px 0 var(--glass-highlight)' : 'none',
-    } as const;
-}
-
-function getToolBadgeStyle(
-    background: string,
-    color: string,
-    options?: { fontWeight?: number; borderRadius?: string }
-) {
-    return {
-        padding: '0.2rem 0.6rem',
-        borderRadius: options?.borderRadius ?? '999px',
-        background,
-        color,
-        fontSize: '0.7rem',
-        fontWeight: options?.fontWeight ?? 600,
-    } as const;
-}
+const STATUS_TEXT_MAP: Record<IntegrationStatus, string> = {
+    connected: 'Ansluten',
+    disconnected: 'Ej ansluten',
+    connecting: 'Ansluter...',
+    error: 'Fel',
+    coming_soon: 'Kommer snart',
+};
 
 export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalProps) {
     const requestedInitialTool = isIntegrationTool(initialTool) ? initialTool : null;
@@ -547,73 +594,15 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
     function getStatusBadge(integration: Integration) {
         if (integration.id === 'fortnox' && !isFortnoxPlanEligible) {
-            return (
-                <span style={{
-                    background: 'rgba(245, 158, 11, 0.15)',
-                    color: '#f59e0b',
-                    padding: '0.25rem 0.75rem',
-                    borderRadius: '999px',
-                    fontSize: '0.75rem',
-                    fontWeight: 600
-                }}>
-                    Kräver Pro
-                </span>
-            );
+            return <span className="integ-badge integ-badge--pro">Kräver Pro</span>;
         }
 
-        const badgeStyles: Record<IntegrationStatus, { bg: string; color: string; text: string }> = {
-            connected: {
-                bg: 'rgba(16, 185, 129, 0.15)',
-                color: '#10b981',
-                text: 'Ansluten'
-            },
-            disconnected: {
-                bg: 'rgba(255, 255, 255, 0.08)',
-                color: 'var(--text-secondary)',
-                text: 'Ej ansluten'
-            },
-            connecting: {
-                bg: 'rgba(59, 130, 246, 0.15)',
-                color: '#3b82f6',
-                text: 'Ansluter...'
-            },
-            error: {
-                bg: 'rgba(239, 68, 68, 0.15)',
-                color: '#ef4444',
-                text: 'Fel'
-            },
-            coming_soon: {
-                bg: 'rgba(255, 255, 255, 0.05)',
-                color: 'var(--text-secondary)',
-                text: 'Kommer snart'
-            }
-        };
-
         const status = connecting === integration.id ? 'connecting' : integration.status;
-        const badge = badgeStyles[status];
-
         return (
-            <span style={{
-                background: badge.bg,
-                color: badge.color,
-                padding: '0.25rem 0.75rem',
-                borderRadius: '999px',
-                fontSize: '0.75rem',
-                fontWeight: 600
-            }}>
-                {badge.text}
+            <span className={`integ-badge ${STATUS_CLASS_MAP[status]}`}>
+                {STATUS_TEXT_MAP[status]}
             </span>
         );
-    }
-
-    function getIntegrationIcon(iconId: string) {
-        // Simple icon representations - can be replaced with actual logos
-        const icons: Record<string, string> = {
-            fortnox: 'F',
-            visma: 'V',
-            bankid: 'B'
-        };
-        return icons[iconId] || '?';
     }
 
     function renderDisconnectButton(integrationId: string) {
@@ -623,9 +612,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 onClick={() => handleDisconnect(integrationId)}
                 data-testid={`integration-disconnect-${integrationId}`}
                 disabled={isBusy}
-                style={getDisconnectButtonStyle(isBusy)}
-                onMouseOver={(e) => setSurfaceButtonBackground(e.currentTarget, true)}
-                onMouseOut={(e) => setSurfaceButtonBackground(e.currentTarget, false)}
+                className="integ-btn integ-btn--disconnect"
             >
                 {isBusy ? '...' : 'Koppla bort'}
             </button>
@@ -639,9 +626,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 onClick={() => handleConnect(integrationId)}
                 data-testid={`integration-connect-${integrationId}`}
                 disabled={isBusy}
-                style={getConnectButtonStyle(isBusy)}
-                onMouseOver={(e) => setPrimaryButtonBackground(e.currentTarget, true)}
-                onMouseOut={(e) => setPrimaryButtonBackground(e.currentTarget, false)}
+                className="integ-btn integ-btn--connect"
             >
                 {isBusy ? 'Ansluter...' : 'Anslut'}
             </button>
@@ -656,7 +641,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             return (
                 <a
                     href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh"
-                    style={UPGRADE_LINK_STYLE}
+                    className="integ-btn integ-btn--upgrade"
                 >
                     Uppgradera
                 </a>
@@ -825,11 +810,11 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
     return (
         <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokföringssystem." maxWidth="1200px">
+            <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {error && (
                     <div style={{
                         padding: '0.8rem',
                         borderRadius: '8px',
-                        marginBottom: '1rem',
                         background: 'var(--status-danger-bg)',
                         color: 'var(--status-danger)',
                         border: '1px solid var(--status-danger-border)',
@@ -853,312 +838,221 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                         )}
                     </div>
                 ) : (
-                    <div className="integrations-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-                        {integrations.map((integration) => (
+                    <>
+                        {/* Integration Cards (Fortnox, Visma, BankID) */}
+                        <div>
+                            <div className="panel-section-title">Integrationer</div>
                             <div
-                                key={integration.id}
-                                data-testid={`integration-card-${integration.id}`}
-                                className="integration-card"
+                                className="integrations-list"
                                 style={{
-                                    padding: '1.25rem',
-                                    borderRadius: '12px',
-                                    border: '1px solid var(--surface-border)',
-                                    background: 'var(--surface-1)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '1rem',
-                                    opacity: integration.status === 'coming_soon' ? 0.6 : 1
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                                    gap: '0.75rem',
+                                    marginTop: '0.75rem',
                                 }}
                             >
-                                {/* Icon */}
+                                {integrations.map((integration) => {
+                                    const icon = ICON_MAP[integration.icon] || { letter: '?', className: 'integ-icon' };
+                                    const isComingSoon = integration.status === 'coming_soon';
+                                    const isConnected = integration.status === 'connected';
+
+                                    return (
+                                        <div
+                                            key={integration.id}
+                                            data-testid={`integration-card-${integration.id}`}
+                                            className={`panel-card ${isComingSoon ? 'panel-card--no-hover' : 'panel-card--interactive'} ${isConnected ? 'integ-card--connected' : ''}`}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '1rem',
+                                                opacity: isComingSoon ? 0.6 : 1,
+                                            }}
+                                        >
+                                            <div className={icon.className}>{icon.letter}</div>
+
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.75rem',
+                                                    marginBottom: '0.25rem',
+                                                }}>
+                                                    <span style={{
+                                                        fontWeight: 700,
+                                                        color: 'var(--text-primary)',
+                                                        fontSize: '0.95rem',
+                                                        fontFamily: 'var(--font-display)',
+                                                    }}>
+                                                        {integration.name}
+                                                    </span>
+                                                    {getStatusBadge(integration)}
+                                                </div>
+                                                <p style={{
+                                                    margin: 0,
+                                                    color: 'var(--text-secondary)',
+                                                    fontSize: '0.8rem',
+                                                    lineHeight: 1.4,
+                                                }}>
+                                                    {integration.description}
+                                                </p>
+                                                {integration.connectedAt && (
+                                                    <p style={{
+                                                        margin: '0.4rem 0 0',
+                                                        color: 'var(--text-secondary)',
+                                                        fontSize: '0.72rem',
+                                                    }}>
+                                                        Ansluten {new Date(integration.connectedAt).toLocaleDateString('sv-SE')}
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            {!isComingSoon && (
+                                                <div style={{ flexShrink: 0 }}>
+                                                    {renderIntegrationAction(integration)}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* Tool Groups */}
+                {!loading && (
+                    <div className="panel-stagger integ-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                        {TOOL_GROUPS.map((group) => (
+                            <div key={group.title}>
+                                <div className="panel-section-title">{group.title}</div>
                                 <div style={{
-                                    width: '48px',
-                                    height: '48px',
-                                    borderRadius: '12px',
-                                    background: integration.status === 'connected'
-                                        ? '#2563eb'
-                                        : 'var(--surface-3)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: '1.25rem',
-                                    fontWeight: 700,
-                                    color: integration.status === 'connected' ? '#fff' : 'var(--text-secondary)',
-                                    flexShrink: 0
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                                    gap: '0.75rem',
+                                    marginTop: '0.75rem',
                                 }}>
-                                    {getIntegrationIcon(integration.icon)}
-                                </div>
+                                    {group.tools.map((tool) => {
+                                        const disabled = tool.requiresPro === true && !isFortnoxPlanEligible;
+                                        const badgeClass = disabled
+                                            ? 'integ-tool-badge integ-tool-badge--pro'
+                                            : tool.badge === 'beta'
+                                                ? 'integ-tool-badge integ-tool-badge--beta'
+                                                : 'integ-tool-badge integ-tool-badge--new';
+                                        const badgeText = disabled ? 'Pro' : tool.badge === 'beta' ? 'Beta' : 'Nytt';
 
-                                {/* Info */}
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
-                                        <span style={{
-                                            fontWeight: 600,
-                                            color: 'var(--text-primary)',
-                                            fontSize: '1rem'
-                                        }}>
-                                            {integration.name}
-                                        </span>
-                                        {getStatusBadge(integration)}
-                                    </div>
-                                    <p style={{
-                                        margin: 0,
-                                        color: 'var(--text-secondary)',
-                                        fontSize: '0.85rem'
-                                    }}>
-                                        {integration.description}
-                                    </p>
-                                    {integration.connectedAt && (
-                                        <p style={{
-                                            margin: '0.5rem 0 0',
-                                            color: 'var(--text-secondary)',
-                                            fontSize: '0.75rem'
-                                        }}>
-                                            Ansluten {new Date(integration.connectedAt).toLocaleDateString('sv-SE')}
-                                        </p>
-                                    )}
-                                </div>
+                                        return (
+                                            <button
+                                                key={tool.id}
+                                                type="button"
+                                                onClick={() => openTool(tool.id)}
+                                                data-testid={tool.testId}
+                                                disabled={disabled}
+                                                className={`panel-card panel-card--interactive ${disabled ? 'integ-tool-card--disabled' : ''}`}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'flex-start',
+                                                    gap: '0.85rem',
+                                                    textAlign: 'left',
+                                                    cursor: disabled ? 'not-allowed' : 'pointer',
+                                                }}
+                                            >
+                                                <div
+                                                    className="integ-tool-icon"
+                                                    style={{
+                                                        background: `${tool.iconColor}15`,
+                                                        color: tool.iconColor,
+                                                    }}
+                                                >
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="2"
+                                                        stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d={tool.iconPath} />
+                                                    </svg>
+                                                </div>
 
-                                {/* Action */}
-                                {integration.status !== 'coming_soon' && (
-                                    <div style={{ flexShrink: 0 }}>
-                                        {renderIntegrationAction(integration)}
-                                    </div>
-                                )}
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{
+                                                        fontWeight: 700,
+                                                        fontSize: '0.88rem',
+                                                        color: 'var(--text-primary)',
+                                                        fontFamily: 'var(--font-display)',
+                                                        marginBottom: '0.2rem',
+                                                    }}>
+                                                        {tool.title}
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: '0.78rem',
+                                                        color: 'var(--text-secondary)',
+                                                        lineHeight: 1.4,
+                                                    }}>
+                                                        {tool.description}
+                                                    </div>
+                                                </div>
+
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.4rem',
+                                                    flexShrink: 0,
+                                                    marginTop: '0.1rem',
+                                                }}>
+                                                    {tool.id === 'fortnox-panel' && guardianBadgeCount > 0 && (
+                                                        <span
+                                                            title="Guardian-larm"
+                                                            data-testid="integration-tool-fortnox-guardian-badge"
+                                                            className="integ-alert-count integ-alert-count--critical"
+                                                        >
+                                                            {guardianBadgeCount > 9 ? '9+' : guardianBadgeCount}
+                                                        </span>
+                                                    )}
+                                                    {tool.id === 'fortnox-panel' && complianceBadgeCount > 0 && (
+                                                        <span
+                                                            title="Compliance-varningar"
+                                                            className="integ-alert-count integ-alert-count--warning"
+                                                        >
+                                                            {complianceBadgeCount > 9 ? '9+' : complianceBadgeCount}
+                                                        </span>
+                                                    )}
+                                                    <span className={badgeClass}>{badgeText}</span>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         ))}
                     </div>
                 )}
 
-                <div style={{
-                    marginTop: '1.5rem',
-                    padding: '1rem',
-                    borderRadius: '12px',
-                    background: 'var(--surface-1)',
-                    border: '1px solid var(--surface-border)',
-                    boxShadow: 'var(--surface-shadow)'
-                }}>
-                    <h4 style={{
-                        margin: '0 0 0.75rem',
-                        fontSize: '0.9rem',
-                        color: 'var(--text-primary)'
-                    }}>
-                        Verktyg
-                    </h4>
-                    <div style={{ display: 'grid', gap: '0.75rem' }}>
-                        <button
-                            type="button"
-                            onClick={() => openTool('dashboard')}
-                            data-testid="integration-tool-dashboard"
-                            style={getToolButtonStyle({ highlighted: true })}
-                        >
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600 }}>Översikt</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Dashboard med ekonomisk status, deadlines och snabbåtgärder.
-                                </div>
-                            </div>
-                            <span style={getToolBadgeStyle('rgba(16, 185, 129, 0.15)', '#10b981', { borderRadius: '0', fontWeight: 700 })}>
-                                Nytt
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTool('vat-report')}
-                            data-testid="integration-tool-vat-report"
-                            disabled={!isFortnoxPlanEligible}
-                            style={getToolButtonStyle({ disabled: !isFortnoxPlanEligible })}
-                        >
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600 }}>Momsdeklaration</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Hämta momsrapport direkt från Fortnox med intäkter, kostnader och momsavräkning.
-                                </div>
-                            </div>
-                            <span style={getToolBadgeStyle(
-                                isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                isFortnoxPlanEligible ? '#10b981' : '#f59e0b'
-                            )}>
-                                {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTool('fortnox-panel')}
-                            data-testid="integration-tool-fortnox-panel"
-                            disabled={!isFortnoxPlanEligible}
-                            style={getToolButtonStyle({ disabled: !isFortnoxPlanEligible })}
-                        >
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600 }}>Fortnoxpanel</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Se leverantörsfakturor, status och Copilot i en vy.
-                                </div>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                {guardianBadgeCount > 0 && (
-                                    <span
-                                        title="Guardian-larm"
-                                        data-testid="integration-tool-fortnox-guardian-badge"
-                                        style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            minWidth: '20px',
-                                            height: '20px',
-                                            padding: '0 0.35rem',
-                                            borderRadius: '999px',
-                                            background: '#ef4444',
-                                            color: '#fff',
-                                            fontSize: '0.7rem',
-                                            fontWeight: 800
-                                        }}
-                                    >
-                                        {guardianBadgeCount > 9 ? '9+' : guardianBadgeCount}
-                                    </span>
-                                )}
-                                {complianceBadgeCount > 0 && (
-                                    <span
-                                        title="Compliance-varningar"
-                                        style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            minWidth: '20px',
-                                            height: '20px',
-                                            padding: '0 0.35rem',
-                                            borderRadius: '999px',
-                                            background: '#f59e0b',
-                                            color: '#0f172a',
-                                            fontSize: '0.7rem',
-                                            fontWeight: 800
-                                        }}
-                                    >
-                                        {complianceBadgeCount > 9 ? '9+' : complianceBadgeCount}
-                                    </span>
-                                )}
-                                <span style={getToolBadgeStyle(
-                                    isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                    isFortnoxPlanEligible ? '#10b981' : '#f59e0b'
-                                )}>
-                                    {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
-                                </span>
-                            </div>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTool('invoice-inbox')}
-                            data-testid="integration-tool-invoice-inbox"
-                            disabled={!isFortnoxPlanEligible}
-                            style={getToolButtonStyle({ disabled: !isFortnoxPlanEligible })}
-                        >
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600 }}>Fakturainkorg</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Ladda upp leverantörsfakturor (PDF/bild), AI-extrahera och exportera till Fortnox.
-                                </div>
-                            </div>
-                            <span style={getToolBadgeStyle(
-                                isFortnoxPlanEligible ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                isFortnoxPlanEligible ? '#10b981' : '#f59e0b'
-                            )}>
-                                {isFortnoxPlanEligible ? 'Nytt' : 'Pro'}
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTool('bank-import')}
-                            data-testid="integration-tool-bank-import"
-                            style={getToolButtonStyle()}
-                        >
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600 }}>Bankimport (CSV)</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Importera kontoutdrag (Handelsbanken, SEB, Nordea, Swedbank) och matcha mot fakturor.
-                                </div>
-                            </div>
-                            <span style={getToolBadgeStyle('rgba(59, 130, 246, 0.15)', '#3b82f6')}>
-                                Beta
-                            </span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => openTool('reconciliation')}
-                            data-testid="integration-tool-reconciliation"
-                            style={getToolButtonStyle()}
-                        >
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600 }}>Bankavstämning</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Översikt per period, markera månader som avstämda.
-                                </div>
-                            </div>
-                            <span style={getToolBadgeStyle('rgba(16, 185, 129, 0.15)', '#10b981')}>
-                                Nytt
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTool('bookkeeping-rules')}
-                            data-testid="integration-tool-bookkeeping-rules"
-                            style={getToolButtonStyle({ highlighted: true })}
-                        >
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600 }}>Bokföringsregler</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Visa och hantera automatiska konteringsregler (leverantör → konto).
-                                </div>
-                            </div>
-                            <span style={getToolBadgeStyle('rgba(16, 185, 129, 0.15)', '#10b981')}>
-                                Nytt
-                            </span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => openTool('agency')}
-                            data-testid="integration-tool-agency"
-                            style={getToolButtonStyle({ highlighted: true })}
-                        >
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 600 }}>Byråvy</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    Byt snabbt mellan klientbolag och få en enkel översikt.
-                                </div>
-                            </div>
-                            <span style={getToolBadgeStyle('rgba(16, 185, 129, 0.15)', '#10b981')}>
-                                Nytt
-                            </span>
-                        </button>
+                {/* Hur fungerar det? */}
+                {!loading && (
+                    <div className="panel-card panel-card--no-hover integ-info-card">
+                        <div className="integ-info-card__icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="12" y1="16" x2="12" y2="12" />
+                                <line x1="12" y1="8" x2="12.01" y2="8" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 className="panel-label" style={{ margin: '0 0 0.4rem', fontSize: '0.78rem' }}>
+                                Hur fungerar det?
+                            </h4>
+                            <p style={{
+                                margin: 0,
+                                fontSize: '0.82rem',
+                                color: 'var(--text-secondary)',
+                                lineHeight: 1.5,
+                            }}>
+                                När du ansluter Fortnox kan Veridat automatiskt skapa fakturor,
+                                hämta kunder och artiklar, samt synka bokföringsdata.
+                                All kommunikation sker säkert via Fortnox officiella API.
+                            </p>
+                        </div>
                     </div>
-                </div>
-
-                <div style={{
-                    marginTop: '1.5rem',
-                    padding: '1rem',
-                    borderRadius: '12px',
-                    background: 'var(--surface-1)',
-                    border: '1px solid var(--surface-border)',
-                    boxShadow: 'var(--surface-shadow)'
-                }}>
-                    <h4 style={{
-                        margin: '0 0 0.5rem',
-                        fontSize: '0.9rem',
-                        color: 'var(--text-primary)'
-                    }}>
-                        Hur fungerar det?
-                    </h4>
-                    <p style={{
-                        margin: 0,
-                        fontSize: '0.85rem',
-                        color: 'var(--text-secondary)',
-                        lineHeight: 1.5
-                    }}>
-                        När du ansluter Fortnox kan Veridat automatiskt skapa fakturor,
-                        hämta kunder och artiklar, samt synka bokföringsdata.
-                        All kommunikation sker säkert via Fortnox officiella API.
-                    </p>
-                </div>
+                )}
+            </div>
         </ModalWrapper>
     );
 }

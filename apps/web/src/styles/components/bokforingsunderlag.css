@@ -1,0 +1,972 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   BOKFÖRINGSUNDERLAG CARD
+   Structured accounting document with tabs matching Claude/Opus 4.6 output
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Base Container ──────────────────────────────────────────────────── */
+.bfu {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    font-family: var(--font-body, 'Inter', sans-serif);
+}
+
+.bfu--panel {
+    min-height: 100%;
+}
+
+.bfu--inline {
+    max-height: 600px;
+    border-radius: var(--chat-card-radius);
+    border: var(--chat-card-border);
+    overflow: hidden;
+}
+
+/* ─── Header ──────────────────────────────────────────────────────────── */
+.bfu-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem 1rem;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(14, 165, 233, 0.04));
+    border-bottom: 1px solid var(--border-color);
+}
+
+.bfu-header-top {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+}
+
+.bfu-header-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: white;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.bfu-header-text {
+    min-width: 0;
+}
+
+.bfu-title {
+    font-family: var(--font-display, 'Satoshi', sans-serif);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.08em;
+    color: var(--text-primary);
+    margin: 0;
+    line-height: 1.3;
+}
+
+.bfu-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin-top: 0.25rem;
+    flex-wrap: wrap;
+}
+
+.bfu-period-badge {
+    padding: 0.15rem 0.5rem;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.15);
+    border-radius: 100px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--accent-secondary, #6366f1);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.bfu-validation-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 100px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.bfu-validation-badge.success {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+/* ─── Tabs ────────────────────────────────────────────────────────────── */
+.bfu-tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 1rem;
+    background: var(--surface-bg, #f8fafc);
+    border-bottom: 1px solid var(--border-color);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.bfu-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.bfu-tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.75rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.bfu-tab:hover {
+    color: var(--text-primary);
+}
+
+.bfu-tab.active {
+    color: var(--accent-secondary, #6366f1);
+    border-bottom-color: var(--accent-secondary, #6366f1);
+    font-weight: 600;
+}
+
+.bfu-tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 0.35rem;
+    border-radius: 100px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--accent-secondary, #6366f1);
+}
+
+.bfu-tab.active .bfu-tab-count {
+    background: var(--accent-secondary, #6366f1);
+    color: white;
+}
+
+/* ─── Content Area ────────────────────────────────────────────────────── */
+.bfu-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem 1.5rem;
+    animation: bfuFadeIn 0.2s ease;
+}
+
+@keyframes bfuFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Sammanfattning Tab ──────────────────────────────────────────────── */
+.bfu-doc-header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.bfu-doc-company {
+    font-family: var(--font-display, 'Satoshi', sans-serif);
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.bfu-doc-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+/* Section (INTÄKTER / KOSTNADER) */
+.bfu-section {
+    margin-bottom: 1.5rem;
+}
+
+.bfu-section-title {
+    font-family: var(--font-display, 'Satoshi', sans-serif);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+}
+
+.bfu-section--income .bfu-section-title {
+    background: rgba(34, 197, 94, 0.08);
+    color: #16a34a;
+    border: 1px solid rgba(34, 197, 94, 0.15);
+}
+
+.bfu-section--costs .bfu-section-title {
+    background: rgba(239, 68, 68, 0.08);
+    color: #dc2626;
+    border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+/* Table */
+.bfu-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.825rem;
+}
+
+.bfu-table thead th {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    background: var(--surface-bg, #f8fafc);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.bfu-table tbody td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.bfu-table tbody tr:hover {
+    background: rgba(99, 102, 241, 0.03);
+}
+
+.bfu-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.bfu-table-col-kategori { min-width: 160px; }
+.bfu-table-col-antal { text-align: right !important; width: 60px; }
+.bfu-table-col-belopp { text-align: right !important; width: 140px; }
+.bfu-table-col-moms { text-align: right !important; width: 120px; }
+
+.bfu-table-total {
+    font-weight: 700;
+    border-top: 2px solid var(--border-color);
+}
+
+.bfu-table-total td {
+    padding-top: 0.625rem;
+}
+
+/* Nettoresultat */
+.bfu-nettoresultat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.875rem 1rem;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(14, 165, 233, 0.04));
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: 10px;
+    margin-bottom: 1.5rem;
+}
+
+.bfu-nettoresultat-label {
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+}
+
+.bfu-nettoresultat-values {
+    display: flex;
+    gap: 1.5rem;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.bfu-nettoresultat-amount.positive { color: #22c55e; }
+.bfu-nettoresultat-amount.negative { color: #ef4444; }
+.bfu-nettoresultat-moms.positive { color: #f59e0b; }
+.bfu-nettoresultat-moms.negative { color: #0ea5e9; }
+
+/* Noter */
+.bfu-noter {
+    padding: 0.875rem;
+    background: var(--surface-bg, #f8fafc);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.bfu-noter-title {
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.bfu-noter-item {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    padding: 0.25rem 0;
+    font-style: italic;
+}
+
+/* ─── Verifikationer Tab ──────────────────────────────────────────────── */
+.bfu-verifikationer {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.bfu-verifikat {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: box-shadow 0.2s ease;
+}
+
+.bfu-verifikat:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.bfu-verifikat-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--surface-bg, #f8fafc);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.bfu-verifikat-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    height: 28px;
+    padding: 0 0.5rem;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.bfu-verifikat-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.bfu-verifikat-desc {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.bfu-verifikat-date {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.bfu-verifikat-amount {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-weight: 700;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.bfu-verifikat-amount.positive { color: #22c55e; }
+.bfu-verifikat-amount.negative { color: #ef4444; }
+
+.bfu-verifikat-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.bfu-verifikat-table th {
+    padding: 0.375rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.bfu-verifikat-table td {
+    padding: 0.375rem 0.75rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.bfu-verifikat-table .col-account {
+    width: 60px;
+    font-weight: 600;
+    color: var(--accent-secondary, #6366f1);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.bfu-verifikat-table .col-name {
+    min-width: 100px;
+}
+
+.bfu-verifikat-table .col-amount {
+    text-align: right;
+    width: 90px;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    white-space: nowrap;
+}
+
+.bfu-verifikat-table th.col-amount {
+    text-align: right;
+}
+
+.bfu-verifikat-table .debit { color: #ef4444; }
+.bfu-verifikat-table .credit { color: #22c55e; }
+
+.bfu-verifikat-total {
+    border-top: 2px solid var(--border-color);
+}
+
+.bfu-verifikat-total td {
+    padding-top: 0.5rem;
+    font-weight: 600;
+    border-bottom: none;
+}
+
+.bfu-balance-ok {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.2);
+    border-radius: 100px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #22c55e;
+}
+
+.bfu-balance-error {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 100px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #ef4444;
+}
+
+/* ─── Momsrapport Tab ─────────────────────────────────────────────────── */
+.bfu-momsrapport {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.bfu-moms-section {
+    background: var(--surface-bg, #f8fafc);
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.bfu-moms-section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    padding: 0.625rem 1rem;
+    background: rgba(0, 0, 0, 0.02);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.bfu-moms-rows {
+    padding: 0.25rem 0;
+}
+
+.bfu-moms-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+}
+
+.bfu-moms-row:not(:last-child) {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.bfu-moms-row.total {
+    font-weight: 700;
+    padding-top: 0.625rem;
+    margin-top: 0.25rem;
+    border-top: 2px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.bfu-moms-row-amount {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.bfu-moms-row-amount.negative {
+    color: #ef4444;
+}
+
+/* Netto moms box */
+.bfu-moms-netto {
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    border: 2px solid;
+}
+
+.bfu-moms-netto.pay {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.06), rgba(245, 158, 11, 0.02));
+    border-color: rgba(245, 158, 11, 0.2);
+}
+
+.bfu-moms-netto.refund {
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.06), rgba(14, 165, 233, 0.02));
+    border-color: rgba(14, 165, 233, 0.2);
+}
+
+.bfu-moms-netto-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.bfu-moms-netto-label {
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.bfu-moms-netto-amount {
+    font-family: var(--font-display, 'Satoshi', sans-serif);
+    font-weight: 800;
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.bfu-moms-netto.pay .bfu-moms-netto-amount { color: #f59e0b; }
+.bfu-moms-netto.refund .bfu-moms-netto-amount { color: #0ea5e9; }
+
+.bfu-moms-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgba(99, 102, 241, 0.04);
+    border-radius: 8px;
+    border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.bfu-moms-info-icon {
+    color: var(--accent-secondary, #6366f1);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.bfu-moms-info-text {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+/* ─── Transaktioner Tab ───────────────────────────────────────────────── */
+.bfu-transaktioner {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.bfu-tx-filters {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.bfu-tx-filter-buttons {
+    display: flex;
+    gap: 0.25rem;
+    background: var(--surface-bg, #f8fafc);
+    border-radius: 8px;
+    padding: 0.25rem;
+}
+
+.bfu-tx-filter-btn {
+    padding: 0.375rem 0.75rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.bfu-tx-filter-btn:hover {
+    color: var(--text-primary);
+    background: rgba(99, 102, 241, 0.06);
+}
+
+.bfu-tx-filter-btn.active {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    font-weight: 600;
+}
+
+.bfu-tx-search {
+    flex: 1;
+    min-width: 120px;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.bfu-tx-search:focus {
+    border-color: var(--accent-secondary, #6366f1);
+}
+
+.bfu-tx-search::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.6;
+}
+
+.bfu-tx-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.bfu-tx-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    min-width: 500px;
+}
+
+.bfu-tx-table th {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    background: var(--surface-bg, #f8fafc);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.bfu-tx-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.bfu-tx-table .col-type { width: 70px; }
+.bfu-tx-table .col-desc { min-width: 150px; }
+.bfu-tx-table .col-amount {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+.bfu-tx-table th.col-amount { text-align: right; }
+.bfu-tx-table .col-rate {
+    text-align: right;
+    width: 40px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+.bfu-tx-table th.col-rate { text-align: right; }
+
+.bfu-tx-table tbody tr:hover {
+    background: rgba(99, 102, 241, 0.03);
+}
+
+.bfu-tx-type-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 100px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.bfu-tx-type-badge.sale {
+    background: rgba(34, 197, 94, 0.1);
+    color: #16a34a;
+}
+
+.bfu-tx-type-badge.cost {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+
+.bfu-tx-total {
+    font-weight: 700;
+    border-top: 2px solid var(--border-color);
+}
+
+.bfu-tx-total td {
+    padding-top: 0.625rem;
+    border-bottom: none;
+}
+
+/* ─── Actions Footer ──────────────────────────────────────────────────── */
+.bfu-actions {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.875rem 1.5rem;
+    border-top: 1px solid var(--border-color);
+    background: var(--card-bg);
+    flex-shrink: 0;
+}
+
+.bfu-action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.bfu-action-primary {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+}
+
+.bfu-action-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.bfu-action-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.bfu-action-primary.success {
+    background: #22c55e;
+}
+
+.bfu-action-secondary {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.bfu-action-secondary:hover {
+    background: var(--surface-hover, rgba(0, 0, 0, 0.03));
+    border-color: var(--text-secondary);
+}
+
+/* ─── Shared ──────────────────────────────────────────────────────────── */
+.bfu-empty {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* ─── Dark Mode ───────────────────────────────────────────────────────── */
+[data-theme="dark"] .bfu {
+    background: #18181b;
+}
+
+[data-theme="dark"] .bfu-header {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(14, 165, 233, 0.06));
+}
+
+[data-theme="dark"] .bfu-tabs {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="dark"] .bfu-tab.active {
+    color: #818cf8;
+    border-bottom-color: #818cf8;
+}
+
+[data-theme="dark"] .bfu-section-title {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .bfu-section--income .bfu-section-title {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+[data-theme="dark"] .bfu-section--costs .bfu-section-title {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+[data-theme="dark"] .bfu-table thead th {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .bfu-nettoresultat {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(14, 165, 233, 0.06));
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
+[data-theme="dark"] .bfu-noter {
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .bfu-verifikat {
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .bfu-verifikat-header {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .bfu-moms-section {
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .bfu-moms-section-title {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .bfu-moms-netto.pay {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.04));
+    border-color: rgba(245, 158, 11, 0.25);
+}
+
+[data-theme="dark"] .bfu-moms-netto.refund {
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(14, 165, 233, 0.04));
+    border-color: rgba(14, 165, 233, 0.25);
+}
+
+[data-theme="dark"] .bfu-tx-filter-btn.active {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .bfu-tx-search {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .bfu-action-secondary {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .bfu-action-secondary:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .bfu-actions {
+    background: #18181b;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+    .bfu-header {
+        flex-direction: column;
+        gap: 0.75rem;
+        padding: 1rem;
+    }
+
+    .bfu-content {
+        padding: 1rem;
+    }
+
+    .bfu-table {
+        font-size: 0.75rem;
+    }
+
+    .bfu-table thead th,
+    .bfu-table tbody td {
+        padding: 0.375rem 0.5rem;
+    }
+
+    .bfu-nettoresultat {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: flex-start;
+    }
+
+    .bfu-verifikat-header {
+        flex-wrap: wrap;
+    }
+
+    .bfu-verifikat-amount {
+        width: 100%;
+        text-align: right;
+    }
+
+    .bfu-tx-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .bfu-tx-search {
+        min-width: unset;
+    }
+
+    .bfu-actions {
+        flex-direction: column;
+        padding: 0.75rem 1rem;
+    }
+
+    .bfu-moms-netto-amount {
+        font-size: 1.1rem;
+    }
+}

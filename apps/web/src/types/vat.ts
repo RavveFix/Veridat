@@ -110,6 +110,31 @@ export interface MontaAnalysisSummary {
     zero_vat_amount: number;
 }
 
+/** A grouped verification (V1, V2, etc.) for the Verifikationer tab */
+export interface Verifikat {
+    /** Sequential number (1, 2, 3...) displayed as V1, V2 */
+    number: number;
+    /** Description of the verification */
+    description: string;
+    /** Transaction date */
+    date: string;
+    /** Journal entries belonging to this verification */
+    entries: JournalEntry[];
+    /** Gross amount (brutto) */
+    grossAmount?: number;
+    /** VAT rate */
+    vatRate?: number;
+}
+
+/** Row data for the Sammanfattning tab */
+export interface SammanfattningRow {
+    kategori: string;
+    antal: number;
+    belopp_exkl_moms: number;
+    moms: number;
+    rate?: number;
+}
+
 export interface AnalysisSummary {
     total_transactions: number;
     cost_transactions: number;

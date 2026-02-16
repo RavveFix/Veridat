@@ -3,11 +3,13 @@ import DOMPurify from 'dompurify';
 import type { ExcelPanelElements, ExcelWorkspaceOptions } from '../types/excel';
 import type { VATReportData } from '../types/vat';
 import type { AIAnalysisProgress } from '../services/ChatService';
-import { VATReportCard } from './VATReportCard';
+import { SpreadsheetViewer } from './SpreadsheetViewer';
 import { ExcelArtifact, type ExcelSheet, type ExcelArtifactProps } from './ExcelArtifact';
 import { mountPreactComponent } from './preact-adapter';
 import { logger } from '../services/LoggerService';
 import { buildAnalysisSummary } from '../utils/analysisSummary';
+import { buildReportWorkbook } from '../utils/workbookBuilder';
+import { generateExcelFile, copyReportToClipboard } from '../utils/excelExport';
 
 /** Lazy-load xlsx to reduce initial bundle size (~300KB) */
 let _xlsxModule: typeof import('xlsx') | null = null;
@@ -52,6 +54,9 @@ export class ExcelWorkspace {
     private excelArtifactUnmount?: () => void;
     private boundHandleOpenArtifact: (e: Event) => void;
     private activeTab: 'summary' | 'transactions' | 'journal' = 'summary';
+    /** Cached preflight data for scanner table rendering */
+    private preflightColumns: string[] = [];
+    private preflightRows: string[][] = [];
 
     constructor(options: ExcelWorkspaceOptions = {}) {
         this.options = options;
@@ -83,7 +88,7 @@ export class ExcelWorkspace {
                 event.detail.filePath,
                 event.detail.fileBucket,
                 true
-            );
+            ).catch(err => logger.error('Failed to open VAT report from artifact', err));
         }
     }
 
@@ -122,6 +127,7 @@ export class ExcelWorkspace {
         const backdrop = document.getElementById('excel-panel-backdrop');
         const titleIcon = document.getElementById('excel-title-icon');
         const panelTabs = document.getElementById('panel-tabs');
+        const headerActions = document.getElementById('excel-header-actions');
 
         if (!panel || !container || !tabsContainer || !closeBtn || !filenameDisplay) {
             throw new Error('Excel panel DOM elements not found. Ensure all required elements exist in the HTML.');
@@ -148,7 +154,8 @@ export class ExcelWorkspace {
             filenameDisplay,
             backdrop: backdrop || undefined,
             titleIcon: titleIcon || undefined,
-            panelTabs: panelTabs || undefined
+            panelTabs: panelTabs || undefined,
+            headerActions: headerActions || undefined
         };
     }
 
@@ -595,6 +602,9 @@ export class ExcelWorkspace {
         this.excelArtifactUnmount?.();
         this.excelArtifactUnmount = undefined;
 
+        // Clear header action buttons
+        this.clearHeaderActions();
+
         this.elements.panel.classList.remove('open');
         this.setVatReportMode(false);
         this.currentWorkbook = null;
@@ -622,6 +632,62 @@ export class ExcelWorkspace {
         // Call close callback if provided
         if (this.options.onClose) {
             this.options.onClose();
+        }
+    }
+
+    /**
+     * Render copy/download action buttons in the panel header
+     */
+    private renderHeaderActions(data: VATReportData): void {
+        const container = this.elements.headerActions;
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        // Copy button
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'sv-btn sv-btn--copy';
+        copyBtn.textContent = 'Kopiera';
+        copyBtn.addEventListener('click', () => {
+            copyReportToClipboard(data);
+            copyBtn.textContent = '\u2713 Kopierat';
+            setTimeout(() => { copyBtn.textContent = 'Kopiera'; }, 2000);
+        });
+
+        // Download button
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'sv-btn sv-btn--download';
+        dlBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Ladda ner`;
+        dlBtn.addEventListener('click', async () => {
+            if (dlBtn.disabled) return;
+            dlBtn.disabled = true;
+            dlBtn.textContent = 'Genererar...';
+            try {
+                await generateExcelFile(data);
+                dlBtn.textContent = '\u2713 Nedladdad';
+                dlBtn.classList.add('sv-btn--success');
+                setTimeout(() => {
+                    dlBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Ladda ner`;
+                    dlBtn.classList.remove('sv-btn--success');
+                    dlBtn.disabled = false;
+                }, 2000);
+            } catch (err) {
+                logger.error('Excel generation failed:', err);
+                dlBtn.textContent = 'Ladda ner';
+                dlBtn.disabled = false;
+            }
+        });
+
+        container.appendChild(copyBtn);
+        container.appendChild(dlBtn);
+    }
+
+    /**
+     * Clear action buttons from header
+     */
+    private clearHeaderActions(): void {
+        if (this.elements.headerActions) {
+            this.elements.headerActions.innerHTML = '';
         }
     }
 
@@ -702,119 +768,55 @@ export class ExcelWorkspace {
         // Hide sheet tabs
         this.elements.tabsContainer.style.display = 'none';
 
-        // Create streaming progress UI
+        // Build scanner table HTML from preflight data
+        const headerCells = this.preflightColumns.length > 0
+            ? this.preflightColumns.map(col => `<th>${this.escapeHtml(col || '—')}</th>`).join('')
+            : '<th>—</th>';
+        const bodyRows = this.preflightRows.length > 0
+            ? this.preflightRows.map(row =>
+                `<tr>${row.map(cell => `<td>${this.escapeHtml(String(cell).substring(0, 30))}</td>`).join('')}</tr>`
+            ).join('')
+            : '<tr><td colspan="8" style="text-align:center;opacity:0.4">Laddar data...</td></tr>';
+
+        // Create scanner UI
         this.elements.container.innerHTML = `
-            <div class="excel-analyzing streaming">
-                <div class="ai-thinking">
-                    <div class="ai-avatar">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z"/>
-                            <circle cx="12" cy="12" r="4"/>
-                        </svg>
+            <div class="scanner" id="scanner-root">
+                <div class="scanner-table-area">
+                    <div class="scanner-table-wrapper">
+                        <div class="scanner-overlay">
+                            <div class="scanline" id="scanline"></div>
+                        </div>
+                        <table class="scanner-table" id="scanner-table">
+                            <thead><tr>${headerCells}</tr></thead>
+                            <tbody>${bodyRows}</tbody>
+                        </table>
                     </div>
-                    <div class="thinking-text">AI analyserar...</div>
+                    <div class="scanner-labels" id="scanner-labels"></div>
                 </div>
-
-                <div class="streaming-progress">
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="ai-progress-bar"></div>
+                <div class="scanner-terminal" id="scanner-terminal">
+                    <div class="terminal-header">
+                        <span class="terminal-dot red"></span>
+                        <span class="terminal-dot yellow"></span>
+                        <span class="terminal-dot green"></span>
+                        <span class="terminal-title">AI Terminal</span>
                     </div>
-                    <div class="progress-text" id="ai-progress-text">Förbereder analys...</div>
-                    <div class="confidence-display" id="ai-confidence" style="display: none;">
-                        <div class="confidence-bar-container">
-                            <div class="confidence-bar" id="ai-confidence-bar"></div>
-                        </div>
-                        <span class="confidence-label" id="ai-confidence-label"></span>
-                    </div>
-                </div>
-
-                <div class="excel-preflight" id="excel-preflight">
-                    <div class="preflight-header">
-                        <div class="preflight-title">Förhandskontroll</div>
-                        <div class="preflight-subtitle">Snabb koll innan analys</div>
-                    </div>
-                    <div class="preflight-grid">
-                        <div class="preflight-item">
-                            <div class="preflight-label">Filtyp</div>
-                            <div class="preflight-value" id="preflight-filetype">—</div>
-                        </div>
-                        <div class="preflight-item">
-                            <div class="preflight-label">Storlek</div>
-                            <div class="preflight-value" id="preflight-filesize">—</div>
-                        </div>
-                        <div class="preflight-item">
-                            <div class="preflight-label">Blad</div>
-                            <div class="preflight-value" id="preflight-sheets">—</div>
-                        </div>
-                        <div class="preflight-item">
-                            <div class="preflight-label">Rader (första bladet)</div>
-                            <div class="preflight-value" id="preflight-rows">—</div>
-                        </div>
-                        <div class="preflight-item">
-                            <div class="preflight-label">Kolumner (första bladet)</div>
-                            <div class="preflight-value" id="preflight-columns">—</div>
-                        </div>
-                    </div>
-                    <div class="preflight-hints" id="preflight-hints"></div>
-                    <div class="preflight-warning" id="preflight-warning" style="display: none;"></div>
-                </div>
-
-                <div class="analysis-steps" id="ai-analysis-steps">
-                    <!-- STEG 1: CLAUDE -->
-                    <div class="step-group" data-ai="claude">
-                        <div class="step-group-header">
-                            <span class="ai-badge claude">Claude</span>
-                            <span class="step-group-title">Analyserar & beräknar</span>
-                        </div>
-                        <div class="step-item" data-step="parsing">
-                            <div class="step-indicator pending"></div>
-                            <div class="step-content">
-                                <div class="step-title">Läser Excel-fil</div>
-                                <div class="step-detail"></div>
-                            </div>
-                        </div>
-                        <div class="step-item" data-step="analyzing">
-                            <div class="step-indicator pending"></div>
-                            <div class="step-content">
-                                <div class="step-title">Identifierar kolumner</div>
-                                <div class="step-detail"></div>
-                            </div>
-                        </div>
-                        <div class="step-item" data-step="calculating">
-                            <div class="step-indicator pending"></div>
-                            <div class="step-content">
-                                <div class="step-title">Beräknar moms & kWh</div>
-                                <div class="step-detail"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- STEG 2: PYTHON -->
-                    <div class="step-group" data-ai="python">
-                        <div class="step-group-header">
-                            <span class="ai-badge python">Python</span>
-                            <span class="step-group-title">Verifierar beräkningar</span>
-                        </div>
-                        <div class="step-item" data-step="verifying">
-                            <div class="step-indicator pending"></div>
-                            <div class="step-content">
-                                <div class="step-title">Kontrollerar moms exakt</div>
-                                <div class="step-detail"></div>
-                            </div>
-                        </div>
+                    <div class="terminal-body" id="terminal-body"></div>
+                    <div class="terminal-confidence" id="terminal-confidence">
+                        <div class="confidence-track"><div class="confidence-fill" id="confidence-fill"></div></div>
+                        <span class="confidence-text" id="confidence-text">—</span>
                     </div>
                 </div>
-
-                <div class="ai-insights" id="ai-insights-container">
-                    <!-- Insight bubbles will be added here dynamically -->
-                </div>
-
-                <div class="ai-notes" id="ai-analysis-notes" style="display: none;">
-                    <div class="notes-header">AI insikter</div>
-                    <div class="notes-content" id="ai-notes-content"></div>
+                <div class="scanner-progress-bar">
+                    <div class="scanner-progress-fill-track">
+                        <div class="scanner-progress-fill" id="scanner-progress-fill"></div>
+                    </div>
+                    <span class="scanner-progress-text" id="scanner-progress-text">Förbereder analys...</span>
                 </div>
             </div>
         `;
+
+        // Add initial terminal line
+        this.addTerminalLine(`Öppnar ${this.escapeHtml(filename)}...`, 'info');
 
         // Open the panel and update state
         this.elements.panel.classList.add('open');
@@ -830,73 +832,55 @@ export class ExcelWorkspace {
     }
 
     async updatePreflight(file: File): Promise<void> {
-        const fileTypeEl = document.getElementById('preflight-filetype');
-        const fileSizeEl = document.getElementById('preflight-filesize');
-        const sheetCountEl = document.getElementById('preflight-sheets');
-        const rowCountEl = document.getElementById('preflight-rows');
-        const columnCountEl = document.getElementById('preflight-columns');
-        const hintsEl = document.getElementById('preflight-hints');
-        const warningEl = document.getElementById('preflight-warning');
-
-        if (!fileTypeEl || !fileSizeEl || !sheetCountEl || !rowCountEl || !columnCountEl || !hintsEl || !warningEl) {
-            return;
-        }
-
-        const extension = file.name.split('.').pop()?.toLowerCase() || '';
-        fileTypeEl.textContent = extension ? `.${extension}` : 'Okänd';
-        fileSizeEl.textContent = this.formatFileSize(file.size);
-        sheetCountEl.textContent = '…';
-        rowCountEl.textContent = '…';
-        columnCountEl.textContent = '…';
-
-        const hints: string[] = [];
-        if (extension === 'csv') {
-            hints.push('CSV med kommatecken måste vara citerad.');
-        }
-        if (extension === 'numbers') {
-            hints.push('Numbers fungerar bäst om du exporterar som .xlsx.');
-        }
-
-        const MAX_EXCEL_SIZE = 5 * 1024 * 1024;
-        if (file.size > MAX_EXCEL_SIZE) {
-            warningEl.textContent = 'Filen är större än 5 MB och kan inte analyseras. Exportera en mindre fil.';
-            warningEl.style.display = 'block';
-        } else if (file.size > MAX_EXCEL_SIZE * 0.8) {
-            warningEl.textContent = 'Stor fil – analysen kan ta längre tid.';
-            warningEl.style.display = 'block';
-        } else {
-            warningEl.style.display = 'none';
-        }
-
-        hintsEl.innerHTML = hints.map(hint => `<span class="preflight-hint">${this.escapeHtml(hint)}</span>`).join('');
-
         try {
             const XLSX = await getXLSX();
             const arrayBuffer = await file.arrayBuffer();
             const workbook = XLSX.read(arrayBuffer, { type: 'array' });
             const sheetNames = workbook.SheetNames || [];
-            sheetCountEl.textContent = sheetNames.length.toString();
 
             const firstSheetName = sheetNames[0];
             const worksheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
             const ref = worksheet?.['!ref'] || '';
+            let rows = 0;
+            let cols = 0;
 
             if (ref) {
                 const range = XLSX.utils.decode_range(ref);
-                const rows = range.e.r - range.s.r + 1;
-                const cols = range.e.c - range.s.c + 1;
-                rowCountEl.textContent = rows.toLocaleString('sv-SE');
-                columnCountEl.textContent = cols.toLocaleString('sv-SE');
-            } else {
-                rowCountEl.textContent = 'Okänd';
-                columnCountEl.textContent = 'Okänd';
+                rows = range.e.r - range.s.r + 1;
+                cols = range.e.c - range.s.c + 1;
             }
-        } catch (error) {
-            rowCountEl.textContent = 'Okänd';
-            columnCountEl.textContent = 'Okänd';
-            if (!hints.includes('Kunde inte läsa rader/kolumner. Prova att exportera som .xlsx.')) {
-                hintsEl.innerHTML = `${hintsEl.innerHTML}<span class="preflight-hint">Kunde inte läsa rader/kolumner. Prova att exportera som .xlsx.</span>`;
+
+            // Cache sheet data for scanner table
+            if (worksheet) {
+                const jsonData = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1, defval: '' });
+                const maxCols = 8;
+                const maxRows = 12;
+                if (jsonData.length > 0) {
+                    this.preflightColumns = (jsonData[0] || []).slice(0, maxCols).map(c => String(c || ''));
+                    this.preflightRows = jsonData.slice(1, maxRows + 1).map(row =>
+                        (row || []).slice(0, maxCols).map(cell => String(cell ?? ''))
+                    );
+                }
             }
+
+            // Update scanner table if it exists (since showStreamingAnalysis is called first)
+            const table = document.getElementById('scanner-table');
+            if (table && this.preflightColumns.length > 0) {
+                const headerCells = this.preflightColumns.map(col => `<th>${this.escapeHtml(col || '—')}</th>`).join('');
+                const bodyRows = this.preflightRows.map(row =>
+                    `<tr>${row.map(cell => `<td>${this.escapeHtml(String(cell).substring(0, 30))}</td>`).join('')}</tr>`
+                ).join('');
+                table.innerHTML = `<thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody>`;
+            }
+
+            // Log preflight info to terminal
+            const extension = file.name.split('.').pop()?.toLowerCase() || '';
+            this.addTerminalLine(`${extension.toUpperCase()} · ${this.formatFileSize(file.size)} · ${sheetNames.length} blad`, 'info');
+            if (rows > 0) {
+                this.addTerminalLine(`${rows} rader × ${cols} kolumner`, 'success');
+            }
+        } catch {
+            this.addTerminalLine('Varning: kunde inte förhandsgranska data', 'warn');
         }
     }
 
@@ -913,30 +897,55 @@ export class ExcelWorkspace {
     }
 
     /**
-     * Show an insight bubble with animation (Claude-style AI explanation)
+     * Add a line to the scanner terminal
      */
-    private showInsightBubble(insight: string): void {
-        const container = document.getElementById('ai-insights-container');
-        if (!container) return;
+    private addTerminalLine(text: string, type: 'info' | 'success' | 'warn' | 'error' | 'discovery' = 'info'): void {
+        const body = document.getElementById('terminal-body');
+        if (!body) return;
 
-        // Create bubble element
-        const bubble = document.createElement('div');
-        bubble.className = 'insight-bubble';
-        bubble.innerHTML = `
-            <div class="insight-icon">💡</div>
-            <div class="insight-text">${this.escapeHtml(insight)}</div>
-        `;
+        const now = new Date();
+        const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
-        // Add to container with animation
-        container.appendChild(bubble);
+        const line = document.createElement('div');
+        line.className = `terminal-line ${type}`;
+        line.innerHTML = `<span class="terminal-time">[${time}]</span><span class="terminal-text">${this.escapeHtml(text)}</span>`;
+        body.appendChild(line);
+        body.scrollTop = body.scrollHeight;
+    }
 
-        // Trigger animation
-        requestAnimationFrame(() => {
-            bubble.classList.add('visible');
+    /**
+     * Highlight a column in the scanner table
+     */
+    private highlightScannerColumn(columnName: string, type: 'amount' | 'vat' | 'date' | 'desc'): void {
+        const colIndex = this.preflightColumns.findIndex(c =>
+            c.toLowerCase().trim() === columnName.toLowerCase().trim()
+        );
+        if (colIndex < 0) return;
+
+        // Add column highlight class to all cells in that column
+        const table = document.getElementById('scanner-table');
+        if (!table) return;
+
+        const colClass = `scanner-col-${type}`;
+        const rows = table.querySelectorAll('tr');
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('th, td');
+            if (cells[colIndex]) {
+                cells[colIndex].classList.add(colClass);
+            }
         });
 
-        // Scroll to show latest insight
-        container.scrollTop = container.scrollHeight;
+        // Add floating label
+        const labels = document.getElementById('scanner-labels');
+        if (!labels) return;
+
+        const icons: Record<string, string> = { amount: '💰', vat: '🧾', date: '📅', desc: '📝' };
+        const names: Record<string, string> = { amount: 'Belopp', vat: 'Moms', date: 'Datum', desc: 'Beskrivning' };
+
+        const label = document.createElement('span');
+        label.className = `scanner-label ${type}`;
+        label.textContent = `${icons[type] || ''} ${names[type] || type} → "${columnName}"`;
+        labels.appendChild(label);
     }
 
     /**
@@ -946,101 +955,125 @@ export class ExcelWorkspace {
      */
     updateStreamingProgress(progress: AIAnalysisProgress): void {
         // Update progress bar
-        const progressBar = document.getElementById('ai-progress-bar');
-        const progressText = document.getElementById('ai-progress-text');
+        const progressFill = document.getElementById('scanner-progress-fill');
+        const progressText = document.getElementById('scanner-progress-text');
 
-        if (progressBar && typeof progress.progress === 'number') {
-            progressBar.style.width = `${Math.round(progress.progress * 100)}%`;
+        if (progressFill && typeof progress.progress === 'number') {
+            const pct = Math.round(progress.progress * 100);
+            progressFill.style.width = `${pct}%`;
         }
 
         if (progressText && progress.message) {
             progressText.textContent = progress.message;
         }
 
-        // Update confidence display if present
-        const confidenceContainer = document.getElementById('ai-confidence');
-        const confidenceBar = document.getElementById('ai-confidence-bar');
-        const confidenceLabel = document.getElementById('ai-confidence-label');
-
+        // Update confidence gauge in terminal
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const progressAny = progress as any;
         const confidence = progressAny.confidence as number | undefined;
 
-        if (confidence !== undefined && !isNaN(confidence) && confidenceContainer && confidenceBar && confidenceLabel) {
-            confidenceContainer.style.display = 'flex';
-            confidenceBar.style.width = `${confidence}%`;
-
-            // Set color based on confidence level
-            let confidenceClass = 'high';
-            let label = 'Hög säkerhet';
-            if (confidence < 70) {
-                confidenceClass = 'low';
-                label = 'Låg säkerhet';
-            } else if (confidence < 90) {
-                confidenceClass = 'medium';
-                label = 'Medelhög säkerhet';
+        if (confidence !== undefined && !isNaN(confidence)) {
+            const fill = document.getElementById('confidence-fill');
+            const text = document.getElementById('confidence-text');
+            if (fill) {
+                fill.style.width = `${confidence}%`;
+                fill.className = 'confidence-fill' + (confidence < 70 ? ' low' : confidence < 90 ? ' medium' : '');
             }
-
-            confidenceBar.className = `confidence-bar ${confidenceClass}`;
-            confidenceLabel.textContent = `${label} (${Math.round(confidence)}%)`;
+            if (text) {
+                text.textContent = `${Math.round(confidence)}%`;
+            }
         }
 
-        // Show insight bubble if present (Claude-style AI explanation)
+        // Show insight in terminal
         if (progress.insight) {
-            this.showInsightBubble(progress.insight);
+            this.addTerminalLine(progress.insight, 'discovery');
         }
 
-        // Update step indicators
-        const stepsContainer = document.getElementById('ai-analysis-steps');
-        if (stepsContainer) {
-            // All steps in order - includes Monta-specific steps (detecting, categorizing)
-            const steps = ['parsing', 'analyzing', 'detecting', 'categorizing', 'mapping', 'normalizing', 'calculating', 'python-calculating', 'claude-validating'];
-            const currentStepIndex = steps.indexOf(progress.step);
-
-            steps.forEach((step, index) => {
-                const stepItem = stepsContainer.querySelector(`[data-step="${step}"]`);
-                if (!stepItem) return;
-
-                const indicator = stepItem.querySelector('.step-indicator');
-                const detail = stepItem.querySelector('.step-detail');
-
-                if (index < currentStepIndex) {
-                    // Completed steps
-                    indicator?.classList.remove('pending', 'active');
-                    indicator?.classList.add('completed');
-                } else if (index === currentStepIndex) {
-                    // Current step
-                    indicator?.classList.remove('pending', 'completed');
-                    indicator?.classList.add('active');
-
-                    // Update detail if we have it
-                    if (detail && progress.details) {
-                        const detailText = this.formatProgressDetails(progress.step, progress.details);
-                        if (detailText) {
-                            detail.textContent = detailText;
-                        }
-                    }
-                } else {
-                    // Future steps
-                    indicator?.classList.remove('active', 'completed');
-                    indicator?.classList.add('pending');
+        // Map progress steps to terminal lines + column highlights
+        const details = progress.details || {};
+        switch (progress.step) {
+            case 'parsing':
+                if (details.rows_count) {
+                    this.addTerminalLine(`${details.rows_count} rader, ${details.columns_count || '?'} kolumner ✓`, 'success');
                 }
-            });
-        }
-
-        // Update AI notes if we have mapping info
-        if (progress.step === 'mapping' && progress.details) {
-            this.showAINotes(progress.details);
+                break;
+            case 'analyzing':
+                this.addTerminalLine('Identifierar kolumner...', 'info');
+                break;
+            case 'detecting':
+                if (details.file_type) {
+                    this.addTerminalLine(`Filtyp: ${details.file_type} upptäckt`, 'discovery');
+                } else {
+                    this.addTerminalLine('Detekterar filtyp...', 'info');
+                }
+                break;
+            case 'categorizing':
+                this.addTerminalLine('Kategoriserar transaktioner...', 'info');
+                break;
+            case 'mapping': {
+                // Highlight discovered columns on the scanner table
+                const mapping = details as Record<string, unknown>;
+                if (mapping.amount_column && typeof mapping.amount_column === 'string') {
+                    this.highlightScannerColumn(mapping.amount_column, 'amount');
+                    this.addTerminalLine(`💰 belopp → "${mapping.amount_column}"`, 'discovery');
+                }
+                if (mapping.vat_amount_column && typeof mapping.vat_amount_column === 'string') {
+                    this.highlightScannerColumn(mapping.vat_amount_column, 'vat');
+                    this.addTerminalLine(`🧾 moms → "${mapping.vat_amount_column}"`, 'discovery');
+                }
+                if (mapping.date_column && typeof mapping.date_column === 'string') {
+                    this.highlightScannerColumn(mapping.date_column, 'date');
+                    this.addTerminalLine(`📅 datum → "${mapping.date_column}"`, 'discovery');
+                }
+                if (mapping.description_column && typeof mapping.description_column === 'string') {
+                    this.highlightScannerColumn(mapping.description_column, 'desc');
+                    this.addTerminalLine(`📝 beskrivning → "${mapping.description_column}"`, 'discovery');
+                }
+                if (!mapping.amount_column && !mapping.vat_amount_column) {
+                    this.addTerminalLine('AI-mappning av kolumner...', 'info');
+                }
+                break;
+            }
+            case 'normalizing':
+                this.addTerminalLine('Normaliserar data...', 'info');
+                break;
+            case 'calculating':
+                this.addTerminalLine('Beräknar moms...', 'info');
+                break;
+            default:
+                // Handle extra steps from backend (python-calculating, claude-validating, etc.)
+                if (progress.message) {
+                    this.addTerminalLine(progress.message, 'info');
+                }
+                break;
         }
 
         // Handle complete state - show the VAT report
         if (progress.step === 'complete' && progress.report) {
-            const thinkingText = this.elements.container.querySelector('.thinking-text');
-            if (thinkingText) {
-                thinkingText.textContent = 'Analys klar!';
+            // Scanner completion effects
+            this.addTerminalLine('✓ Analys klar!', 'success');
+
+            const scanline = document.getElementById('scanline');
+            if (scanline) scanline.classList.add('complete');
+
+            const progressFillEl = document.getElementById('scanner-progress-fill');
+            if (progressFillEl) {
+                progressFillEl.style.width = '100%';
+                progressFillEl.classList.add('complete');
             }
 
-            // After a brief delay to show "Analys klar!", display the actual report
+            const progressTextEl = document.getElementById('scanner-progress-text');
+            if (progressTextEl) progressTextEl.textContent = 'Analys klar!';
+
+            const table = document.getElementById('scanner-table');
+            if (table) table.classList.add('complete');
+
+            // After a brief delay, fade out scanner and show report
+            setTimeout(() => {
+                const scanner = document.getElementById('scanner-root');
+                if (scanner) scanner.classList.add('fade-out');
+            }, 600);
+
             setTimeout(() => {
                 const reportData = progress.report as unknown as {
                     success?: boolean;
@@ -1195,13 +1228,18 @@ export class ExcelWorkspace {
                     };
 
                     // Show VAT report in side panel after analysis completes
-                    this.openVATReport(_vatData);
+                    this.openVATReport(_vatData).catch(err =>
+                        logger.error('Failed to open VAT report', err)
+                    );
                 }
-            }, 800); // Brief delay to show completion
+            }, 1200); // Delay to show scanner completion + fade-out
         }
 
         // Handle error state
         if (progress.step === 'error') {
+            this.addTerminalLine(`✗ ${progress.error || 'Okänt fel'}`, 'error');
+            const scanline = document.getElementById('scanline');
+            if (scanline) scanline.classList.add('error');
             this.showAnalysisError(progress.error || 'Okänt fel');
         }
     }
@@ -1209,68 +1247,6 @@ export class ExcelWorkspace {
     /**
      * Format progress details for display
      */
-    private formatProgressDetails(step: string, details: Record<string, unknown>): string {
-        switch (step) {
-            case 'parsing':
-                if (details.rows_count && details.columns_count) {
-                    return `${details.rows_count} rader, ${details.columns_count} kolumner`;
-                }
-                break;
-            case 'mapping':
-                if (details.file_type) {
-                    return String(details.file_type);
-                }
-                break;
-            case 'normalizing':
-                if (details.total_transactions) {
-                    return `${details.total_transactions} transaktioner`;
-                }
-                break;
-            case 'python-calculating':
-                if (details.period) {
-                    return `Period: ${details.period}`;
-                }
-                break;
-            case 'claude-validating':
-                if (details.passed !== undefined) {
-                    return details.passed ? 'Godkänd' : 'Varningar hittades';
-                }
-                break;
-        }
-        return '';
-    }
-
-    /**
-     * Show AI analysis notes/insights
-     */
-    private showAINotes(details: Record<string, unknown>): void {
-        const notesContainer = document.getElementById('ai-analysis-notes');
-        const notesContent = document.getElementById('ai-notes-content');
-
-        if (notesContainer && notesContent) {
-            const notes: string[] = [];
-
-            if (details.file_type) {
-                notes.push(`<strong>Filtyp:</strong> ${this.escapeHtml(String(details.file_type))}`);
-            }
-
-            if (details.confidence) {
-                const confidence = Math.round(Number(details.confidence) * 100);
-                const confidenceClass = confidence >= 80 ? 'high' : confidence >= 60 ? 'medium' : 'low';
-                notes.push(`<strong>Konfidens:</strong> <span class="confidence ${confidenceClass}">${confidence}%</span>`);
-            }
-
-            if (details.notes) {
-                notes.push(`<strong>Observation:</strong> ${this.escapeHtml(String(details.notes))}`);
-            }
-
-            if (notes.length > 0) {
-                notesContent.innerHTML = notes.join('<br>');
-                notesContainer.style.display = 'block';
-            }
-        }
-    }
-
     /**
      * Show analysis error in the streaming UI
      */
@@ -1313,7 +1289,7 @@ export class ExcelWorkspace {
      * @param fileBucket - Optional storage bucket for the Excel file
      * @param skipSave - Skip saving to messages (when opening from button)
      */
-    openVATReport(data: VATReportData, fileUrl?: string, filePath?: string, fileBucket?: string, skipSave = false): void {
+    async openVATReport(data: VATReportData, fileUrl?: string, filePath?: string, fileBucket?: string, skipSave = false): Promise<void> {
         try {
             this.setVatReportMode(true);
 
@@ -1324,20 +1300,25 @@ export class ExcelWorkspace {
             this.currentContent = { type: 'vat_report', data, fileUrl, filePath, fileBucket };
 
             // Update panel title
-            this.elements.filenameDisplay.textContent = `Momsredovisning ${data.period}`;
+            this.elements.filenameDisplay.textContent = `Bokföringsunderlag ${data.period}`;
 
-            // Hide sheet tabs (not needed for VAT report)
+            // Hide sheet tabs (not needed for report)
             this.elements.tabsContainer.style.display = 'none';
 
-            // Show panel tabs and reset to summary
-            this.showPanelTabs(true);
-            this.setActiveTab('summary');
+            // Hide panel tabs - SpreadsheetViewer has its own sheet tabs
+            this.showPanelTabs(false);
 
-            // Clear container and mount Preact component
+            // Build in-memory workbook with pre-computed sheet data
+            const spreadsheetData = await buildReportWorkbook(data);
+
+            // Render action buttons in header
+            this.renderHeaderActions(data);
+
+            // Clear container and mount SpreadsheetViewer
             this.elements.container.innerHTML = '';
             this.vatReportUnmount = mountPreactComponent(
-                VATReportCard,
-                { data, initialTab: 'summary' },
+                SpreadsheetViewer,
+                { spreadsheetData },
                 this.elements.container
             );
 
