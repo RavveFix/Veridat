@@ -119,7 +119,9 @@ CREATE POLICY "Users can view own agent tasks"
 DROP POLICY IF EXISTS "Service role can manage agent tasks" ON public.agent_tasks;
 CREATE POLICY "Service role can manage agent tasks"
     ON public.agent_tasks FOR ALL
-    USING (true);
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
 
 -- agent_tasks: authenticated users can insert own tasks (dispatch from frontend)
 DROP POLICY IF EXISTS "Users can insert own agent tasks" ON public.agent_tasks;
@@ -137,7 +139,9 @@ CREATE POLICY "Anyone can view agent registry"
 DROP POLICY IF EXISTS "Service role can manage agent registry" ON public.agent_registry;
 CREATE POLICY "Service role can manage agent registry"
     ON public.agent_registry FOR ALL
-    USING (true);
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
 
 -- ============================================================================
 -- COMMENTS

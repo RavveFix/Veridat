@@ -1184,7 +1184,7 @@ Deno.serve(async (req: Request) => {
     const requestOrigin = req.headers.get('origin') || req.headers.get('Origin');
     const corsHeaders = getCorsHeaders(requestOrigin);
     const provider = (Deno.env.get('LLM_PROVIDER') || 'gemini').toLowerCase();
-    console.log('[INIT] LLM_PROVIDER env value:', Deno.env.get('LLM_PROVIDER'), '-> provider:', provider);
+    logger.info('LLM provider configured', { provider });
     const responseHeaders = {
         ...corsHeaders,
         'X-LLM-Provider': provider
@@ -1694,10 +1694,10 @@ ANVÄNDARFRÅGA:
 
         // Handle Gemini Streaming
         if (provider === 'gemini' && !forceNonStreaming) {
-            console.log('[STREAMING] Starting Gemini streaming... (model:', effectiveModel || 'default', ')');
+            logger.debug('Starting Gemini streaming', { model: effectiveModel || 'default' });
             try {
                 const stream = await sendMessageStreamToGemini(finalMessage, geminiFileData, history, undefined, effectiveModel, { disableTools });
-                console.log('[STREAMING] Stream created successfully');
+                logger.debug('Gemini stream created successfully');
                 const encoder = new TextEncoder();
                 let fullText = "";
                 let toolCallDetected: any = null;
@@ -1887,7 +1887,7 @@ ANVÄNDARFRÅGA:
                 // Fallback to non-streaming or error response
             }
         } else {
-            console.log('[STREAMING] Provider is not gemini, skipping streaming. Provider:', provider);
+            logger.debug('Skipping streaming for non-Gemini provider', { provider });
         }
 
         // OpenAI or Fallback

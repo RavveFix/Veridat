@@ -723,6 +723,9 @@ Deno.serve(async (req: Request) => {
             }
 
             case "list_agents": {
+                if (!user.isAdmin) {
+                    return jsonResponse(corsHeaders, 403, { error: "Kräver admin." });
+                }
                 const result = await handleListAgents(supabaseAdmin);
                 return jsonResponse(corsHeaders, 200, result);
             }
