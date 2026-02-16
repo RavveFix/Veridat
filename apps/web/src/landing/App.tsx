@@ -1,4 +1,5 @@
 
+import { Analytics } from '@vercel/analytics/react';
 import { Hero } from './components/Hero';
 import { TrustSignals } from './components/TrustSignals';
 import { Features } from './components/Features';
@@ -61,6 +62,8 @@ export function App() {
             </main>
 
             <Footer />
+
+            <Analytics />
 
             <style>{`
                 .support-link:hover {
