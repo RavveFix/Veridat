@@ -57,6 +57,14 @@ function parseImapMailboxes() {
         .filter(Boolean);
 }
 
+function extractImapErrorText(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const responseText = typeof error?.responseText === 'string' ? error.responseText : '';
+    const responseStatus = typeof error?.responseStatus === 'string' ? error.responseStatus : '';
+    const responseCode = typeof error?.serverResponseCode === 'string' ? error.serverResponseCode : '';
+    return [message, responseText, responseStatus, responseCode].filter(Boolean).join(' | ');
+}
+
 function parseProjectRefFromConfig() {
     const configPath = 'supabase/config.toml';
     if (!existsSync(configPath)) return null;
@@ -377,10 +385,11 @@ async function waitForInboxMagicLink({ host, port, secure, user, pass, marker, t
                         };
                     }
                 } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
-                    if (/does not exist|mailbox.*not found|unknown mailbox|can't open mailbox/i.test(message)) {
+                    const errorText = extractImapErrorText(error);
+                    const mailboxMissing = /does not exist|mailbox.*not found|unknown mailbox|can't open mailbox|nonexistent|no mailbox/i.test(errorText);
+                    if (mailboxMissing || mailbox !== 'INBOX') {
                         missingMailboxes.add(mailbox);
-                        progress(`Mailbox '${mailbox}' not found, skipping`);
+                        progress(`Skipping mailbox '${mailbox}' (${errorText || 'unavailable'})`);
                     } else {
                         throw error;
                     }
