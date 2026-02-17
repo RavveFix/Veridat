@@ -15,6 +15,7 @@ const MAGICLINK_TIMEOUT_MS = Number(process.env.SMOKE_MAGIC_LINK_TIMEOUT_MS || '
 const MAGICLINK_MAX_ATTEMPTS = Number(process.env.SMOKE_MAGIC_LINK_MAX_ATTEMPTS || '4');
 const MAGICLINK_RETRY_BASE_MS = Number(process.env.SMOKE_MAGIC_LINK_RETRY_BASE_MS || '15000');
 const MAGICLINK_RETRY_MAX_MS = Number(process.env.SMOKE_MAGIC_LINK_RETRY_MAX_MS || '120000');
+const DEFAULT_IMAP_MAILBOXES = 'INBOX,INBOX.Spam,INBOX.Junk,Spam,Junk';
 const SHOW_PROGRESS = process.env.SMOKE_LOG_PROGRESS
     ? process.env.SMOKE_LOG_PROGRESS !== 'false'
     : Boolean(process.stdout.isTTY);
@@ -46,6 +47,14 @@ function progress(message) {
 
 function isEmailRateLimitError(message) {
     return /email rate limit exceeded|too many requests|rate limit/i.test(message);
+}
+
+function parseImapMailboxes() {
+    const raw = process.env.SMOKE_IMAP_MAILBOXES || DEFAULT_IMAP_MAILBOXES;
+    return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
 }
 
 function parseProjectRefFromConfig() {
@@ -323,40 +332,63 @@ function extractMagicLink(raw, marker) {
 
 async function waitForInboxMagicLink({ host, port, secure, user, pass, marker, timeoutMs }) {
     const { ImapFlow } = await import('imapflow');
+    const mailboxCandidates = parseImapMailboxes();
     progress(`Connecting to IMAP ${host}:${port} as ${user}`);
     const client = new ImapFlow({
         host,
         port,
         secure,
+        logger: false,
         auth: { user, pass }
     });
 
     await client.connect();
-    progress('IMAP connected, polling inbox for magic link');
-    const lock = await client.getMailboxLock('INBOX');
+    progress(`IMAP connected, polling mailboxes: ${mailboxCandidates.join(', ')}`);
     const startedAt = Date.now();
     const since = new Date(Date.now() - 10 * 60 * 1000);
+    const missingMailboxes = new Set();
 
     try {
         while (Date.now() - startedAt < timeoutMs) {
-            const ids = await client.search({ since });
-            const recent = ids.slice(-30).reverse();
+            for (const mailbox of mailboxCandidates) {
+                if (missingMailboxes.has(mailbox)) continue;
 
-            for (const id of recent) {
-                const message = await client.fetchOne(id, { source: true, envelope: true, internalDate: true });
-                if (!message?.source) continue;
-                const source = message.source.toString('utf8');
-                if (marker && !source.includes(marker)) continue;
+                let lock = null;
+                try {
+                    lock = await client.getMailboxLock(mailbox);
+                    const ids = await client.search({ since });
+                    const recent = ids.slice(-30).reverse();
 
-                const link = extractMagicLink(source, marker);
-                if (!link) continue;
+                    for (const id of recent) {
+                        const message = await client.fetchOne(id, { source: true, envelope: true, internalDate: true });
+                        if (!message?.source) continue;
+                        const source = message.source.toString('utf8');
+                        if (marker && !source.includes(marker)) continue;
 
-                return {
-                    id,
-                    link,
-                    subject: message.envelope?.subject || null,
-                    date: message.internalDate ? message.internalDate.toISOString() : null
-                };
+                        const link = extractMagicLink(source, marker);
+                        if (!link) continue;
+
+                        return {
+                            id,
+                            mailbox,
+                            link,
+                            subject: message.envelope?.subject || null,
+                            date: message.internalDate ? message.internalDate.toISOString() : null
+                        };
+                    }
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    if (/does not exist|mailbox.*not found|unknown mailbox|can't open mailbox/i.test(message)) {
+                        missingMailboxes.add(mailbox);
+                        progress(`Mailbox '${mailbox}' not found, skipping`);
+                    } else {
+                        throw error;
+                    }
+                } finally {
+                    if (lock) {
+                        lock.release();
+                    }
+                }
             }
 
             const elapsed = Math.round((Date.now() - startedAt) / 1000);
@@ -364,7 +396,6 @@ async function waitForInboxMagicLink({ host, port, secure, user, pass, marker, t
             await sleep(2000);
         }
     } finally {
-        lock.release();
         await client.logout();
     }
 
@@ -461,6 +492,7 @@ async function checkRealInboxMagicLinkFlow(supabaseUrl, anonKey) {
             smokeId,
             signInAttempts: requestDetails.attempts,
             mailboxMessageId: inboxHit.id,
+            mailbox: inboxHit.mailbox || null,
             mailboxSubject: inboxHit.subject,
             finalUrl
         };
