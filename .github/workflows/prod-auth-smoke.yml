@@ -17,6 +17,9 @@ jobs:
       SUPABASE_URL: ${{ secrets.PROD_SMOKE_SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.PROD_SMOKE_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SMOKE_SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_URL_FALLBACK: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
       SMOKE_IMAP_HOST: ${{ secrets.PROD_SMOKE_IMAP_HOST }}
       SMOKE_IMAP_PORT: ${{ secrets.PROD_SMOKE_IMAP_PORT }}
       SMOKE_IMAP_USER: ${{ secrets.PROD_SMOKE_IMAP_USER }}
@@ -57,9 +60,29 @@ jobs:
             fi
           }
 
-          require "PROD_SMOKE_SUPABASE_URL" "${SUPABASE_URL:-}"
-          require "PROD_SMOKE_SUPABASE_ANON_KEY" "${SUPABASE_ANON_KEY:-}"
-          require "PROD_SMOKE_SUPABASE_SERVICE_ROLE_KEY" "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          EFFECTIVE_SUPABASE_URL="${SUPABASE_URL:-}"
+          if [ -z "${EFFECTIVE_SUPABASE_URL}" ] && [ -n "${SUPABASE_URL_FALLBACK:-}" ]; then
+            EFFECTIVE_SUPABASE_URL="${SUPABASE_URL_FALLBACK}"
+          fi
+
+          HAS_EXPLICIT_KEYS=false
+          if [ -n "${EFFECTIVE_SUPABASE_URL}" ] && [ -n "${SUPABASE_ANON_KEY:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            HAS_EXPLICIT_KEYS=true
+            echo "SUPABASE_URL=${EFFECTIVE_SUPABASE_URL}" >> "$GITHUB_ENV"
+          fi
+
+          HAS_CLI_LOOKUP=false
+          if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            HAS_CLI_LOOKUP=true
+          fi
+
+          if [ "${HAS_EXPLICIT_KEYS}" != "true" ] && [ "${HAS_CLI_LOOKUP}" != "true" ]; then
+            echo "::error::Missing Supabase auth config. Provide either:" >&2
+            echo "::error::- PROD_SMOKE_SUPABASE_URL + PROD_SMOKE_SUPABASE_ANON_KEY + PROD_SMOKE_SUPABASE_SERVICE_ROLE_KEY" >&2
+            echo "::error::- or SUPABASE_ACCESS_TOKEN (optionally SUPABASE_PROJECT_REF if not in supabase/config.toml)" >&2
+            exit 1
+          fi
+
           require "PROD_SMOKE_IMAP_HOST" "${SMOKE_IMAP_HOST:-}"
           require "PROD_SMOKE_IMAP_PORT" "${SMOKE_IMAP_PORT:-}"
           require "PROD_SMOKE_IMAP_USER" "${SMOKE_IMAP_USER:-}"
