@@ -338,7 +338,7 @@ function extractMagicLink(raw, marker) {
     return candidates.find((u) => u.includes(marker)) || null;
 }
 
-async function waitForInboxMagicLink({ host, port, secure, user, pass, marker, timeoutMs }) {
+async function waitForInboxMagicLink({ host, port, secure, user, pass, marker, timeoutMs, notBefore }) {
     const { ImapFlow } = await import('imapflow');
     const mailboxCandidates = parseImapMailboxes();
     progress(`Connecting to IMAP ${host}:${port} as ${user}`);
@@ -370,16 +370,20 @@ async function waitForInboxMagicLink({ host, port, secure, user, pass, marker, t
                     for (const id of recent) {
                         const message = await client.fetchOne(id, { source: true, envelope: true, internalDate: true });
                         if (!message?.source) continue;
-                        const source = message.source.toString('utf8');
-                        if (marker && !source.includes(marker)) continue;
+                        if (notBefore && message.internalDate && message.internalDate < notBefore) {
+                            continue;
+                        }
 
-                        const link = extractMagicLink(source, marker);
+                        const source = message.source.toString('utf8');
+                        const markerMatched = marker ? source.includes(marker) : false;
+                        const link = extractMagicLink(source, marker) || extractMagicLink(source, null);
                         if (!link) continue;
 
                         return {
                             id,
                             mailbox,
                             link,
+                            markerMatched,
                             subject: message.envelope?.subject || null,
                             date: message.internalDate ? message.internalDate.toISOString() : null
                         };
@@ -465,6 +469,7 @@ async function checkRealInboxMagicLinkFlow(supabaseUrl, anonKey) {
 
     const smokeId = `smoke-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const redirectTo = `${SITE_URL}/login?smoke_id=${encodeURIComponent(smokeId)}`;
+    const requestStartedAt = new Date();
 
     const requestDetails = await requestMagicLinkWithRetry(anon, {
         email: targetEmail,
@@ -478,7 +483,8 @@ async function checkRealInboxMagicLinkFlow(supabaseUrl, anonKey) {
         user,
         pass,
         marker: smokeId,
-        timeoutMs: MAGICLINK_TIMEOUT_MS
+        timeoutMs: MAGICLINK_TIMEOUT_MS,
+        notBefore: requestStartedAt
     });
 
     const browser = await chromium.launch({ headless: true });
@@ -502,6 +508,7 @@ async function checkRealInboxMagicLinkFlow(supabaseUrl, anonKey) {
             signInAttempts: requestDetails.attempts,
             mailboxMessageId: inboxHit.id,
             mailbox: inboxHit.mailbox || null,
+            markerMatched: Boolean(inboxHit.markerMatched),
             mailboxSubject: inboxHit.subject,
             finalUrl
         };
