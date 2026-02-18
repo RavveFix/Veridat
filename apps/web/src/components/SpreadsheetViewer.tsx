@@ -58,6 +58,12 @@ function getCellClasses(style: CellStyle | undefined, value: string | number | n
     return classes.join(' ');
 }
 
+function getSpreadsheetColumnWidthStyle(width?: number) {
+    return {
+        width: `${width || 100}px`,
+    };
+}
+
 export const SpreadsheetViewer: FunctionComponent<SpreadsheetViewerProps> = ({
     spreadsheetData,
 }) => {
@@ -91,7 +97,7 @@ export const SpreadsheetViewer: FunctionComponent<SpreadsheetViewerProps> = ({
                                 <th
                                     key={i}
                                     class="sv-col-letter"
-                                    style={{ width: `${activeSheet.colWidths[i] || 100}px` }}
+                                    style={getSpreadsheetColumnWidthStyle(activeSheet.colWidths[i])}
                                 >
                                     {colLetter(i)}
                                 </th>

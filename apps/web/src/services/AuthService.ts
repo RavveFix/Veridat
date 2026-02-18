@@ -9,7 +9,8 @@
 
 import { supabase } from '../lib/supabase';
 import { CURRENT_TERMS_VERSION } from '../constants/termsVersion';
-import { REQUIRED_LEGAL_DOCS, type LegalDocType } from '../constants/legalDocs';
+import { type LegalDocType } from '../constants/legalDocs';
+import { getRequiredDocsForUser } from '../constants/consentPolicy';
 import { logger } from './LoggerService';
 
 export interface AuthState {
@@ -34,7 +35,16 @@ interface LocalLegalAcceptances {
     userAgent: string;
 }
 
+export interface ConsentSyncContext {
+    companyId: string;
+    companyOrgNumber?: string | null;
+}
+
 class AuthServiceClass {
+    private getRequiredDocs(userCreatedAt: string | null | undefined): LegalDocType[] {
+        return getRequiredDocsForUser(userCreatedAt);
+    }
+
     /**
      * Get current session
      */
@@ -73,6 +83,7 @@ class AuthServiceClass {
     async hasAcceptedTerms(): Promise<boolean> {
         const session = await this.getSession();
         if (!session) return false;
+        const requiredDocs = this.getRequiredDocs(session.user.created_at ?? null);
 
         try {
             const { data: acceptances, error } = await supabase
@@ -80,7 +91,7 @@ class AuthServiceClass {
                 .select('doc_type, version')
                 .eq('user_id', session.user.id)
                 .eq('version', CURRENT_TERMS_VERSION)
-                .in('doc_type', REQUIRED_LEGAL_DOCS);
+                .in('doc_type', requiredDocs);
 
             if (error) {
                 logger.warn('Error fetching legal acceptances, assuming not accepted', { error });
@@ -88,10 +99,10 @@ class AuthServiceClass {
             }
 
             const acceptedDocs = new Set((acceptances || []).map((row) => row.doc_type));
-            const hasAllDocs = REQUIRED_LEGAL_DOCS.every((doc) => acceptedDocs.has(doc));
+            const hasAllDocs = requiredDocs.every((doc) => acceptedDocs.has(doc));
 
             if (!hasAllDocs) {
-                logger.info('Legal acceptance missing required documents');
+                logger.info('Legal acceptance missing required documents', { requiredDocs });
             }
 
             return hasAllDocs;
@@ -104,7 +115,7 @@ class AuthServiceClass {
     /**
      * Check for local consent (from login page before DB sync)
      */
-    hasLocalConsent(): boolean {
+    hasLocalConsent(userCreatedAt: string | null | undefined = null): boolean {
         const localConsent = localStorage.getItem('has_accepted_terms_local');
         const localName = localStorage.getItem('user_full_name_local');
         const legalRaw = localStorage.getItem('legal_acceptances_local');
@@ -114,7 +125,8 @@ class AuthServiceClass {
         try {
             const parsed = JSON.parse(legalRaw) as LocalLegalAcceptances;
             if (!parsed?.docs?.length) return false;
-            return REQUIRED_LEGAL_DOCS.every((doc) => parsed.docs.includes(doc));
+            const requiredDocs = this.getRequiredDocs(userCreatedAt);
+            return requiredDocs.every((doc) => parsed.docs.includes(doc));
         } catch {
             return false;
         }
@@ -154,10 +166,16 @@ class AuthServiceClass {
     /**
      * Sync local consent to database
      */
-    async syncLocalConsentToDatabase(): Promise<boolean> {
+    async syncLocalConsentToDatabase(context?: ConsentSyncContext): Promise<boolean> {
         const session = await this.getSession();
         if (!session) {
             logger.warn('Cannot sync consent - no session');
+            return false;
+        }
+        const requiredDocs = this.getRequiredDocs(session.user.created_at ?? null);
+        if (requiredDocs.includes('dpa') && !context?.companyId) {
+            logger.error('Cannot sync required DPA acceptance without company context');
+            localStorage.setItem('consent_sync_pending', 'true');
             return false;
         }
 
@@ -185,9 +203,10 @@ class AuthServiceClass {
             const localAcceptances = this.getLocalLegalAcceptances();
             const acceptedAt = localAcceptances?.acceptedAt || consentData.acceptedAt;
             const version = localAcceptances?.version || consentData.version;
-            const docs = localAcceptances?.docs?.length ? localAcceptances.docs : REQUIRED_LEGAL_DOCS;
+            const docs = requiredDocs;
             const userAgent = localAcceptances?.userAgent || navigator.userAgent;
             const dpaAuthorized = localAcceptances?.dpaAuthorized ?? false;
+            const normalizedOrgNumber = context?.companyOrgNumber?.trim() ? context.companyOrgNumber.trim() : null;
 
             const acceptanceRows = docs.map((doc) => ({
                 user_id: session.user.id,
@@ -196,6 +215,8 @@ class AuthServiceClass {
                 accepted_at: acceptedAt,
                 user_agent: userAgent,
                 dpa_authorized: doc === 'dpa' ? dpaAuthorized : false,
+                company_id: doc === 'dpa' ? context?.companyId ?? null : null,
+                company_org_number: doc === 'dpa' ? normalizedOrgNumber : null,
                 accepted_from: 'prelogin'
             }));
 
@@ -229,11 +250,11 @@ class AuthServiceClass {
     /**
      * Retry pending consent sync
      */
-    async retryConsentSync(): Promise<boolean> {
+    async retryConsentSync(context?: ConsentSyncContext): Promise<boolean> {
         if (!this.hasConsentSyncPending()) return true;
 
         logger.info('Retrying pending consent sync...');
-        return this.syncLocalConsentToDatabase();
+        return this.syncLocalConsentToDatabase(context);
     }
 
     /**
@@ -241,6 +262,7 @@ class AuthServiceClass {
      */
     saveLocalConsent(fullName: string): void {
         const acceptedAt = new Date().toISOString();
+        const docs = this.getRequiredDocs(acceptedAt);
         localStorage.setItem('has_accepted_terms_local', 'true');
         localStorage.setItem('user_full_name_local', fullName);
         localStorage.setItem('terms_accepted_at_local', acceptedAt);
@@ -248,7 +270,7 @@ class AuthServiceClass {
         localStorage.setItem('legal_acceptances_local', JSON.stringify({
             acceptedAt,
             version: CURRENT_TERMS_VERSION,
-            docs: [...REQUIRED_LEGAL_DOCS],
+            docs,
             dpaAuthorized: false,
             userAgent: navigator.userAgent
         }));
@@ -278,7 +300,7 @@ class AuthServiceClass {
             isAuthenticated: session !== null,
             userId: session?.user?.id ?? null,
             email: session?.user?.email ?? null,
-            hasAcceptedTerms: hasAccepted || this.hasLocalConsent(),
+            hasAcceptedTerms: hasAccepted || this.hasLocalConsent(session?.user?.created_at ?? null),
             termsVersion: CURRENT_TERMS_VERSION
         };
     }

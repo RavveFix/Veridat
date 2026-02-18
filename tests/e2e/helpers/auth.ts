@@ -83,46 +83,56 @@ export async function generateMagicLinkWithUser(email: string): Promise<{ action
 
 export async function acceptLegalConsentModalIfVisible(page: Page, fullName: string): Promise<void> {
     const continueButton = page.getByRole('button', { name: 'Godkänn & Fortsätt' });
-    const visibleNow = await continueButton.isVisible().catch(() => false);
-    if (!visibleNow) {
-        const appeared = await continueButton
-            .waitFor({ state: 'visible', timeout: 10_000 })
-            .then(() => true)
-            .catch(() => false);
-        if (!appeared) return;
-    }
-
-    const nameInput = page.getByPlaceholder('T.ex. Anna Andersson');
-    if (await nameInput.isVisible().catch(() => false)) {
-        await nameInput.fill(fullName);
-    }
-
-    const consentCheckbox = page.getByRole('checkbox', {
-        name: 'Jag godkänner Användarvillkor och Integritetspolicy.',
-    });
-
-    await expect(consentCheckbox).toBeVisible({ timeout: 10_000 });
-    await consentCheckbox.check({ force: true });
-
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-        await expect(continueButton).toBeEnabled({ timeout: 10_000 });
-        await continueButton.click();
-
-        const hidden = await continueButton
-            .waitFor({ state: 'hidden', timeout: 7000 })
-            .then(() => true)
-            .catch(() => false);
-
-        if (hidden) return;
-
-        const hasSaveError = await page
-            .getByText('Kunde inte spara ditt godkännande. Försök igen.')
-            .isVisible()
-            .catch(() => false);
-
-        if (!hasSaveError) {
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+        const visible = await continueButton.isVisible().catch(() => false);
+        if (!visible) {
+            await sleep(300);
             continue;
         }
+
+        const nameInput = page.getByPlaceholder('T.ex. Anna Andersson');
+        if (await nameInput.isVisible().catch(() => false)) {
+            await nameInput.fill(fullName);
+        }
+
+        const consentCheckboxes = page.getByRole('checkbox', { name: /Jag godkänner Användarvillkor/i });
+        const checkboxCount = await consentCheckboxes.count();
+        let checked = false;
+        for (let i = 0; i < checkboxCount; i += 1) {
+            const checkbox = consentCheckboxes.nth(i);
+            const checkboxVisible = await checkbox.isVisible().catch(() => false);
+            if (!checkboxVisible) continue;
+            await checkbox.check({ force: true });
+            checked = true;
+            break;
+        }
+
+        if (!checked) {
+            throw new Error('Kunde inte hitta synlig checkbox för legal consent.');
+        }
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            await expect(continueButton).toBeEnabled({ timeout: 10_000 });
+            await continueButton.click();
+
+            const hidden = await continueButton
+                .waitFor({ state: 'hidden', timeout: 7000 })
+                .then(() => true)
+                .catch(() => false);
+
+            if (hidden) return;
+
+            const hasSaveError = await page
+                .getByText('Kunde inte spara ditt godkännande. Försök igen.')
+                .isVisible()
+                .catch(() => false);
+            if (!hasSaveError) {
+                break;
+            }
+        }
+
+        await sleep(300);
     }
 }
 
@@ -136,8 +146,8 @@ async function seedLocalConsent(page: Page, fullName: string): Promise<void> {
         localStorage.setItem('legal_acceptances_local', JSON.stringify({
             acceptedAt: acceptedAtValue,
             version: versionValue,
-            docs: ['terms', 'privacy'],
-            dpaAuthorized: false,
+            docs: ['terms', 'privacy', 'dpa'],
+            dpaAuthorized: true,
             userAgent: navigator.userAgent
         }));
     }, {

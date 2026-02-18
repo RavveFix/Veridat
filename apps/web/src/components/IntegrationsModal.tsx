@@ -5,6 +5,7 @@
  * Designed to be extensible for multiple integration providers.
  */
 
+import type { ComponentChildren, JSX } from 'preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import type { Integration, IntegrationStatus } from '../types/integrations';
@@ -83,6 +84,12 @@ function isFortnoxTool(tool: IntegrationTool | null | undefined): boolean {
     return !!tool && FORTNOX_LOCKED_TOOLS.includes(tool);
 }
 
+function parseBooleanEnvFlag(value: unknown): boolean {
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'on';
+}
+
 // ---------------------------------------------------------------------------
 // Tool Groups — data-driven rendering
 // ---------------------------------------------------------------------------
@@ -96,6 +103,22 @@ interface ToolDef {
     badge: 'new' | 'pro' | 'beta';
     testId: string;
     requiresPro?: boolean;
+}
+
+interface PrimarySectionActionDef {
+    label: string;
+    tool: IntegrationTool;
+}
+
+interface PrimarySectionDef {
+    id: 'today' | 'invoices' | 'bank' | 'vat';
+    title: string;
+    description: string;
+    iconPath: string;
+    iconColor: string;
+    primaryLabel: string;
+    primaryTool: IntegrationTool;
+    secondaryAction?: PrimarySectionActionDef;
 }
 
 const TOOL_GROUPS: { title: string; tools: ToolDef[] }[] = [
@@ -191,6 +214,62 @@ const TOOL_GROUPS: { title: string; tools: ToolDef[] }[] = [
     },
 ];
 
+const TOOL_DEFS_BY_ID = TOOL_GROUPS
+    .flatMap((group) => group.tools)
+    .reduce((acc, tool) => {
+        acc[tool.id] = tool;
+        return acc;
+    }, {} as Record<IntegrationTool, ToolDef>);
+
+const PRIMARY_SECTIONS_V2: PrimarySectionDef[] = [
+    {
+        id: 'today',
+        title: 'Idag',
+        description: 'Deadlines, larm och snabbåtgärder för perioden.',
+        iconPath: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
+        iconColor: '#10b981',
+        primaryLabel: 'Öppna översikt',
+        primaryTool: 'dashboard',
+    },
+    {
+        id: 'invoices',
+        title: 'Fakturor',
+        description: 'Hantera leverantörsfakturor och öppna Fortnox statusvy.',
+        iconPath: 'M22 12h-6l-2 3H10l-2-3H2M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z',
+        iconColor: '#8b5cf6',
+        primaryLabel: 'Öppna fakturainkorg',
+        primaryTool: 'invoice-inbox',
+        secondaryAction: {
+            label: 'Öppna Fortnoxpanel',
+            tool: 'fortnox-panel',
+        },
+    },
+    {
+        id: 'bank',
+        title: 'Bank',
+        description: 'Importera kontoutdrag och följ avstämning per period.',
+        iconPath: 'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12',
+        iconColor: '#0ea5e9',
+        primaryLabel: 'Öppna bankimport',
+        primaryTool: 'bank-import',
+        secondaryAction: {
+            label: 'Öppna bankavstämning',
+            tool: 'reconciliation',
+        },
+    },
+    {
+        id: 'vat',
+        title: 'Moms',
+        description: 'Momsrapport och periodens momsunderlag från Fortnox.',
+        iconPath: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8',
+        iconColor: '#3b82f6',
+        primaryLabel: 'Öppna momsdeklaration',
+        primaryTool: 'vat-report',
+    },
+];
+
+const ADVANCED_TOOLS_V2: IntegrationTool[] = ['bookkeeping-rules', 'fortnox-panel', 'agency'];
+
 // ---------------------------------------------------------------------------
 // Integration icon mapping
 // ---------------------------------------------------------------------------
@@ -217,7 +296,492 @@ const STATUS_TEXT_MAP: Record<IntegrationStatus, string> = {
     coming_soon: 'Kommer snart',
 };
 
+const UPGRADE_TO_PRO_MAILTO =
+    'mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh';
+
+const FORTNOX_PLAN_GATED_BANNER = {
+    testId: 'fortnox-plan-gated-message',
+    message: 'Fortnoxpanel, momsrapport och fakturainkorg kräver Veridat Pro eller Trial.',
+} as const;
+
+const FORTNOX_RECONNECT_BANNER = {
+    testId: 'fortnox-reconnect-banner',
+    message: 'Fortnox är inte kopplat för det aktiva bolaget. Anslut på nytt för att återaktivera Fortnox-verktygen.',
+} as const;
+
+const INTEGRATIONS_INFO_CARD = {
+    title: 'Hur fungerar det?',
+    message:
+        'När du ansluter Fortnox kan Veridat automatiskt skapa fakturor, hämta kunder och artiklar, samt synka bokföringsdata. All kommunikation sker säkert via Fortnox officiella API.',
+} as const;
+
+const FORTNOX_PLAN_GATED_BANNER_STYLE = {
+    padding: '1rem',
+    borderRadius: '12px',
+    border: '1px solid rgba(245, 158, 11, 0.25)',
+    background: 'rgba(245, 158, 11, 0.08)',
+    color: 'var(--text-secondary)',
+    fontSize: '0.9rem',
+    lineHeight: 1.5,
+} as const;
+
+const FORTNOX_RECONNECT_BANNER_STYLE = {
+    padding: '0.9rem 1rem',
+    borderRadius: '10px',
+    border: '1px solid rgba(59, 130, 246, 0.3)',
+    background: 'rgba(59, 130, 246, 0.08)',
+    color: 'var(--text-secondary)',
+    fontSize: '0.85rem',
+    lineHeight: 1.5,
+} as const;
+
+const FORTNOX_UPGRADE_LINK_STYLE = {
+    display: 'inline-block',
+    marginTop: '1rem',
+    padding: '0.7rem 1rem',
+    borderRadius: '999px',
+    textDecoration: 'none',
+    fontWeight: 600,
+    fontSize: '0.9rem',
+    color: '#fff',
+    background: '#2563eb',
+    boxShadow: 'none',
+} as const;
+
+const INTEGRATIONS_MODAL_BODY_STYLE = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1.5rem',
+} as const;
+
+const INTEGRATIONS_LOADING_STYLE = {
+    textAlign: 'center',
+    padding: '2rem',
+} as const;
+
+const INTEGRATIONS_LOADING_TIMEOUT_STYLE = {
+    fontSize: '0.85rem',
+    color: 'var(--accent-primary)',
+    marginTop: '0.5rem',
+} as const;
+
+const INTEGRATIONS_LIST_GRID_STYLE = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+    gap: '0.75rem',
+    marginTop: '0.75rem',
+} as const;
+
+const TOOL_GROUPS_WRAP_STYLE = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1.5rem',
+} as const;
+
+const TOOL_GROUP_GRID_STYLE = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+    gap: '0.75rem',
+    marginTop: '0.75rem',
+} as const;
+
+const INTEGRATIONS_INFO_CARD_TITLE_STYLE = {
+    margin: '0 0 0.4rem',
+    fontSize: '0.78rem',
+} as const;
+
+const INTEGRATIONS_INFO_CARD_TEXT_STYLE = {
+    margin: 0,
+    fontSize: '0.82rem',
+    color: 'var(--text-secondary)',
+    lineHeight: 1.5,
+} as const;
+
+const INTEGRATION_CONNECTION_CARD_BASE_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1rem',
+} as const;
+
+const INTEGRATION_CONNECTION_CONTENT_STYLE = {
+    flex: 1,
+    minWidth: 0,
+} as const;
+
+const INTEGRATION_CONNECTION_HEADER_ROW_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    marginBottom: '0.25rem',
+} as const;
+
+const INTEGRATION_CONNECTION_NAME_STYLE = {
+    fontWeight: 700,
+    color: 'var(--text-primary)',
+    fontSize: '0.95rem',
+    fontFamily: 'var(--font-display)',
+} as const;
+
+const INTEGRATION_CONNECTION_DESCRIPTION_STYLE = {
+    margin: 0,
+    color: 'var(--text-secondary)',
+    fontSize: '0.8rem',
+    lineHeight: 1.4,
+} as const;
+
+const INTEGRATION_CONNECTION_DATE_STYLE = {
+    margin: '0.4rem 0 0',
+    color: 'var(--text-secondary)',
+    fontSize: '0.72rem',
+} as const;
+
+const INTEGRATION_CONNECTION_ACTION_STYLE = {
+    flexShrink: 0,
+} as const;
+
+const INTEGRATION_TOOL_CARD_BASE_STYLE = {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '0.85rem',
+    textAlign: 'left',
+} as const;
+
+const INTEGRATION_TOOL_TITLE_STYLE = {
+    fontWeight: 700,
+    fontSize: '0.88rem',
+    color: 'var(--text-primary)',
+    fontFamily: 'var(--font-display)',
+    marginBottom: '0.2rem',
+} as const;
+
+const INTEGRATION_TOOL_DESCRIPTION_STYLE = {
+    fontSize: '0.78rem',
+    color: 'var(--text-secondary)',
+    lineHeight: 1.4,
+} as const;
+
+const INTEGRATION_TOOL_BADGE_WRAP_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    flexShrink: 0,
+    marginTop: '0.1rem',
+} as const;
+
+const INTEGRATION_TOOL_CONTENT_STYLE = {
+    flex: 1,
+    minWidth: 0,
+} as const;
+
+const MODAL_ERROR_BOX_STYLE = {
+    padding: '0.8rem',
+    borderRadius: '8px',
+    background: 'var(--status-danger-bg)',
+    color: 'var(--status-danger)',
+    border: '1px solid var(--status-danger-border)',
+    fontSize: '0.9rem'
+} as const;
+
+const MODAL_LOADING_SPINNER_STYLE = {
+    margin: '0 auto 1rem'
+} as const;
+
+function getIntegrationConnectionCardStyle(isComingSoon: boolean) {
+    return {
+        ...INTEGRATION_CONNECTION_CARD_BASE_STYLE,
+        opacity: isComingSoon ? 0.6 : 1,
+    } as const;
+}
+
+function getIntegrationToolCardStyle(disabled: boolean) {
+    return {
+        ...INTEGRATION_TOOL_CARD_BASE_STYLE,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+    } as const;
+}
+
+function getIntegrationToolIconStyle(iconColor: string) {
+    return {
+        background: `${iconColor}15`,
+        color: iconColor,
+    } as const;
+}
+
+interface InlineNoticeBannerProps {
+    message: string;
+    style: {
+        padding: string;
+        borderRadius: string;
+        border: string;
+        background: string;
+        color: string;
+        fontSize: string;
+        lineHeight: number;
+    };
+    testId?: string;
+}
+
+function InlineNoticeBanner({ message, style, testId }: InlineNoticeBannerProps) {
+    return (
+        <div data-testid={testId} style={style}>
+            {message}
+        </div>
+    );
+}
+
+function IntegrationsInfoCard() {
+    return (
+        <div className="panel-card panel-card--no-hover integ-info-card">
+            <div className="integ-info-card__icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+            </div>
+            <div>
+                <h4 className="panel-label" style={INTEGRATIONS_INFO_CARD_TITLE_STYLE}>
+                    {INTEGRATIONS_INFO_CARD.title}
+                </h4>
+                <p style={INTEGRATIONS_INFO_CARD_TEXT_STYLE}>
+                    {INTEGRATIONS_INFO_CARD.message}
+                </p>
+            </div>
+        </div>
+    );
+}
+
+interface IntegrationIconGlyph {
+    letter: string;
+    className: string;
+}
+
+interface IntegrationConnectionCardProps {
+    integration: Integration;
+    icon: IntegrationIconGlyph;
+    isComingSoon: boolean;
+    isConnected: boolean;
+    statusBadge: ComponentChildren;
+    action?: ComponentChildren;
+}
+
+function IntegrationConnectionCard({
+    integration,
+    icon,
+    isComingSoon,
+    isConnected,
+    statusBadge,
+    action,
+}: IntegrationConnectionCardProps) {
+    return (
+        <div
+            data-testid={`integration-card-${integration.id}`}
+            className={`panel-card ${isComingSoon ? 'panel-card--no-hover' : 'panel-card--interactive'} ${isConnected ? 'integ-card--connected' : ''}`}
+            style={getIntegrationConnectionCardStyle(isComingSoon)}
+        >
+            <div className={icon.className}>{icon.letter}</div>
+
+            <div style={INTEGRATION_CONNECTION_CONTENT_STYLE}>
+                <div style={INTEGRATION_CONNECTION_HEADER_ROW_STYLE}>
+                    <span style={INTEGRATION_CONNECTION_NAME_STYLE}>
+                        {integration.name}
+                    </span>
+                    {statusBadge}
+                </div>
+                <p style={INTEGRATION_CONNECTION_DESCRIPTION_STYLE}>
+                    {integration.description}
+                </p>
+                {integration.connectedAt && (
+                    <p style={INTEGRATION_CONNECTION_DATE_STYLE}>
+                        Ansluten {new Date(integration.connectedAt).toLocaleDateString('sv-SE')}
+                    </p>
+                )}
+            </div>
+
+            {!isComingSoon && action && (
+                <div style={INTEGRATION_CONNECTION_ACTION_STYLE}>
+                    {action}
+                </div>
+            )}
+        </div>
+    );
+}
+
+interface ToolBadgeMeta {
+    className: string;
+    text: string;
+}
+
+interface IntegrationToolCardProps {
+    tool: ToolDef;
+    disabled: boolean;
+    badge: ToolBadgeMeta;
+    alertBadges?: ComponentChildren;
+    onClick: (tool: IntegrationTool) => void;
+}
+
+function IntegrationToolCard({
+    tool,
+    disabled,
+    badge,
+    alertBadges,
+    onClick,
+}: IntegrationToolCardProps) {
+    return (
+        <button
+            type="button"
+            onClick={() => onClick(tool.id)}
+            data-testid={tool.testId}
+            disabled={disabled}
+            className={`panel-card panel-card--interactive ${disabled ? 'integ-tool-card--disabled' : ''}`}
+            style={getIntegrationToolCardStyle(disabled)}
+        >
+            <div
+                className="integ-tool-icon"
+                style={getIntegrationToolIconStyle(tool.iconColor)}
+            >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d={tool.iconPath} />
+                </svg>
+            </div>
+
+            <div style={INTEGRATION_TOOL_CONTENT_STYLE}>
+                <div style={INTEGRATION_TOOL_TITLE_STYLE}>
+                    {tool.title}
+                </div>
+                <div style={INTEGRATION_TOOL_DESCRIPTION_STYLE}>
+                    {tool.description}
+                </div>
+            </div>
+
+            <div style={INTEGRATION_TOOL_BADGE_WRAP_STYLE}>
+                {alertBadges}
+                <span className={badge.className}>{badge.text}</span>
+            </div>
+        </button>
+    );
+}
+
+interface PrimarySectionCardProps {
+    section: PrimarySectionDef;
+    disabled: boolean;
+    badge: ToolBadgeMeta;
+    secondaryDisabled: boolean;
+    secondaryBadges?: ComponentChildren;
+    onOpenTool: (tool: IntegrationTool) => void;
+}
+
+function PrimarySectionCard({
+    section,
+    disabled,
+    badge,
+    secondaryDisabled,
+    secondaryBadges,
+    onOpenTool,
+}: PrimarySectionCardProps) {
+    const secondaryAction = section.secondaryAction;
+
+    const handlePrimaryOpen = () => {
+        if (disabled) return;
+        onOpenTool(section.primaryTool);
+    };
+
+    const handlePrimaryKeyDown = (event: KeyboardEvent) => {
+        if (disabled) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onOpenTool(section.primaryTool);
+        }
+    };
+
+    const handleSecondaryOpen = (event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!secondaryAction || secondaryDisabled) return;
+        onOpenTool(secondaryAction.tool);
+    };
+
+    return (
+        <div
+            className={`panel-card panel-card--interactive integ-v2-card ${disabled ? 'integ-v2-card--disabled' : ''}`}
+            data-testid={`integration-primary-section-${section.id}`}
+            data-disabled={disabled ? 'true' : 'false'}
+            role="button"
+            tabIndex={disabled ? -1 : 0}
+            aria-disabled={disabled}
+            onClick={handlePrimaryOpen}
+            onKeyDown={handlePrimaryKeyDown as unknown as JSX.KeyboardEventHandler<HTMLDivElement>}
+        >
+            <div className="integ-v2-card__header">
+                <div
+                    className="integ-tool-icon"
+                    style={getIntegrationToolIconStyle(section.iconColor)}
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d={section.iconPath} />
+                    </svg>
+                </div>
+                <div className="integ-v2-card__content">
+                    <div className="integ-v2-card__title-row">
+                        <div className="integ-v2-card__title">{section.title}</div>
+                        <span className={badge.className}>{badge.text}</span>
+                    </div>
+                    <div className="integ-v2-card__description">{section.description}</div>
+
+                    {secondaryAction && (
+                        <div className="integ-v2-card__links">
+                            <a
+                                href="#"
+                                className={`integ-v2-inline-link ${secondaryDisabled ? 'integ-v2-inline-link--disabled' : ''}`}
+                                data-testid={`integration-primary-secondary-${secondaryAction.tool}`}
+                                aria-disabled={secondaryDisabled}
+                                onClick={handleSecondaryOpen as unknown as JSX.MouseEventHandler<HTMLAnchorElement>}
+                            >
+                                {secondaryAction.label}
+                            </a>
+                            {secondaryBadges}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function isBlockingSeverity(severity: string | null | undefined): boolean {
+    return severity === 'warning' || severity === 'critical';
+}
+
+function countBlockingAlerts<T extends { severity?: string | null }>(alerts: T[]): number {
+    return alerts.filter((alert) => isBlockingSeverity(alert.severity)).length;
+}
+
+function formatAlertCount(count: number): string {
+    return count > 9 ? '9+' : String(count);
+}
+
+function getToolBadgeMeta(
+    tool: Pick<ToolDef, 'badge'>,
+    disabled: boolean
+): ToolBadgeMeta {
+    if (disabled) {
+        return { className: 'integ-tool-badge integ-tool-badge--pro', text: 'Pro' };
+    }
+
+    if (tool.badge === 'beta') {
+        return { className: 'integ-tool-badge integ-tool-badge--beta', text: 'Beta' };
+    }
+
+    return { className: 'integ-tool-badge integ-tool-badge--new', text: 'Nytt' };
+}
+
 export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalProps) {
+    const integrationsIaV2Enabled = parseBooleanEnvFlag(import.meta.env.VITE_INTEGRATIONS_IA_V2_ENABLED);
     const requestedInitialTool = isIntegrationTool(initialTool) ? initialTool : null;
     const pendingInitialToolRef = useRef<IntegrationTool | null>(requestedInitialTool);
     const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -232,6 +796,22 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     const [userPlan, setUserPlan] = useState<UserPlan>('free');
     const [isAdmin, setIsAdmin] = useState(false);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+    const [activeCompanyId, setActiveCompanyId] = useState<string | null>(() => {
+        try {
+            return companyService.getCurrentId();
+        } catch {
+            return null;
+        }
+    });
+    const [hasMultipleCompanies, setHasMultipleCompanies] = useState<boolean>(() => {
+        try {
+            return companyService.getAll().length > 1;
+        } catch {
+            return false;
+        }
+    });
+    const [advancedToolsExpanded, setAdvancedToolsExpanded] = useState(false);
+    const [helpExpanded, setHelpExpanded] = useState(false);
     const [planLoaded, setPlanLoaded] = useState(false);
     const isFortnoxPlanEligible = isFortnoxEligible(userPlan);
     const [guardianBadgeCount, setGuardianBadgeCount] = useState(0);
@@ -247,6 +827,33 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`
         };
+    }
+
+    function getActiveCompanyId(): string | null {
+        if (activeCompanyId) return activeCompanyId;
+        try {
+            return companyService.getCurrentId();
+        } catch {
+            return null;
+        }
+    }
+
+    function refreshCompanyScope(): string | null {
+        let companyId: string | null = null;
+        try {
+            companyId = companyService.getCurrentId();
+        } catch {
+            companyId = null;
+        }
+        setActiveCompanyId(companyId);
+
+        try {
+            setHasMultipleCompanies(companyService.getAll().length > 1);
+        } catch {
+            setHasMultipleCompanies(false);
+        }
+
+        return companyId;
     }
 
     async function postAuthedFunction(
@@ -267,9 +874,8 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     useEffect(() => {
         const update = () => {
             const notifications = copilotService.getNotifications();
-            const count = notifications.filter(n =>
-                n.id.startsWith('guardian-') && (n.severity === 'critical' || n.severity === 'warning')
-            ).length;
+            const guardianNotifications = notifications.filter((notification) => notification.id.startsWith('guardian-'));
+            const count = countBlockingAlerts(guardianNotifications);
             setGuardianBadgeCount(count);
         };
 
@@ -279,11 +885,21 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     }, []);
 
     useEffect(() => {
+        const handler = () => {
+            const companyId = refreshCompanyScope();
+            void loadIntegrationStatus(companyId);
+        };
+
+        window.addEventListener('company-changed', handler as EventListener);
+        return () => window.removeEventListener('company-changed', handler as EventListener);
+    }, []);
+
+    useEffect(() => {
         if (!currentUserId) {
             setComplianceBadgeCount(0);
             return;
         }
-        const companyId = companyService.getCurrentId();
+        const companyId = activeCompanyId;
         if (!companyId) {
             setComplianceBadgeCount(0);
             return;
@@ -294,7 +910,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             try {
                 const alerts = await financeAgentService.listComplianceAlerts(companyId);
                 if (cancelled) return;
-                const count = alerts.filter((alert) => alert.severity === 'warning' || alert.severity === 'critical').length;
+                const count = countBlockingAlerts(alerts);
                 setComplianceBadgeCount(count);
             } catch (error) {
                 logger.warn('Could not load compliance badge', error);
@@ -304,13 +920,14 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         return () => {
             cancelled = true;
         };
-    }, [currentUserId, planLoaded, activeTool]);
+    }, [currentUserId, planLoaded, activeTool, activeCompanyId]);
 
     useEffect(() => {
         const controller = new AbortController();
         setAbortController(controller);
 
-        loadIntegrationStatus();
+        const companyId = refreshCompanyScope() ?? getActiveCompanyId();
+        void loadIntegrationStatus(companyId);
 
         // Show "taking longer than usual" after 5 seconds
         const feedbackTimeout = setTimeout(() => {
@@ -344,14 +961,33 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         setActiveTool(tool);
     }
 
-    async function loadIntegrationStatus() {
+    async function loadIntegrationStatus(companyIdOverride?: string | null) {
         setLoading(true);
         setError(null);
         setPlanLoaded(false);
         setIsAdmin(false);
         setCurrentUserId(null);
+        setAdvancedToolsExpanded(false);
+        setHelpExpanded(false);
 
         try {
+            try {
+                setHasMultipleCompanies(companyService.getAll().length > 1);
+            } catch {
+                setHasMultipleCompanies(false);
+            }
+
+            const companyId = companyIdOverride ?? getActiveCompanyId();
+            if (!companyId) {
+                setUserPlan('free');
+                setIsAdmin(false);
+                setCurrentUserId(null);
+                setPlanLoaded(true);
+                setError('Välj ett aktivt bolag för att hantera Fortnox-kopplingen.');
+                setLoading(false);
+                return;
+            }
+
             // Check Fortnox connection status with timeout (10s for auth)
             const { data: { user } } = await withTimeout(
                 supabase.auth.getUser(),
@@ -406,6 +1042,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 .from('fortnox_tokens')
                 .select('created_at, expires_at')
                 .eq('user_id', user.id)
+                .eq('company_id', companyId)
                 .maybeSingle();
 
             const { data: fortnoxTokens, error: tokenError } = await withTimeout(
@@ -420,14 +1057,11 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
             // Fire-and-forget: sync Fortnox profile to memory on connection
             if (fortnoxAllowed && fortnoxTokens && user) {
-                const companyId = localStorage.getItem('activeCompanyId');
-                if (companyId) {
-                    void (async () => {
-                        const accessToken = await getSessionAccessToken();
-                        if (!accessToken) return;
-                        await postAuthedFunction('fortnox', accessToken, { action: 'sync_profile', companyId });
-                    })().catch((err) => logger.warn('Fortnox profile sync skipped:', err));
-                }
+                void (async () => {
+                    const accessToken = await getSessionAccessToken();
+                    if (!accessToken) return;
+                    await postAuthedFunction('fortnox', accessToken, { action: 'sync_profile', companyId });
+                })().catch((err) => logger.warn('Fortnox profile sync skipped:', err));
             }
 
             // Build integrations list with status
@@ -492,6 +1126,12 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             return; // Only Fortnox is implemented
         }
 
+        const companyId = getActiveCompanyId();
+        if (!companyId) {
+            setError('Välj ett aktivt bolag innan du ansluter Fortnox.');
+            return;
+        }
+
         if (!isFortnoxPlanEligible) {
             setError('Fortnox kräver Veridat Pro eller Trial.');
             return;
@@ -513,15 +1153,24 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             }
 
             const response = await withTimeout(
-                postAuthedFunction('fortnox-oauth', accessToken, { action: 'initiate' }),
+                postAuthedFunction('fortnox-oauth', accessToken, { action: 'initiate', companyId }),
                 15000, // Edge function may take longer
                 'Tidsgräns för Fortnox-anslutning'
             );
 
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await response.json().catch(() => ({})) as { errorCode?: string; error?: string };
                 if (errorData.errorCode === 'PLAN_REQUIRED' || errorData.error === 'plan_required') {
                     throw new Error('Fortnox kräver Veridat Pro eller Trial.');
+                }
+                if (errorData.errorCode === 'COMPANY_ORG_REQUIRED' || errorData.error === 'company_org_required') {
+                    throw new Error('Bolaget måste ha organisationsnummer innan Fortnox kan anslutas.');
+                }
+                if (errorData.errorCode === 'COMPANY_NOT_FOUND' || errorData.error === 'company_not_found') {
+                    throw new Error('Det aktiva bolaget hittades inte. Uppdatera sidan och försök igen.');
+                }
+                if (errorData.errorCode === 'MISSING_COMPANY_ID') {
+                    throw new Error('Bolagskontext saknas. Försök igen.');
                 }
                 throw new Error(errorData.error || 'Failed to initiate OAuth');
             }
@@ -547,6 +1196,12 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             return;
         }
 
+        const companyId = getActiveCompanyId();
+        if (!companyId) {
+            setError('Välj ett aktivt bolag innan du kopplar bort Fortnox.');
+            return;
+        }
+
         if (!confirm('Är du säker på att du vill koppla bort Fortnox?')) {
             return;
         }
@@ -555,30 +1210,30 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         setError(null);
 
         try {
-            const { data: { user } } = await withTimeout(
-                supabase.auth.getUser(),
+            const accessToken = await withTimeout(
+                getSessionAccessToken(),
                 10000,
-                'Tidsgräns för autentisering'
+                'Tidsgräns för sessionshämtning'
             );
 
-            if (!user) throw new Error('Not authenticated');
+            if (!accessToken) throw new Error('Not authenticated');
 
-            // Delete the Fortnox tokens with timeout
-            const deleteQuery = supabase
-                .from('fortnox_tokens')
-                .delete()
-                .eq('user_id', user.id);
-
-            const { error: deleteError } = await withTimeout(
-                deleteQuery,
+            const response = await withTimeout(
+                postAuthedFunction('fortnox-oauth', accessToken, {
+                    action: 'disconnect',
+                    companyId,
+                }),
                 10000,
-                'Tidsgräns för borttagning'
+                'Tidsgräns för bortkoppling'
             );
 
-            if (deleteError) throw deleteError;
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({})) as { error?: string };
+                throw new Error(errorData.error || 'Kunde inte koppla bort Fortnox.');
+            }
 
             // Refresh the list
-            await loadIntegrationStatus();
+            await loadIntegrationStatus(companyId);
         } catch (err) {
             logger.error('Error disconnecting Fortnox:', err);
 
@@ -640,7 +1295,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         if (fortnoxNeedsPlan && integration.status !== 'connected') {
             return (
                 <a
-                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh"
+                    href={UPGRADE_TO_PRO_MAILTO}
                     className="integ-btn integ-btn--upgrade"
                 >
                     Uppgradera
@@ -653,112 +1308,256 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             : renderConnectButton(integration.id);
     }
 
+    function renderFortnoxToolAlertBadges(toolId: IntegrationTool) {
+        if (toolId !== 'fortnox-panel') {
+            return null;
+        }
+
+        return (
+            <>
+                {guardianBadgeCount > 0 && (
+                    <span
+                        title="Guardian-larm"
+                        data-testid="integration-tool-fortnox-guardian-badge"
+                        className="integ-alert-count integ-alert-count--critical"
+                    >
+                        {formatAlertCount(guardianBadgeCount)}
+                    </span>
+                )}
+                {complianceBadgeCount > 0 && (
+                    <span
+                        title="Compliance-varningar"
+                        className="integ-alert-count integ-alert-count--warning"
+                    >
+                        {formatAlertCount(complianceBadgeCount)}
+                    </span>
+                )}
+            </>
+        );
+    }
+
+    function getToolDef(toolId: IntegrationTool): ToolDef {
+        return TOOL_DEFS_BY_ID[toolId];
+    }
+
+    function getAdvancedToolsV2(): ToolDef[] {
+        return ADVANCED_TOOLS_V2
+            .filter((toolId) => toolId !== 'agency' || hasMultipleCompanies)
+            .map((toolId) => getToolDef(toolId));
+    }
+
+    function renderToolsV2() {
+        const advancedTools = getAdvancedToolsV2();
+
+        return (
+            <div className="panel-stagger integ-stagger integ-v2">
+                <div>
+                    <div className="panel-section-title">Primära sektioner</div>
+                    <div className="integ-v2-grid">
+                        {PRIMARY_SECTIONS_V2.map((section) => {
+                            const primaryTool = getToolDef(section.primaryTool);
+                            const disabled = primaryTool.requiresPro === true && !isFortnoxPlanEligible;
+                            const badge = getToolBadgeMeta(primaryTool, disabled);
+                            const secondaryTool = section.secondaryAction ? getToolDef(section.secondaryAction.tool) : null;
+                            const secondaryDisabled = secondaryTool
+                                ? secondaryTool.requiresPro === true && !isFortnoxPlanEligible
+                                : false;
+
+                            return (
+                                <PrimarySectionCard
+                                    key={section.id}
+                                    section={section}
+                                    disabled={disabled}
+                                    badge={badge}
+                                    secondaryDisabled={secondaryDisabled}
+                                    secondaryBadges={section.secondaryAction?.tool === 'fortnox-panel'
+                                        ? renderFortnoxToolAlertBadges('fortnox-panel')
+                                        : null}
+                                    onOpenTool={openTool}
+                                />
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="integ-v2-advanced">
+                    <button
+                        type="button"
+                        data-testid="integration-advanced-toggle"
+                        className="integ-v2-advanced__toggle"
+                        aria-expanded={advancedToolsExpanded}
+                        onClick={() => setAdvancedToolsExpanded((prev) => !prev)}
+                    >
+                        <span>Avancerat</span>
+                        <span className="integ-v2-advanced__chevron" aria-hidden="true">
+                            {advancedToolsExpanded ? '▾' : '▸'}
+                        </span>
+                    </button>
+
+                    {advancedToolsExpanded && (
+                        <div
+                            className="integ-v2-advanced__panel"
+                            data-testid="integration-advanced-panel"
+                        >
+                            <div className="integ-v2-advanced__grid">
+                                {advancedTools.map((tool) => {
+                                    const disabled = tool.requiresPro === true && !isFortnoxPlanEligible;
+                                    const badge = getToolBadgeMeta(tool, disabled);
+
+                                    return (
+                                        <IntegrationToolCard
+                                            key={tool.id}
+                                            tool={tool}
+                                            disabled={disabled}
+                                            badge={badge}
+                                            alertBadges={renderFortnoxToolAlertBadges(tool.id)}
+                                            onClick={openTool}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="integ-v2-help" data-testid="integration-v2-help-row">
+                    <span className="integ-v2-help__text">
+                        Anslut Fortnox för att synka kunder, artiklar och bokföringsdata.
+                    </span>
+                    <button
+                        type="button"
+                        className="integ-v2-help__link"
+                        onClick={() => setHelpExpanded((prev) => !prev)}
+                    >
+                        {helpExpanded ? 'Dölj' : 'Hur fungerar det?'}
+                    </button>
+                </div>
+
+                {helpExpanded && (
+                    <p className="integ-v2-help__details">
+                        {INTEGRATIONS_INFO_CARD.message}
+                    </p>
+                )}
+            </div>
+        );
+    }
+
+    function renderLegacyToolGroups() {
+        return (
+            <>
+                <div className="panel-stagger integ-stagger" style={TOOL_GROUPS_WRAP_STYLE}>
+                    {TOOL_GROUPS.map((group) => (
+                        <div key={group.title}>
+                            <div className="panel-section-title">{group.title}</div>
+                            <div style={TOOL_GROUP_GRID_STYLE}>
+                                {group.tools.map((tool) => {
+                                    const disabled = tool.requiresPro === true && !isFortnoxPlanEligible;
+                                    const toolBadge = getToolBadgeMeta(tool, disabled);
+
+                                    return (
+                                        <IntegrationToolCard
+                                            key={tool.id}
+                                            tool={tool}
+                                            disabled={disabled}
+                                            badge={toolBadge}
+                                            alertBadges={renderFortnoxToolAlertBadges(tool.id)}
+                                            onClick={openTool}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <IntegrationsInfoCard />
+            </>
+        );
+    }
+
     function renderActiveToolModal() {
         if (!activeTool) return null;
 
         const onBack = () => setActiveTool(null);
+        const modalConfigByTool: Record<IntegrationTool, {
+            title: string;
+            subtitle: string;
+            maxWidth: string;
+            render: () => ComponentChildren;
+        }> = {
+            dashboard: {
+                title: 'Översikt',
+                subtitle: 'Din bokföringsöversikt på ett ställe.',
+                maxWidth: '1400px',
+                render: () => (
+                    <DashboardPanel
+                        onBack={onBack}
+                        onNavigate={(tool) => openTool(tool as IntegrationTool)}
+                        isAdmin={isAdmin}
+                        userId={currentUserId}
+                        timeWindowDays={7}
+                    />
+                ),
+            },
+            'bank-import': {
+                title: 'Bankimport (CSV)',
+                subtitle: 'Importera kontoutdrag och matcha mot Fortnox-fakturor.',
+                maxWidth: '1200px',
+                render: () => <BankImportPanel onBack={onBack} />,
+            },
+            agency: {
+                title: 'Byråvy (beta)',
+                subtitle: 'Hantera klientbolag och byt aktivt bolag snabbt.',
+                maxWidth: '1200px',
+                render: () => <AgencyPanel onBack={onBack} />,
+            },
+            reconciliation: {
+                title: 'Bankavstämning',
+                subtitle: 'Översikt och periodstatus för bankavstämning.',
+                maxWidth: '1200px',
+                render: () => (
+                    <ReconciliationView
+                        onBack={onBack}
+                        onOpenBankImport={() => openTool('bank-import')}
+                    />
+                ),
+            },
+            'bookkeeping-rules': {
+                title: 'Bokföringsregler',
+                subtitle: 'Hantera automatiska konteringsregler baserade på tidigare bokföringar.',
+                maxWidth: '1200px',
+                render: () => <BookkeepingRulesPanel onBack={onBack} />,
+            },
+            'invoice-inbox': {
+                title: 'Fakturainkorg',
+                subtitle: 'Ladda upp leverantörsfakturor, AI-extrahera och exportera till Fortnox.',
+                maxWidth: '1200px',
+                render: () => <InvoiceInboxPanel onBack={onBack} />,
+            },
+            'vat-report': {
+                title: 'Momsdeklaration',
+                subtitle: 'Momsrapport baserad på din Fortnox-bokföring.',
+                maxWidth: '1200px',
+                render: () => <VATReportFromFortnoxPanel onBack={onBack} />,
+            },
+            'fortnox-panel': {
+                title: 'Fortnoxpanel',
+                subtitle: 'Leverantörsfakturor, status och Copilot på ett ställe.',
+                maxWidth: '1200px',
+                render: () => <FortnoxPanel onBack={onBack} />,
+            },
+        };
 
-        switch (activeTool) {
-            case 'dashboard':
-                return (
-                    <ModalWrapper
-                        onClose={onClose}
-                        title="Översikt"
-                        subtitle="Din bokföringsöversikt på ett ställe."
-                        maxWidth="1400px"
-                    >
-                        <DashboardPanel
-                            onBack={onBack}
-                            onNavigate={(tool) => openTool(tool as IntegrationTool)}
-                            isAdmin={isAdmin}
-                            userId={currentUserId}
-                            timeWindowDays={7}
-                        />
-                    </ModalWrapper>
-                );
-            case 'bank-import':
-                return (
-                    <ModalWrapper
-                        onClose={onClose}
-                        title="Bankimport (CSV)"
-                        subtitle="Importera kontoutdrag och matcha mot Fortnox-fakturor."
-                        maxWidth="1200px"
-                    >
-                        <BankImportPanel onBack={onBack} />
-                    </ModalWrapper>
-                );
-            case 'agency':
-                return (
-                    <ModalWrapper
-                        onClose={onClose}
-                        title="Byråvy (beta)"
-                        subtitle="Hantera klientbolag och byt aktivt bolag snabbt."
-                        maxWidth="1200px"
-                    >
-                        <AgencyPanel onBack={onBack} />
-                    </ModalWrapper>
-                );
-            case 'reconciliation':
-                return (
-                    <ModalWrapper
-                        onClose={onClose}
-                        title="Bankavstämning"
-                        subtitle="Översikt och periodstatus för bankavstämning."
-                        maxWidth="1200px"
-                    >
-                        <ReconciliationView
-                            onBack={onBack}
-                            onOpenBankImport={() => openTool('bank-import')}
-                        />
-                    </ModalWrapper>
-                );
-            case 'bookkeeping-rules':
-                return (
-                    <ModalWrapper
-                        onClose={onClose}
-                        title="Bokföringsregler"
-                        subtitle="Hantera automatiska konteringsregler baserade på tidigare bokföringar."
-                        maxWidth="1200px"
-                    >
-                        <BookkeepingRulesPanel onBack={onBack} />
-                    </ModalWrapper>
-                );
-            case 'invoice-inbox':
-                return (
-                    <ModalWrapper
-                        onClose={onClose}
-                        title="Fakturainkorg"
-                        subtitle="Ladda upp leverantörsfakturor, AI-extrahera och exportera till Fortnox."
-                        maxWidth="1200px"
-                    >
-                        <InvoiceInboxPanel onBack={onBack} />
-                    </ModalWrapper>
-                );
-            case 'vat-report':
-                return (
-                    <ModalWrapper
-                        onClose={onClose}
-                        title="Momsdeklaration"
-                        subtitle="Momsrapport baserad på din Fortnox-bokföring."
-                        maxWidth="1200px"
-                    >
-                        <VATReportFromFortnoxPanel onBack={onBack} />
-                    </ModalWrapper>
-                );
-            case 'fortnox-panel':
-                return (
-                    <ModalWrapper
-                        onClose={onClose}
-                        title="Fortnoxpanel"
-                        subtitle="Leverantörsfakturor, status och Copilot på ett ställe."
-                        maxWidth="1200px"
-                    >
-                        <FortnoxPanel onBack={onBack} />
-                    </ModalWrapper>
-                );
-            default:
-                return null;
-        }
+        const modalConfig = modalConfigByTool[activeTool];
+        return (
+            <ModalWrapper
+                onClose={onClose}
+                title={modalConfig.title}
+                subtitle={modalConfig.subtitle}
+                maxWidth={modalConfig.maxWidth}
+            >
+                {modalConfig.render()}
+            </ModalWrapper>
+        );
     }
 
     if (activeTool && isFortnoxTool(activeTool) && (!planLoaded || !isFortnoxPlanEligible)) {
@@ -769,35 +1568,15 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 subtitle="Tillgängligt i Veridat Pro eller Trial."
                 maxWidth="640px"
             >
-                <div
-                    data-testid="fortnox-plan-gated-message"
-                    style={{
-                        padding: '1rem',
-                        borderRadius: '12px',
-                        border: '1px solid rgba(245, 158, 11, 0.25)',
-                        background: 'rgba(245, 158, 11, 0.08)',
-                        color: 'var(--text-secondary)',
-                        fontSize: '0.9rem',
-                        lineHeight: 1.5
-                    }}
-                >
-                    Fortnoxpanel, momsrapport och fakturainkorg kräver Veridat Pro eller Trial.
-                </div>
+                <InlineNoticeBanner
+                    testId={FORTNOX_PLAN_GATED_BANNER.testId}
+                    message={FORTNOX_PLAN_GATED_BANNER.message}
+                    style={FORTNOX_PLAN_GATED_BANNER_STYLE}
+                />
                 <a
-                    href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20och%20aktivera%20Fortnox-integration.%0A%0AMvh"
+                    href={UPGRADE_TO_PRO_MAILTO}
                     data-testid="fortnox-upgrade-link"
-                    style={{
-                        display: 'inline-block',
-                        marginTop: '1rem',
-                        padding: '0.7rem 1rem',
-                        borderRadius: '999px',
-                        textDecoration: 'none',
-                        fontWeight: 600,
-                        fontSize: '0.9rem',
-                        color: '#fff',
-                        background: '#2563eb',
-                        boxShadow: 'none'
-                    }}
+                    style={FORTNOX_UPGRADE_LINK_STYLE}
                 >
                     Uppgradera till Pro
                 </a>
@@ -807,49 +1586,47 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
     const activeToolModal = renderActiveToolModal();
     if (activeToolModal) return activeToolModal;
+    const fortnoxIntegration = integrations.find((integration) => integration.id === 'fortnox');
+    const showReconnectBanner = Boolean(
+        activeCompanyId
+        && isFortnoxPlanEligible
+        && fortnoxIntegration?.status === 'disconnected'
+    );
 
     return (
         <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokföringssystem." maxWidth="1200px">
-            <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div className="panel-stagger" style={INTEGRATIONS_MODAL_BODY_STYLE}>
                 {error && (
-                    <div style={{
-                        padding: '0.8rem',
-                        borderRadius: '8px',
-                        background: 'var(--status-danger-bg)',
-                        color: 'var(--status-danger)',
-                        border: '1px solid var(--status-danger-border)',
-                        fontSize: '0.9rem'
-                    }}>
+                    <div style={MODAL_ERROR_BOX_STYLE}>
                         {error}
                     </div>
                 )}
 
                 {loading ? (
-                    <div style={{ textAlign: 'center', padding: '2rem' }}>
-                        <div className="modal-spinner" style={{ margin: '0 auto 1rem' }} role="status" aria-label="Laddar"></div>
+                    <div style={INTEGRATIONS_LOADING_STYLE}>
+                        <div className="modal-spinner" style={MODAL_LOADING_SPINNER_STYLE} role="status" aria-label="Laddar"></div>
                         {loadingTimeout && (
-                            <div style={{
-                                fontSize: '0.85rem',
-                                color: 'var(--accent-primary)',
-                                marginTop: '0.5rem'
-                            }}>
+                            <div style={INTEGRATIONS_LOADING_TIMEOUT_STYLE}>
                                 Detta tar längre tid än vanligt. Kontrollera din internetanslutning.
                             </div>
                         )}
                     </div>
                 ) : (
                     <>
+                        {showReconnectBanner && (
+                            <InlineNoticeBanner
+                                testId={FORTNOX_RECONNECT_BANNER.testId}
+                                message={FORTNOX_RECONNECT_BANNER.message}
+                                style={FORTNOX_RECONNECT_BANNER_STYLE}
+                            />
+                        )}
+
                         {/* Integration Cards (Fortnox, Visma, BankID) */}
                         <div>
                             <div className="panel-section-title">Integrationer</div>
                             <div
                                 className="integrations-list"
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                                    gap: '0.75rem',
-                                    marginTop: '0.75rem',
-                                }}
+                                style={INTEGRATIONS_LIST_GRID_STYLE}
                             >
                                 {integrations.map((integration) => {
                                     const icon = ICON_MAP[integration.icon] || { letter: '?', className: 'integ-icon' };
@@ -857,61 +1634,15 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                                     const isConnected = integration.status === 'connected';
 
                                     return (
-                                        <div
+                                        <IntegrationConnectionCard
                                             key={integration.id}
-                                            data-testid={`integration-card-${integration.id}`}
-                                            className={`panel-card ${isComingSoon ? 'panel-card--no-hover' : 'panel-card--interactive'} ${isConnected ? 'integ-card--connected' : ''}`}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '1rem',
-                                                opacity: isComingSoon ? 0.6 : 1,
-                                            }}
-                                        >
-                                            <div className={icon.className}>{icon.letter}</div>
-
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '0.75rem',
-                                                    marginBottom: '0.25rem',
-                                                }}>
-                                                    <span style={{
-                                                        fontWeight: 700,
-                                                        color: 'var(--text-primary)',
-                                                        fontSize: '0.95rem',
-                                                        fontFamily: 'var(--font-display)',
-                                                    }}>
-                                                        {integration.name}
-                                                    </span>
-                                                    {getStatusBadge(integration)}
-                                                </div>
-                                                <p style={{
-                                                    margin: 0,
-                                                    color: 'var(--text-secondary)',
-                                                    fontSize: '0.8rem',
-                                                    lineHeight: 1.4,
-                                                }}>
-                                                    {integration.description}
-                                                </p>
-                                                {integration.connectedAt && (
-                                                    <p style={{
-                                                        margin: '0.4rem 0 0',
-                                                        color: 'var(--text-secondary)',
-                                                        fontSize: '0.72rem',
-                                                    }}>
-                                                        Ansluten {new Date(integration.connectedAt).toLocaleDateString('sv-SE')}
-                                                    </p>
-                                                )}
-                                            </div>
-
-                                            {!isComingSoon && (
-                                                <div style={{ flexShrink: 0 }}>
-                                                    {renderIntegrationAction(integration)}
-                                                </div>
-                                            )}
-                                        </div>
+                                            integration={integration}
+                                            icon={icon}
+                                            isComingSoon={isComingSoon}
+                                            isConnected={isConnected}
+                                            statusBadge={getStatusBadge(integration)}
+                                            action={renderIntegrationAction(integration)}
+                                        />
                                     );
                                 })}
                             </div>
@@ -919,138 +1650,10 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                     </>
                 )}
 
-                {/* Tool Groups */}
                 {!loading && (
-                    <div className="panel-stagger integ-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        {TOOL_GROUPS.map((group) => (
-                            <div key={group.title}>
-                                <div className="panel-section-title">{group.title}</div>
-                                <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                                    gap: '0.75rem',
-                                    marginTop: '0.75rem',
-                                }}>
-                                    {group.tools.map((tool) => {
-                                        const disabled = tool.requiresPro === true && !isFortnoxPlanEligible;
-                                        const badgeClass = disabled
-                                            ? 'integ-tool-badge integ-tool-badge--pro'
-                                            : tool.badge === 'beta'
-                                                ? 'integ-tool-badge integ-tool-badge--beta'
-                                                : 'integ-tool-badge integ-tool-badge--new';
-                                        const badgeText = disabled ? 'Pro' : tool.badge === 'beta' ? 'Beta' : 'Nytt';
-
-                                        return (
-                                            <button
-                                                key={tool.id}
-                                                type="button"
-                                                onClick={() => openTool(tool.id)}
-                                                data-testid={tool.testId}
-                                                disabled={disabled}
-                                                className={`panel-card panel-card--interactive ${disabled ? 'integ-tool-card--disabled' : ''}`}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'flex-start',
-                                                    gap: '0.85rem',
-                                                    textAlign: 'left',
-                                                    cursor: disabled ? 'not-allowed' : 'pointer',
-                                                }}
-                                            >
-                                                <div
-                                                    className="integ-tool-icon"
-                                                    style={{
-                                                        background: `${tool.iconColor}15`,
-                                                        color: tool.iconColor,
-                                                    }}
-                                                >
-                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                                        stroke="currentColor" stroke-width="2"
-                                                        stroke-linecap="round" stroke-linejoin="round">
-                                                        <path d={tool.iconPath} />
-                                                    </svg>
-                                                </div>
-
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{
-                                                        fontWeight: 700,
-                                                        fontSize: '0.88rem',
-                                                        color: 'var(--text-primary)',
-                                                        fontFamily: 'var(--font-display)',
-                                                        marginBottom: '0.2rem',
-                                                    }}>
-                                                        {tool.title}
-                                                    </div>
-                                                    <div style={{
-                                                        fontSize: '0.78rem',
-                                                        color: 'var(--text-secondary)',
-                                                        lineHeight: 1.4,
-                                                    }}>
-                                                        {tool.description}
-                                                    </div>
-                                                </div>
-
-                                                <div style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '0.4rem',
-                                                    flexShrink: 0,
-                                                    marginTop: '0.1rem',
-                                                }}>
-                                                    {tool.id === 'fortnox-panel' && guardianBadgeCount > 0 && (
-                                                        <span
-                                                            title="Guardian-larm"
-                                                            data-testid="integration-tool-fortnox-guardian-badge"
-                                                            className="integ-alert-count integ-alert-count--critical"
-                                                        >
-                                                            {guardianBadgeCount > 9 ? '9+' : guardianBadgeCount}
-                                                        </span>
-                                                    )}
-                                                    {tool.id === 'fortnox-panel' && complianceBadgeCount > 0 && (
-                                                        <span
-                                                            title="Compliance-varningar"
-                                                            className="integ-alert-count integ-alert-count--warning"
-                                                        >
-                                                            {complianceBadgeCount > 9 ? '9+' : complianceBadgeCount}
-                                                        </span>
-                                                    )}
-                                                    <span className={badgeClass}>{badgeText}</span>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* Hur fungerar det? */}
-                {!loading && (
-                    <div className="panel-card panel-card--no-hover integ-info-card">
-                        <div className="integ-info-card__icon">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10" />
-                                <line x1="12" y1="16" x2="12" y2="12" />
-                                <line x1="12" y1="8" x2="12.01" y2="8" />
-                            </svg>
-                        </div>
-                        <div>
-                            <h4 className="panel-label" style={{ margin: '0 0 0.4rem', fontSize: '0.78rem' }}>
-                                Hur fungerar det?
-                            </h4>
-                            <p style={{
-                                margin: 0,
-                                fontSize: '0.82rem',
-                                color: 'var(--text-secondary)',
-                                lineHeight: 1.5,
-                            }}>
-                                När du ansluter Fortnox kan Veridat automatiskt skapa fakturor,
-                                hämta kunder och artiklar, samt synka bokföringsdata.
-                                All kommunikation sker säkert via Fortnox officiella API.
-                            </p>
-                        </div>
-                    </div>
+                    integrationsIaV2Enabled
+                        ? renderToolsV2()
+                        : renderLegacyToolGroups()
                 )}
             </div>
         </ModalWrapper>

@@ -47,6 +47,148 @@ const CATEGORY_LABELS: Record<NotificationCategory, string> = {
 
 const CATEGORY_ORDER: NotificationCategory[] = ['varning', 'insikt', 'forslag'];
 
+const COPILOT_PANEL_STACK_STYLE = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem'
+};
+
+const COPILOT_HEADER_ROW_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem'
+};
+
+const COPILOT_HEADER_BADGE_WRAP_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem'
+};
+
+const COPILOT_UNREAD_BADGE_STYLE = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    background: '#ef4444',
+    color: '#fff',
+    fontSize: '0.7rem',
+    fontWeight: 700
+};
+
+const COPILOT_ACTIONS_ROW_STYLE = {
+    display: 'flex',
+    gap: '0.4rem'
+};
+
+const COPILOT_MARK_ALL_READ_BUTTON_STYLE = {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    padding: '0.2rem 0.4rem'
+};
+
+const COPILOT_REFRESH_BUTTON_BASE_STYLE = {
+    background: 'transparent',
+    border: '1px solid var(--glass-border)',
+    borderRadius: '6px',
+    color: 'var(--text-secondary)',
+    fontSize: '0.72rem',
+    padding: '0.2rem 0.5rem'
+};
+
+const COPILOT_ALL_CLEAR_CARD_STYLE = {
+    display: 'flex',
+    gap: '0.75rem',
+    alignItems: 'center'
+};
+
+const COPILOT_ALL_CLEAR_ICON_STYLE = {
+    color: '#22c55e'
+};
+
+const COPILOT_ALL_CLEAR_TITLE_STYLE = {
+    fontWeight: 600,
+    color: 'var(--text-primary)'
+};
+
+const COPILOT_ALL_CLEAR_DESCRIPTION_STYLE = {
+    fontSize: '0.8rem',
+    color: 'var(--text-secondary)'
+};
+
+const COPILOT_SECTION_TITLE_STYLE = {
+    marginBottom: '0.4rem'
+};
+
+const COPILOT_SECTION_ITEMS_STYLE = {
+    display: 'grid',
+    gap: '0.4rem'
+};
+
+const COPILOT_CARD_BASE_STYLE = {
+    padding: '0.6rem 0.75rem',
+    display: 'flex',
+    gap: '0.6rem',
+    alignItems: 'flex-start'
+};
+
+const COPILOT_CARD_ICON_BASE_STYLE = {
+    flexShrink: 0,
+    marginTop: '0.1rem'
+};
+
+const COPILOT_CARD_CONTENT_STYLE = {
+    flex: 1,
+    minWidth: 0
+};
+
+const COPILOT_CARD_HEADER_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    marginBottom: '0.1rem'
+};
+
+const COPILOT_CARD_TITLE_STYLE = {
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+    fontSize: '0.82rem'
+};
+
+const COPILOT_GUARDIAN_BADGE_STYLE = {
+    fontSize: '0.62rem',
+    fontWeight: 700,
+    padding: '0.12rem 0.45rem',
+    borderRadius: '999px',
+    border: '1px solid var(--glass-border)',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'var(--text-secondary)',
+    flexShrink: 0
+};
+
+const COPILOT_CARD_DESCRIPTION_STYLE = {
+    fontSize: '0.78rem',
+    color: 'var(--text-secondary)',
+    lineHeight: 1.35
+};
+
+const COPILOT_DISMISS_BUTTON_STYLE = {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    padding: '0.15rem',
+    fontSize: '0.8rem',
+    lineHeight: 1,
+    opacity: 0.6
+};
+
 // =============================================================================
 // HELPERS
 // =============================================================================
@@ -61,6 +203,47 @@ function openPrompt(prompt: string) {
 
 function dispatchToolAction(action: string) {
     window.dispatchEvent(new CustomEvent('copilot-open-tool', { detail: { tool: action } }));
+}
+
+function getCopilotRefreshButtonStyle(refreshing: boolean) {
+    return {
+        ...COPILOT_REFRESH_BUTTON_BASE_STYLE,
+        cursor: refreshing ? 'wait' : 'pointer'
+    };
+}
+
+function getCopilotNotificationCardStyle(read: boolean, severityColor: string) {
+    return {
+        ...COPILOT_CARD_BASE_STYLE,
+        border: `1px solid ${read ? 'var(--surface-border)' : `${severityColor}30`}`,
+        background: read ? 'var(--surface-1)' : `${severityColor}08`
+    };
+}
+
+function getCopilotNotificationIconStyle(severityColor: string) {
+    return {
+        ...COPILOT_CARD_ICON_BASE_STYLE,
+        color: severityColor
+    };
+}
+
+function getCopilotUnreadDotStyle(severityColor: string) {
+    return {
+        width: '6px',
+        height: '6px',
+        borderRadius: '50%',
+        background: severityColor,
+        flexShrink: 0
+    };
+}
+
+function getCopilotActionTextStyle(severityColor: string) {
+    return {
+        fontSize: '0.7rem',
+        color: severityColor,
+        fontWeight: 600,
+        marginTop: '0.25rem'
+    };
 }
 
 // =============================================================================
@@ -98,45 +281,22 @@ export function CopilotPanel() {
     const unreadCount = notifications.filter(n => !n.read).length;
 
     return (
-        <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div className="panel-stagger" style={COPILOT_PANEL_STACK_STYLE}>
             {/* Header row */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '0.5rem',
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={COPILOT_HEADER_ROW_STYLE}>
+                <div style={COPILOT_HEADER_BADGE_WRAP_STYLE}>
                     {unreadCount > 0 && (
-                        <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: '20px',
-                            height: '20px',
-                            borderRadius: '50%',
-                            background: '#ef4444',
-                            color: '#fff',
-                            fontSize: '0.7rem',
-                            fontWeight: 700,
-                        }}>
+                        <span style={COPILOT_UNREAD_BADGE_STYLE}>
                             {unreadCount}
                         </span>
                     )}
                 </div>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <div style={COPILOT_ACTIONS_ROW_STYLE}>
                     {unreadCount > 0 && (
                         <button
                             type="button"
                             onClick={() => copilotService.markAllRead()}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'var(--text-secondary)',
-                                fontSize: '0.72rem',
-                                cursor: 'pointer',
-                                padding: '0.2rem 0.4rem',
-                            }}
+                            style={COPILOT_MARK_ALL_READ_BUTTON_STYLE}
                         >
                             Markera alla lästa
                         </button>
@@ -145,15 +305,7 @@ export function CopilotPanel() {
                         type="button"
                         onClick={() => void handleRefresh()}
                         disabled={refreshing}
-                        style={{
-                            background: 'transparent',
-                            border: '1px solid var(--glass-border)',
-                            borderRadius: '6px',
-                            color: 'var(--text-secondary)',
-                            fontSize: '0.72rem',
-                            cursor: refreshing ? 'wait' : 'pointer',
-                            padding: '0.2rem 0.5rem',
-                        }}
+                        style={getCopilotRefreshButtonStyle(refreshing)}
                     >
                         {refreshing ? '...' : 'Uppdatera'}
                     </button>
@@ -162,17 +314,13 @@ export function CopilotPanel() {
 
             {/* All clear */}
             {!hasAny && (
-                <div className="panel-card panel-card--no-hover" style={{
-                    display: 'flex',
-                    gap: '0.75rem',
-                    alignItems: 'center',
-                }}>
-                    <div style={{ color: '#22c55e' }} dangerouslySetInnerHTML={{
+                <div className="panel-card panel-card--no-hover" style={COPILOT_ALL_CLEAR_CARD_STYLE}>
+                    <div style={COPILOT_ALL_CLEAR_ICON_STYLE} dangerouslySetInnerHTML={{
                         __html: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
                     }} />
                     <div>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Allt ser bra ut</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Inga aktiva påminnelser just nu.</div>
+                        <div style={COPILOT_ALL_CLEAR_TITLE_STYLE}>Allt ser bra ut</div>
+                        <div style={COPILOT_ALL_CLEAR_DESCRIPTION_STYLE}>Inga aktiva påminnelser just nu.</div>
                     </div>
                 </div>
             )}
@@ -184,10 +332,10 @@ export function CopilotPanel() {
 
                 return (
                     <div key={cat}>
-                        <div className="panel-section-title" style={{ marginBottom: '0.4rem' }}>
+                        <div className="panel-section-title" style={COPILOT_SECTION_TITLE_STYLE}>
                             {CATEGORY_LABELS[cat]} ({items.length})
                         </div>
-                        <div className="panel-stagger" style={{ display: 'grid', gap: '0.4rem' }}>
+                        <div className="panel-stagger" style={COPILOT_SECTION_ITEMS_STYLE}>
                             {items.map(notif => (
                                 <NotificationCard key={notif.id} notif={notif} />
                             ))}
@@ -224,74 +372,34 @@ function NotificationCard({ notif }: { notif: CopilotNotification }) {
             onClick={handleClick}
             onKeyDown={e => { if (e.key === 'Enter') handleClick(); }}
             className="panel-card panel-card--interactive"
-            style={{
-                padding: '0.6rem 0.75rem',
-                border: `1px solid ${notif.read ? 'var(--surface-border)' : `${severityColor}30`}`,
-                background: notif.read ? 'var(--surface-1)' : `${severityColor}08`,
-                display: 'flex',
-                gap: '0.6rem',
-                alignItems: 'flex-start',
-            }}
+            style={getCopilotNotificationCardStyle(notif.read, severityColor)}
         >
             {/* Icon */}
             <div
-                style={{ color: severityColor, flexShrink: 0, marginTop: '0.1rem' }}
+                style={getCopilotNotificationIconStyle(severityColor)}
                 dangerouslySetInnerHTML={{ __html: iconSvg }}
             />
 
             {/* Content */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    marginBottom: '0.1rem',
-                }}>
-                    <span style={{
-                        fontWeight: 600,
-                        color: 'var(--text-primary)',
-                        fontSize: '0.82rem',
-                    }}>
+            <div style={COPILOT_CARD_CONTENT_STYLE}>
+                <div style={COPILOT_CARD_HEADER_STYLE}>
+                    <span style={COPILOT_CARD_TITLE_STYLE}>
                         {notif.title}
                     </span>
                     {isGuardian && (
-                        <span style={{
-                            fontSize: '0.62rem',
-                            fontWeight: 700,
-                            padding: '0.12rem 0.45rem',
-                            borderRadius: '999px',
-                            border: '1px solid var(--glass-border)',
-                            background: 'rgba(255,255,255,0.04)',
-                            color: 'var(--text-secondary)',
-                            flexShrink: 0,
-                        }}>
+                        <span style={COPILOT_GUARDIAN_BADGE_STYLE}>
                             Guardian
                         </span>
                     )}
                     {!notif.read && (
-                        <span style={{
-                            width: '6px',
-                            height: '6px',
-                            borderRadius: '50%',
-                            background: severityColor,
-                            flexShrink: 0,
-                        }} />
+                        <span style={getCopilotUnreadDotStyle(severityColor)} />
                     )}
                 </div>
-                <div style={{
-                    fontSize: '0.78rem',
-                    color: 'var(--text-secondary)',
-                    lineHeight: 1.35,
-                }}>
+                <div style={COPILOT_CARD_DESCRIPTION_STYLE}>
                     {notif.description}
                 </div>
                 {notif.action && (
-                    <div style={{
-                        fontSize: '0.7rem',
-                        color: severityColor,
-                        fontWeight: 600,
-                        marginTop: '0.25rem',
-                    }}>
+                    <div style={getCopilotActionTextStyle(severityColor)}>
                         Öppna →
                     </div>
                 )}
@@ -308,16 +416,7 @@ function NotificationCard({ notif }: { notif: CopilotNotification }) {
                     }
                     copilotService.dismiss(notif.id);
                 }}
-                style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    padding: '0.15rem',
-                    fontSize: '0.8rem',
-                    lineHeight: 1,
-                    opacity: 0.6,
-                }}
+                style={COPILOT_DISMISS_BUTTON_STYLE}
                 aria-label="Avfärda"
             >
                 x

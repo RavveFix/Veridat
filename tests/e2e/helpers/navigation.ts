@@ -48,9 +48,19 @@ export async function openTool(page: Page, tool: IntegrationTool): Promise<void>
         'vat-report': 'integration-tool-vat-report',
     };
 
-    const integrationsButton = page.locator('#integrations-btn');
-    if (await integrationsButton.count()) {
-        await integrationsButton.click();
+    const integrationsButtons = page.getByRole('button', { name: 'Integreringar' });
+    const integrationsButtonCount = await integrationsButtons.count();
+    let clickedIntegrations = false;
+    for (let i = 0; i < integrationsButtonCount; i += 1) {
+        const button = integrationsButtons.nth(i);
+        const visible = await button.isVisible().catch(() => false);
+        if (!visible) continue;
+        await button.click();
+        clickedIntegrations = true;
+        break;
+    }
+
+    if (clickedIntegrations) {
         await expect(page.getByRole('heading', { name: 'Integreringar' })).toBeVisible({ timeout: 10_000 });
         await page.getByTestId(toolButtonTestId[tool]).click();
 

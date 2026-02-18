@@ -17,6 +17,9 @@
     /* Veridat Blue Palette */
     --accent-secondary: #2563eb;
     --accent-tertiary: #38bdf8;
+    --link-color: #0f766e;
+    --link-hover: #0d9488;
+    --link-underline: rgba(15, 118, 110, 0.48);
     --accent-black: #0b1220;
     --text-on-accent: #ffffff;
     --text-on-danger: #ffffff;
@@ -171,6 +174,9 @@
     --accent-primary: #38bdf8;
     --accent-secondary: #60a5fa;
     --accent-tertiary: #22d3ee;
+    --link-color: #38bdf8;
+    --link-hover: #67e8f9;
+    --link-underline: rgba(56, 189, 248, 0.6);
     --accent-black: #f8fafc;
     --text-on-accent: #04121f;
     --overlay-bg: rgba(2, 6, 23, 0.7);
@@ -189,9 +195,9 @@
     --surface-hover: rgba(255, 255, 255, 0.08);
 
     --ai-bubble-bg: rgba(17, 24, 39, 0.92);
-    --user-bubble-bg: var(--accent-primary);
-    --user-text: #04121f;
-    --user-text-secondary: rgba(4, 18, 31, 0.6);
+    --user-bubble-bg: #1d4ed8;
+    --user-text: #f8fafc;
+    --user-text-secondary: rgba(248, 250, 252, 0.78);
 
     --glass-border: rgba(148, 163, 184, 0.18);
     --glass-border-outer: rgba(15, 23, 42, 0.72);
@@ -251,6 +257,9 @@
     --accent-primary: #0ea5e9;
     --accent-secondary: #2563eb;
     --accent-tertiary: #38bdf8;
+    --link-color: #0f766e;
+    --link-hover: #0d9488;
+    --link-underline: rgba(15, 118, 110, 0.48);
 
     --orb-highlight: #9fb9d6;
     --orb-mid: #5b7daa;
@@ -1799,7 +1808,7 @@ h1 {
 
 .ai-message {
     align-self: flex-start;
-    max-width: 92%;
+    max-width: min(96%, 100ch);
 }
 
 .user-message {
@@ -1857,6 +1866,11 @@ h1 {
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
     position: relative;
     overflow: hidden;
+    width: min(100%, 84ch);
+}
+
+.ai-message .bubble:has(.artifact-table) {
+    width: min(100%, 96ch);
 }
 
 [data-theme="dark"] .ai-message .bubble {
@@ -1878,8 +1892,8 @@ h1 {
 }
 
 [data-theme="dark"] .user-message .bubble {
-    border-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 20px rgba(0, 240, 255, 0.15);
+    border-color: rgba(96, 165, 250, 0.35);
+    box-shadow: 0 8px 22px rgba(37, 99, 235, 0.28);
 }
 
 /* Markdown formatting in chat bubbles */
@@ -1986,6 +2000,10 @@ h1 {
         max-width: 100%;
     }
 
+    .ai-message .bubble {
+        width: 100%;
+    }
+
     .message-actions {
         opacity: 1;
         transform: translateY(0);
@@ -2033,7 +2051,7 @@ h1 {
 }
 
 .ai-message .response-text .md-p {
-    margin: 0.5rem 0 0.8rem;
+    margin: 0.7rem 0 1.15rem;
 }
 
 .ai-message .response-text .md-p:last-child {
@@ -2048,7 +2066,7 @@ h1 {
     border: 1px solid var(--glass-border);
     border-radius: 8px;
     overflow: hidden;
-    margin: 1.25rem 0;
+    margin: 1.4rem 0;
     font-size: 0.9rem;
 }
 
@@ -2088,14 +2106,14 @@ h1 {
 
 .ai-message .response-text .md-ul,
 .ai-message .response-text .md-ol {
-    margin: 0.5rem 0 0.8rem;
+    margin: 0.7rem 0 1.1rem;
     padding-left: 1.1rem; /* Reduced to align bullet with paragraph text */
     list-style-position: outside;
 }
 
 .ai-message .response-text .md-li,
 .ai-message .response-text .md-li-ordered {
-    margin: 0.25rem 0;
+    margin: 0.35rem 0;
     padding-left: 0.25rem;
 }
 
@@ -2113,7 +2131,7 @@ h1 {
 .ai-message .response-text .md-h4,
 .ai-message .response-text .md-h5,
 .ai-message .response-text .md-h6 {
-    margin: 0.85rem 0 0.35rem;
+    margin: 1.2rem 0 0.55rem;
     line-height: 1.25;
 }
 
@@ -2127,6 +2145,73 @@ h1 {
 
 .ai-message .response-text .md-h3 {
     font-size: 1.05rem;
+}
+
+/* Keep ordered section lists visually tight when AI outputs "1. + rubrik + text". */
+.ai-message .response-text .md-ol {
+    padding-left: 1.3rem;
+}
+
+.ai-message .response-text .md-ol > .md-li-ordered::marker {
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.ai-message .response-text .md-ol > .md-li-ordered {
+    margin: 0.55rem 0 1rem;
+    padding-left: 0.2rem;
+}
+
+.ai-message .response-text .md-li-ordered > .md-p:first-child,
+.ai-message .response-text .md-li-ordered > .md-h1:first-child,
+.ai-message .response-text .md-li-ordered > .md-h2:first-child,
+.ai-message .response-text .md-li-ordered > .md-h3:first-child,
+.ai-message .response-text .md-li-ordered > .md-h4:first-child,
+.ai-message .response-text .md-li-ordered > .md-h5:first-child,
+.ai-message .response-text .md-li-ordered > .md-h6:first-child,
+.ai-message .response-text .md-li-ordered > .md-ul:first-child,
+.ai-message .response-text .md-li-ordered > .md-ol:first-child,
+.ai-message .response-text .md-li-ordered > .md-table:first-child {
+    margin-top: 0;
+}
+
+.ai-message .response-text .md-li-ordered > .md-h1,
+.ai-message .response-text .md-li-ordered > .md-h2,
+.ai-message .response-text .md-li-ordered > .md-h3,
+.ai-message .response-text .md-li-ordered > .md-h4,
+.ai-message .response-text .md-li-ordered > .md-h5,
+.ai-message .response-text .md-li-ordered > .md-h6 {
+    margin-bottom: 0.45rem;
+}
+
+.ai-message .response-text .md-li-ordered > .md-p {
+    margin-top: 0.25rem;
+}
+
+.md-link {
+    color: var(--link-color);
+    font-weight: 500;
+    text-decoration-line: underline;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 2px;
+    text-decoration-color: var(--link-underline);
+    transition: color 0.2s ease, text-decoration-color 0.2s ease;
+}
+
+.md-link:visited {
+    color: var(--link-color);
+}
+
+.md-link:hover {
+    color: var(--link-hover);
+    text-decoration-color: currentColor;
+}
+
+.md-link:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--link-color) 70%, transparent);
+    outline-offset: 2px;
+    border-radius: 3px;
 }
 
 /* Footer / Input */
@@ -4573,54 +4658,7 @@ h1 {
     font-size: 0.875rem;
 }
 
-/* Streaming Text - ChatGPT/Claude style */
-.streaming-text {
-    display: inline;
-    line-height: 1.6;
-}
-
-.streaming-content {
-    display: inline;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--text-primary);
-}
-
-.streaming-cursor {
-    display: inline-block;
-    color: var(--text-secondary);
-    animation: cursorBlink 1s step-end infinite;
-    font-weight: 300;
-    margin-left: 2px;
-    opacity: 0.7;
-}
-
-@keyframes cursorBlink {
-    0%, 100% { opacity: 0.7; }
-    50% { opacity: 0; }
-}
-
-/* Smooth fade when streaming completes and markdown renders */
-.streaming-complete .ai-response {
-    animation: contentReveal 0.3s ease-out;
-}
-
-@keyframes contentReveal {
-    from {
-        opacity: 0.85;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-/* Accessibility */
-@media (prefers-reduced-motion: reduce) {
-    .streaming-cursor {
-        animation: none;
-        opacity: 0.7;
-    }
-}
+/* Streaming text styles are defined in the "Enhanced Streaming Text" block below. */
 
 /* Button spinner */
 .btn-spinner {
@@ -5387,11 +5425,33 @@ h1 {
 }
 
 /* Adjust Message Bubble padding for better fit */
-.ai-message .thinking-bubble {
+.ai-message .thinking-bubble:not(.streaming-bubble) {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
+}
+
+/* Streaming responses should look like regular AI bubbles while text is arriving */
+.ai-message .thinking-bubble.streaming-bubble {
+    background: var(--ai-bubble-bg) !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: 18px !important;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08) !important;
+    padding: 0.8rem 1.25rem !important;
+    width: min(100%, 78ch);
+    overflow: hidden;
+}
+
+@media (max-width: 768px) {
+    .ai-message .thinking-bubble.streaming-bubble {
+        width: 100%;
+    }
+}
+
+[data-theme="dark"] .ai-message .thinking-bubble.streaming-bubble {
+    box-shadow: 0 16px 28px rgba(2, 6, 23, 0.45) !important;
 }
 
 /* ============================================

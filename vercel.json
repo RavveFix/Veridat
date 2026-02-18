@@ -1,4 +1,50 @@
 {
+    "redirects": [
+        {
+            "source": "/:path*",
+            "has": [
+                {
+                    "type": "host",
+                    "value": "veridat.vercel.app"
+                }
+            ],
+            "destination": "https://veridat.se/:path*",
+            "permanent": true
+        },
+        {
+            "source": "/:path*",
+            "has": [
+                {
+                    "type": "host",
+                    "value": "veridat-fixverses-projects-70c337d9.vercel.app"
+                }
+            ],
+            "destination": "https://veridat.se/:path*",
+            "permanent": true
+        },
+        {
+            "source": "/:path*",
+            "has": [
+                {
+                    "type": "host",
+                    "value": "veridat-git-main-fixverses-projects-70c337d9.vercel.app"
+                }
+            ],
+            "destination": "https://veridat.se/:path*",
+            "permanent": true
+        },
+        {
+            "source": "/:path*",
+            "has": [
+                {
+                    "type": "host",
+                    "value": "veridat-ravon-4316-fixverses-projects-70c337d9.vercel.app"
+                }
+            ],
+            "destination": "https://veridat.se/:path*",
+            "permanent": true
+        }
+    ],
     "rewrites": [
         {
             "source": "/login",
@@ -79,7 +125,7 @@
                 },
                 {
                     "key": "Content-Security-Policy-Report-Only",
-                    "value": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; font-src 'self' https://fonts.gstatic.com https://api.fontshare.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co https://api.openai.com https://generativelanguage.googleapis.com https://api.fortnox.se https://apps.fortnox.se; object-src 'none'"
+                    "value": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; font-src 'self' https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.openai.com https://generativelanguage.googleapis.com https://api.fortnox.se https://apps.fortnox.se; object-src 'none'"
                 }
             ]
         }

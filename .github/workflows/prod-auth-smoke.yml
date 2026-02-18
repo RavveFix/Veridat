@@ -1,0 +1,136 @@
+name: Prod Auth Smoke
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: prod-auth-smoke
+  cancel-in-progress: false
+
+jobs:
+  prod-auth-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_URL: ${{ secrets.PROD_SMOKE_SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.PROD_SMOKE_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SMOKE_SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_URL_FALLBACK: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SMOKE_IMAP_HOST: ${{ secrets.PROD_SMOKE_IMAP_HOST }}
+      SMOKE_IMAP_PORT: ${{ secrets.PROD_SMOKE_IMAP_PORT }}
+      SMOKE_IMAP_USER: ${{ secrets.PROD_SMOKE_IMAP_USER }}
+      SMOKE_IMAP_PASS: ${{ secrets.PROD_SMOKE_IMAP_PASS }}
+      SMOKE_IMAP_TLS: ${{ secrets.PROD_SMOKE_IMAP_TLS }}
+      SMOKE_TEST_EMAIL: ${{ secrets.PROD_SMOKE_TEST_EMAIL }}
+      PROD_SMOKE_SLACK_WEBHOOK_URL: ${{ secrets.PROD_SMOKE_SLACK_WEBHOOK_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      SMOKE_MAGIC_LINK_TIMEOUT_MS: '180000'
+      SMOKE_LOG_PROGRESS: 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+
+          require() {
+            local name="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              echo "::error::Missing required secret/env: ${name}" >&2
+              exit 1
+            fi
+          }
+
+          EFFECTIVE_SUPABASE_URL="${SUPABASE_URL:-}"
+          if [ -z "${EFFECTIVE_SUPABASE_URL}" ] && [ -n "${SUPABASE_URL_FALLBACK:-}" ]; then
+            EFFECTIVE_SUPABASE_URL="${SUPABASE_URL_FALLBACK}"
+          fi
+
+          HAS_EXPLICIT_KEYS=false
+          if [ -n "${EFFECTIVE_SUPABASE_URL}" ] && [ -n "${SUPABASE_ANON_KEY:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            HAS_EXPLICIT_KEYS=true
+            echo "SUPABASE_URL=${EFFECTIVE_SUPABASE_URL}" >> "$GITHUB_ENV"
+          fi
+
+          HAS_CLI_LOOKUP=false
+          if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            HAS_CLI_LOOKUP=true
+          fi
+
+          if [ "${HAS_EXPLICIT_KEYS}" != "true" ] && [ "${HAS_CLI_LOOKUP}" != "true" ]; then
+            echo "::error::Missing Supabase auth config. Provide either:" >&2
+            echo "::error::- PROD_SMOKE_SUPABASE_URL + PROD_SMOKE_SUPABASE_ANON_KEY + PROD_SMOKE_SUPABASE_SERVICE_ROLE_KEY" >&2
+            echo "::error::- or SUPABASE_ACCESS_TOKEN (optionally SUPABASE_PROJECT_REF if not in supabase/config.toml)" >&2
+            exit 1
+          fi
+
+          require "PROD_SMOKE_IMAP_HOST" "${SMOKE_IMAP_HOST:-}"
+          require "PROD_SMOKE_IMAP_PORT" "${SMOKE_IMAP_PORT:-}"
+          require "PROD_SMOKE_IMAP_USER" "${SMOKE_IMAP_USER:-}"
+          require "PROD_SMOKE_IMAP_PASS" "${SMOKE_IMAP_PASS:-}"
+          require "PROD_SMOKE_IMAP_TLS" "${SMOKE_IMAP_TLS:-}"
+          require "PROD_SMOKE_TEST_EMAIL" "${SMOKE_TEST_EMAIL:-}"
+
+      - name: Run prod auth smoke
+        id: smoke
+        run: |
+          set -o pipefail
+          npm run prod:smoke:auth 2>&1 | tee prod-auth-smoke.log
+
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-auth-smoke-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: prod-auth-smoke.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Notify Slack on failure (prod smoke webhook)
+        if: ${{ failure() && env.PROD_SMOKE_SLACK_WEBHOOK_URL != '' }}
+        run: |
+          set -euo pipefail
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MSG="Prod auth smoke FAILED on ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME}) run #${GITHUB_RUN_NUMBER}. Logs: ${RUN_URL}"
+          PAYLOAD=$(printf '{"text":"%s"}' "$MSG")
+
+          curl -sS -X POST "$PROD_SMOKE_SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "$PAYLOAD" >/dev/null
+
+      - name: Notify Slack on failure (default webhook)
+        if: ${{ failure() && env.PROD_SMOKE_SLACK_WEBHOOK_URL == '' && env.SLACK_WEBHOOK_URL != '' }}
+        run: |
+          set -euo pipefail
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MSG="Prod auth smoke FAILED on ${GITHUB_REPOSITORY} (${GITHUB_REF_NAME}) run #${GITHUB_RUN_NUMBER}. Logs: ${RUN_URL}"
+          PAYLOAD=$(printf '{"text":"%s"}' "$MSG")
+
+          curl -sS -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data "$PAYLOAD" >/dev/null
+
+      - name: Warn if Slack webhook missing
+        if: ${{ failure() && env.PROD_SMOKE_SLACK_WEBHOOK_URL == '' && env.SLACK_WEBHOOK_URL == '' }}
+        run: echo "::warning::SLACK_WEBHOOK_URL secret is not configured; failure alert was not sent."

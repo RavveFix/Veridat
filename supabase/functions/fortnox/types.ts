@@ -26,6 +26,8 @@ export interface FortnoxInvoiceRow {
     Description?: string;
     DeliveredQuantity?: string; // Fortnox API uses strings for quantities in some contexts, but often numbers in JSON. Keeping string to match service usage if needed, or number. The schema says string for DeliveredQuantity in one place, let's be safe.
     Price?: number;
+    Total?: number;
+    VAT?: number;
     AccountNumber?: number;
     CostCenter?: string;
 }
@@ -38,6 +40,20 @@ export interface FortnoxInvoice {
     Comments?: string;
     OurReference?: string;
     YourReference?: string;
+    InvoiceNumber?: number;
+    DocumentNumber?: number;
+    Balance?: number;
+    Booked?: boolean;
+    Cancelled?: boolean;
+    Currency?: string;
+    Net?: number;
+    Total?: number;
+    TotalVAT?: number;
+    VoucherSeries?: string;
+    VoucherNumber?: number;
+    VoucherYear?: number;
+    VoucherReference?: string;
+    CustomerName?: string;
 }
 
 export interface FortnoxResponse<T> {
@@ -114,6 +130,8 @@ export interface FortnoxVoucher {
     TransactionDate: string;
     VoucherSeries: string;
     VoucherRows: FortnoxVoucherRow[];
+    ReferenceType?: string;
+    ReferenceNumber?: string;
     Comments?: string;
     CostCenter?: string;
     Project?: string;
@@ -163,6 +181,21 @@ export interface FortnoxSupplierInvoice {
     OCR?: string;
     YourReference?: string;
     OurReference?: string;
+    SupplierName?: string;
+    GivenNumber?: number;
+    Balance?: number;
+    Booked?: boolean;
+    FinalPayDate?: string;
+    VoucherSeries?: string;
+    VoucherNumber?: number;
+    VoucherYear?: number;
+    Vouchers?: Array<{
+        Number: number;
+        Series: string;
+        Year?: number;
+        ReferenceType?: string;
+        ReferenceNumber?: string;
+    }>;
 }
 
 export interface FortnoxSupplierInvoiceResponse extends FortnoxResponse<FortnoxSupplierInvoice> {

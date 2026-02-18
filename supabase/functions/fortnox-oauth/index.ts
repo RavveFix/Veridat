@@ -32,6 +32,11 @@ interface FortnoxTokenStatusRow {
     expires_at: string | null;
 }
 
+interface CompanyRecord {
+    id: string;
+    org_number: string | null;
+}
+
 // Fortnox OAuth endpoints
 const FORTNOX_AUTH_URL = 'https://apps.fortnox.se/oauth-v1/auth';
 const FORTNOX_TOKEN_URL = 'https://apps.fortnox.se/oauth-v1/token';
@@ -50,6 +55,7 @@ const FORTNOX_SCOPES = [
 
 type OAuthStatePayload = {
     userId: string;
+    companyId: string;
     timestamp: number;
     nonce: string;
 };
@@ -104,6 +110,7 @@ async function verifySignedState(state: string, secret: string): Promise<OAuthSt
 
 interface OAuthInitiateRequest {
     action: 'initiate';
+    companyId?: string;
 }
 
 interface OAuthCallbackRequest {
@@ -114,10 +121,12 @@ interface OAuthCallbackRequest {
 
 interface OAuthStatusRequest {
     action: 'status';
+    companyId?: string;
 }
 
 interface OAuthDisconnectRequest {
     action: 'disconnect';
+    companyId?: string;
 }
 
 type OAuthRequest = OAuthInitiateRequest | OAuthCallbackRequest | OAuthStatusRequest | OAuthDisconnectRequest;
@@ -139,6 +148,32 @@ function planRequiredResponse(corsHeaders: Record<string, string>): Response {
         }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
+}
+
+function normalizeOrgNumber(value: string | null | undefined): string {
+    return (value || '').replace(/\D+/g, '');
+}
+
+function requireCompanyId(companyId: string | undefined): string {
+    if (!companyId || companyId.trim().length === 0) {
+        throw new Error('Missing required field: companyId');
+    }
+    return companyId.trim();
+}
+
+async function getCompanyForUser(
+    supabase: OAuthSupabaseClient,
+    userId: string,
+    companyId: string
+): Promise<CompanyRecord | null> {
+    const { data } = await (supabase
+        .from('companies') as any)
+        .select('id, org_number')
+        .eq('user_id', userId)
+        .eq('id', companyId)
+        .maybeSingle() as { data: CompanyRecord | null };
+
+    return data;
 }
 
 Deno.serve(async (req: Request) => {
@@ -201,6 +236,11 @@ Deno.serve(async (req: Request) => {
 
         const body = (await req.json().catch(() => ({}))) as OAuthRequest;
         const action = body.action;
+        const companyId = (
+            typeof (body as { companyId?: unknown }).companyId === 'string'
+                ? (body as { companyId?: string }).companyId
+                : undefined
+        )?.trim();
 
         logger.info('Fortnox OAuth action requested', { userId: user.id, action });
 
@@ -213,13 +253,13 @@ Deno.serve(async (req: Request) => {
 
         switch (action) {
             case 'initiate':
-                return handleInitiate(user.id, supabasePublicUrl, corsHeaders);
+                return handleInitiate(user.id, supabasePublicUrl, supabaseAdmin, companyId, corsHeaders);
 
             case 'status':
-                return await handleStatus(user.id, supabaseAdmin, corsHeaders);
+                return await handleStatus(user.id, companyId, supabaseAdmin, corsHeaders);
 
             case 'disconnect':
-                return await handleDisconnect(user.id, supabaseAdmin, corsHeaders);
+                return await handleDisconnect(user.id, companyId, supabaseAdmin, corsHeaders);
 
             default:
                 return new Response(
@@ -241,7 +281,13 @@ Deno.serve(async (req: Request) => {
 /**
  * Initiates the OAuth flow by returning the Fortnox authorization URL
  */
-async function handleInitiate(userId: string, supabaseUrl: string, corsHeaders: Record<string, string>) {
+async function handleInitiate(
+    userId: string,
+    supabaseUrl: string,
+    supabase: OAuthSupabaseClient,
+    companyIdInput: string | undefined,
+    corsHeaders: Record<string, string>
+) {
     const clientId = Deno.env.get('FORTNOX_CLIENT_ID');
     const stateSecret = Deno.env.get('FORTNOX_OAUTH_STATE_SECRET');
 
@@ -252,12 +298,46 @@ async function handleInitiate(userId: string, supabaseUrl: string, corsHeaders: 
         );
     }
 
+    const companyId = companyIdInput?.trim();
+    if (!companyId) {
+        return new Response(
+            JSON.stringify({
+                error: 'Missing required field: companyId',
+                errorCode: 'MISSING_COMPANY_ID',
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+    }
+
+    const company = await getCompanyForUser(supabase, userId, companyId);
+    if (!company) {
+        return new Response(
+            JSON.stringify({
+                error: 'company_not_found',
+                errorCode: 'COMPANY_NOT_FOUND',
+            }),
+            { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+    }
+
+    if (!normalizeOrgNumber(company.org_number)) {
+        return new Response(
+            JSON.stringify({
+                error: 'company_org_required',
+                errorCode: 'COMPANY_ORG_REQUIRED',
+                message: 'Bolaget måste ha organisationsnummer innan Fortnox kan kopplas.',
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+    }
+
     // Build the redirect URI for the callback
     const redirectUri = `${supabaseUrl}/functions/v1/fortnox-oauth`;
 
     // Create state parameter with user ID for security and to identify user on callback
     const statePayload: OAuthStatePayload = {
         userId,
+        companyId,
         timestamp: Date.now(),
         nonce: crypto.randomUUID()
     };
@@ -273,7 +353,7 @@ async function handleInitiate(userId: string, supabaseUrl: string, corsHeaders: 
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('access_type', 'offline');
 
-    logger.info('Generated Fortnox authorization URL', { userId, redirectUri });
+    logger.info('Generated Fortnox authorization URL', { userId, companyId, redirectUri });
 
     return new Response(
         JSON.stringify({
@@ -321,7 +401,11 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
             return Response.redirect(`${appUrl}?fortnox_error=invalid_state`, 302);
         }
 
-        const { userId, timestamp } = stateData;
+        const { userId, companyId, timestamp } = stateData;
+        if (!companyId || companyId.trim().length === 0) {
+            logger.error('Missing companyId in OAuth state');
+            return Response.redirect(`${appUrl}?fortnox_error=invalid_state`, 302);
+        }
 
         // Check state is not too old (10 minutes max)
         if (Date.now() - timestamp > 10 * 60 * 1000) {
@@ -344,6 +428,15 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
         const plan = await getUserPlan(supabaseAdmin, userId);
         if (plan === 'free') {
             return Response.redirect(`${appUrl}?fortnox_error=plan_required`, 302);
+        }
+
+        const company = await getCompanyForUser(supabaseAdmin, userId, companyId);
+        if (!company) {
+            return Response.redirect(`${appUrl}?fortnox_error=company_not_found`, 302);
+        }
+        const veridatOrgNumber = normalizeOrgNumber(company.org_number);
+        if (!veridatOrgNumber) {
+            return Response.redirect(`${appUrl}?fortnox_error=company_org_required`, 302);
         }
 
         const redirectUri = `${supabasePublicUrl}/functions/v1/fortnox-oauth`;
@@ -372,6 +465,40 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
         const tokenData = await tokenResponse.json();
         const { access_token, refresh_token, expires_in } = tokenData;
 
+        const companyInfoResponse = await fetch('https://api.fortnox.se/3/companyinformation', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${access_token}`,
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (!companyInfoResponse.ok) {
+            const companyInfoError = await companyInfoResponse.text();
+            logger.error('Failed to fetch Fortnox company information', {
+                userId,
+                companyId,
+                status: companyInfoResponse.status,
+                error: companyInfoError,
+            });
+            return Response.redirect(`${appUrl}?fortnox_error=callback_failed`, 302);
+        }
+
+        const companyInfoData = await companyInfoResponse.json().catch(() => ({}));
+        const fortnoxOrgNumber = normalizeOrgNumber(
+            (companyInfoData as { CompanyInformation?: { OrganizationNumber?: string } })?.CompanyInformation?.OrganizationNumber
+        );
+
+        if (!fortnoxOrgNumber || fortnoxOrgNumber !== veridatOrgNumber) {
+            logger.warn('Fortnox org number mismatch', {
+                userId,
+                companyId,
+                veridatOrgNumber,
+                fortnoxOrgNumber: fortnoxOrgNumber || null,
+            });
+            return Response.redirect(`${appUrl}?fortnox_error=org_number_mismatch`, 302);
+        }
+
         // Calculate expiration time
         const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
@@ -381,20 +508,21 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
             .from('fortnox_tokens')
             .upsert({
                 user_id: userId,
+                company_id: companyId,
                 access_token,
                 refresh_token,
                 expires_at: expiresAt,
                 last_refresh_at: null,
                 refresh_count: 0,
                 updated_at: new Date().toISOString(),
-            }, { onConflict: 'user_id' });
+            }, { onConflict: 'user_id,company_id' });
 
         if (upsertError) {
             logger.error('Failed to store tokens', upsertError);
             return Response.redirect(`${appUrl}?fortnox_error=storage_failed`, 302);
         }
 
-        logger.info('Fortnox OAuth successful', { userId });
+        logger.info('Fortnox OAuth successful', { userId, companyId });
         return Response.redirect(`${appUrl}?fortnox_connected=true`, 302);
 
     } catch (error) {
@@ -408,13 +536,28 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
  */
 async function handleStatus(
     userId: string,
+    companyIdInput: string | undefined,
     supabase: OAuthSupabaseClient,
     corsHeaders: Record<string, string>
 ) {
+    let companyId: string;
+    try {
+        companyId = requireCompanyId(companyIdInput);
+    } catch {
+        return new Response(
+            JSON.stringify({
+                error: 'Missing required field: companyId',
+                errorCode: 'MISSING_COMPANY_ID',
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+    }
+
     const { data, error } = await (supabase
         .from('fortnox_tokens') as any)
         .select('created_at, expires_at')
         .eq('user_id', userId)
+        .eq('company_id', companyId)
         .maybeSingle() as { data: FortnoxTokenStatusRow | null; error: Error | null };
 
     if (error) {
@@ -440,13 +583,28 @@ async function handleStatus(
  */
 async function handleDisconnect(
     userId: string,
+    companyIdInput: string | undefined,
     supabase: OAuthSupabaseClient,
     corsHeaders: Record<string, string>
 ) {
+    let companyId: string;
+    try {
+        companyId = requireCompanyId(companyIdInput);
+    } catch {
+        return new Response(
+            JSON.stringify({
+                error: 'Missing required field: companyId',
+                errorCode: 'MISSING_COMPANY_ID',
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+    }
+
     const { error } = await supabase
         .from('fortnox_tokens')
         .delete()
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .eq('company_id', companyId);
 
     if (error) {
         logger.error('Error disconnecting Fortnox', error);
@@ -456,7 +614,7 @@ async function handleDisconnect(
         );
     }
 
-    logger.info('Fortnox disconnected', { userId });
+    logger.info('Fortnox disconnected', { userId, companyId });
 
     return new Response(
         JSON.stringify({ success: true }),

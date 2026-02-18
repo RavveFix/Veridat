@@ -47,6 +47,184 @@ function vatLabel(rate: number): string {
     return `${rate}%`;
 }
 
+const BOOKKEEPING_PANEL_ROOT_STYLE = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem'
+} as const;
+
+const BOOKKEEPING_HEADER_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem'
+} as const;
+
+const BOOKKEEPING_BACK_BUTTON_STYLE = {
+    background: 'transparent',
+    border: '1px solid var(--glass-border)',
+    borderRadius: '8px',
+    color: 'var(--text-secondary)',
+    padding: '0.4rem 0.75rem',
+    fontSize: '0.8rem',
+    cursor: 'pointer'
+} as const;
+
+const BOOKKEEPING_HEADER_HINT_STYLE = {
+    fontSize: '0.85rem',
+    color: 'var(--text-secondary)'
+} as const;
+
+const BOOKKEEPING_SUMMARY_GRID_STYLE = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '0.75rem'
+} as const;
+
+const BOOKKEEPING_FILTER_ROW_STYLE = {
+    display: 'flex',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
+    alignItems: 'center'
+} as const;
+
+const BOOKKEEPING_FILTER_BUTTON_GROUP_STYLE = {
+    display: 'flex',
+    gap: '0.5rem'
+} as const;
+
+const BOOKKEEPING_FILTER_BUTTON_BASE_STYLE = {
+    height: '34px',
+    padding: '0 0.8rem',
+    borderRadius: '10px',
+    border: '1px solid var(--glass-border)',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    cursor: 'pointer'
+} as const;
+
+const BOOKKEEPING_SEARCH_INPUT_STYLE = {
+    flex: 1,
+    minWidth: '180px',
+    height: '34px',
+    padding: '0 0.75rem',
+    borderRadius: '10px',
+    border: '1px solid var(--glass-border)',
+    background: 'rgba(255, 255, 255, 0.04)',
+    color: 'var(--text-primary)',
+    fontSize: '0.8rem',
+    outline: 'none'
+} as const;
+
+const BOOKKEEPING_ERROR_BOX_STYLE = {
+    padding: '0.6rem 0.8rem',
+    borderRadius: '8px',
+    background: 'rgba(239, 68, 68, 0.12)',
+    color: '#ef4444',
+    fontSize: '0.8rem'
+} as const;
+
+const BOOKKEEPING_TABLE_WRAP_STYLE = { overflowX: 'auto' } as const;
+
+const BOOKKEEPING_TABLE_STATE_STYLE = {
+    padding: '2rem',
+    textAlign: 'center',
+    color: 'var(--text-secondary)',
+    fontSize: '0.85rem'
+} as const;
+
+const BOOKKEEPING_TABLE_STYLE = {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '0.8rem'
+} as const;
+
+const BOOKKEEPING_TABLE_HEADER_BASE_STYLE = {
+    padding: '0.4rem 0.5rem',
+    color: 'var(--text-secondary)',
+    fontWeight: 600,
+    whiteSpace: 'nowrap'
+} as const;
+
+const BOOKKEEPING_TABLE_ROW_STYLE = {
+    borderTop: '1px solid rgba(255, 255, 255, 0.05)'
+} as const;
+
+const BOOKKEEPING_CELL_BASE_STYLE = { padding: '0.5rem' } as const;
+const BOOKKEEPING_CELL_PRIMARY_STYLE = { ...BOOKKEEPING_CELL_BASE_STYLE, color: 'var(--text-primary)' } as const;
+const BOOKKEEPING_CELL_RIGHT_PRIMARY_STYLE = { ...BOOKKEEPING_CELL_PRIMARY_STYLE, textAlign: 'right' } as const;
+const BOOKKEEPING_CELL_RIGHT_NOWRAP_PRIMARY_STYLE = { ...BOOKKEEPING_CELL_RIGHT_PRIMARY_STYLE, whiteSpace: 'nowrap' } as const;
+const BOOKKEEPING_CELL_NOWRAP_STYLE = { ...BOOKKEEPING_CELL_BASE_STYLE, whiteSpace: 'nowrap' } as const;
+const BOOKKEEPING_CELL_LAST_USED_STYLE = { ...BOOKKEEPING_CELL_BASE_STYLE, whiteSpace: 'nowrap', color: 'var(--text-secondary)' } as const;
+const BOOKKEEPING_CELL_ACTION_STYLE = { ...BOOKKEEPING_CELL_BASE_STYLE, textAlign: 'right' } as const;
+
+const BOOKKEEPING_SUPPLIER_NAME_STYLE = { fontWeight: 600 } as const;
+const BOOKKEEPING_KEYWORDS_STYLE = { fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' } as const;
+const BOOKKEEPING_ACCOUNT_CODE_STYLE = { fontWeight: 600, color: 'var(--text-primary)' } as const;
+const BOOKKEEPING_ACCOUNT_NAME_STYLE = { color: 'var(--text-secondary)', marginLeft: '0.4rem' } as const;
+
+const BOOKKEEPING_STATUS_PILL_BASE_STYLE = {
+    padding: '0.15rem 0.5rem',
+    borderRadius: '999px',
+    fontSize: '0.7rem',
+    fontWeight: 600
+} as const;
+
+const BOOKKEEPING_DELETE_BUTTON_BASE_STYLE = {
+    height: '28px',
+    padding: '0 0.6rem',
+    borderRadius: '8px',
+    border: '1px solid var(--glass-border)',
+    background: 'transparent',
+    color: '#ef4444',
+    fontSize: '0.72rem'
+} as const;
+
+const BOOKKEEPING_HELP_CARD_STYLE = {
+    fontSize: '0.8rem',
+    color: 'var(--text-secondary)',
+    lineHeight: 1.5
+} as const;
+
+const BOOKKEEPING_HELP_TITLE_STYLE = { color: 'var(--text-primary)' } as const;
+
+function getFilterButtonStyle(active: boolean) {
+    return {
+        ...BOOKKEEPING_FILTER_BUTTON_BASE_STYLE,
+        background: active ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+        color: active ? '#3b82f6' : 'var(--text-secondary)'
+    } as const;
+}
+
+function getTableHeaderCellStyle(align: 'left' | 'right') {
+    return {
+        ...BOOKKEEPING_TABLE_HEADER_BASE_STYLE,
+        textAlign: align
+    } as const;
+}
+
+function getRuleStatusStyle(isAutoApply: boolean, isTrusted: boolean) {
+    return {
+        ...BOOKKEEPING_STATUS_PILL_BASE_STYLE,
+        background: isAutoApply
+            ? 'rgba(16, 185, 129, 0.15)'
+            : isTrusted
+                ? 'rgba(59, 130, 246, 0.15)'
+                : 'rgba(255, 255, 255, 0.08)',
+        color: isAutoApply
+            ? '#10b981'
+            : isTrusted
+                ? '#3b82f6'
+                : 'var(--text-secondary)'
+    } as const;
+}
+
+function getDeleteButtonStyle(isDeleting: boolean) {
+    return {
+        ...BOOKKEEPING_DELETE_BUTTON_BASE_STYLE,
+        cursor: isDeleting ? 'wait' : 'pointer'
+    } as const;
+}
+
 export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
     const [patterns, setPatterns] = useState<ExpensePatternRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -145,35 +323,23 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
         <div
             className="panel-stagger"
             data-testid="bookkeeping-rules-panel"
-            style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+            style={BOOKKEEPING_PANEL_ROOT_STYLE}
         >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={BOOKKEEPING_HEADER_STYLE}>
                 <button
                     type="button"
                     onClick={onBack}
-                    style={{
-                        background: 'transparent',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: '8px',
-                        color: 'var(--text-secondary)',
-                        padding: '0.4rem 0.75rem',
-                        fontSize: '0.8rem',
-                        cursor: 'pointer'
-                    }}
+                    style={BOOKKEEPING_BACK_BUTTON_STYLE}
                 >
                     Tillbaka
                 </button>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <span style={BOOKKEEPING_HEADER_HINT_STYLE}>
                     Automatiska bokföringsregler baserade på tidigare konteringar.
                 </span>
             </div>
 
             {/* Summary cards */}
-            <div className="panel-stagger" style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                gap: '0.75rem'
-            }}>
+            <div className="panel-stagger" style={BOOKKEEPING_SUMMARY_GRID_STYLE}>
                 {[
                     { label: 'Totalt regler', value: summary.total },
                     { label: 'Kostnader', value: summary.costs },
@@ -188,8 +354,8 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
             </div>
 
             {/* Filters */}
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={BOOKKEEPING_FILTER_ROW_STYLE}>
+                <div style={BOOKKEEPING_FILTER_BUTTON_GROUP_STYLE}>
                     {([
                         { id: 'all' as const, label: 'Alla' },
                         { id: 'cost' as const, label: 'Kostnader' },
@@ -200,17 +366,7 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
                             type="button"
                             onClick={() => setFilter(opt.id)}
                             data-testid={`bookkeeping-rules-filter-${opt.id}`}
-                            style={{
-                                height: '34px',
-                                padding: '0 0.8rem',
-                                borderRadius: '10px',
-                                border: '1px solid var(--glass-border)',
-                                background: filter === opt.id ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                                color: filter === opt.id ? '#3b82f6' : 'var(--text-secondary)',
-                                fontSize: '0.78rem',
-                                fontWeight: 600,
-                                cursor: 'pointer'
-                            }}
+                            style={getFilterButtonStyle(filter === opt.id)}
                         >
                             {opt.label}
                         </button>
@@ -222,57 +378,40 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
                     value={search}
                     onInput={(e) => setSearch(e.currentTarget.value)}
                     data-testid="bookkeeping-rules-search"
-                    style={{
-                        flex: 1,
-                        minWidth: '180px',
-                        height: '34px',
-                        padding: '0 0.75rem',
-                        borderRadius: '10px',
-                        border: '1px solid var(--glass-border)',
-                        background: 'rgba(255, 255, 255, 0.04)',
-                        color: 'var(--text-primary)',
-                        fontSize: '0.8rem',
-                        outline: 'none'
-                    }}
+                    style={BOOKKEEPING_SEARCH_INPUT_STYLE}
                 />
             </div>
 
             {error && (
-                <div style={{
-                    padding: '0.6rem 0.8rem',
-                    borderRadius: '8px',
-                    background: 'rgba(239, 68, 68, 0.12)',
-                    color: '#ef4444',
-                    fontSize: '0.8rem'
-                }}>
+                <div style={BOOKKEEPING_ERROR_BOX_STYLE}>
                     {error}
                 </div>
             )}
 
             {/* Rules table */}
-            <div className="panel-card panel-card--no-hover" style={{ overflowX: 'auto' }}>
+            <div className="panel-card panel-card--no-hover" style={BOOKKEEPING_TABLE_WRAP_STYLE}>
                 {loading ? (
-                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    <div style={BOOKKEEPING_TABLE_STATE_STYLE}>
                         Hämtar regler...
                     </div>
                 ) : filtered.length === 0 ? (
-                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    <div style={BOOKKEEPING_TABLE_STATE_STYLE}>
                         {patterns.length === 0
                             ? 'Inga bokföringsregler har skapats än. Regler läggs till automatiskt när du konterar transaktioner.'
                             : 'Inga regler matchar filtret.'}
                     </div>
                 ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <table style={BOOKKEEPING_TABLE_STYLE}>
                         <thead>
                             <tr>
-                                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Leverantör</th>
-                                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Konto</th>
-                                <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Moms</th>
-                                <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Snitt</th>
-                                <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Användningar</th>
-                                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Status</th>
-                                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Senast</th>
-                                <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)', fontWeight: 600 }}></th>
+                                <th style={getTableHeaderCellStyle('left')}>Leverantör</th>
+                                <th style={getTableHeaderCellStyle('left')}>Konto</th>
+                                <th style={getTableHeaderCellStyle('right')}>Moms</th>
+                                <th style={getTableHeaderCellStyle('right')}>Snitt</th>
+                                <th style={getTableHeaderCellStyle('right')}>Användningar</th>
+                                <th style={getTableHeaderCellStyle('left')}>Status</th>
+                                <th style={getTableHeaderCellStyle('left')}>Senast</th>
+                                <th style={getTableHeaderCellStyle('right')}></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -285,66 +424,42 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
                                     <tr
                                         key={pattern.id}
                                         data-testid={`bookkeeping-rules-row-${pattern.id}`}
-                                        style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}
+                                        style={BOOKKEEPING_TABLE_ROW_STYLE}
                                     >
-                                        <td style={{ padding: '0.5rem', color: 'var(--text-primary)' }}>
-                                            <div style={{ fontWeight: 600 }}>{pattern.supplier_name}</div>
+                                        <td style={BOOKKEEPING_CELL_PRIMARY_STYLE}>
+                                            <div style={BOOKKEEPING_SUPPLIER_NAME_STYLE}>{pattern.supplier_name}</div>
                                             {pattern.description_keywords.length > 0 && (
-                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                                                <div style={BOOKKEEPING_KEYWORDS_STYLE}>
                                                     {pattern.description_keywords.slice(0, 3).join(', ')}
                                                 </div>
                                             )}
                                         </td>
-                                        <td style={{ padding: '0.5rem', whiteSpace: 'nowrap' }}>
-                                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{pattern.bas_account}</span>
-                                            <span style={{ color: 'var(--text-secondary)', marginLeft: '0.4rem' }}>{pattern.bas_account_name}</span>
+                                        <td style={BOOKKEEPING_CELL_NOWRAP_STYLE}>
+                                            <span style={BOOKKEEPING_ACCOUNT_CODE_STYLE}>{pattern.bas_account}</span>
+                                            <span style={BOOKKEEPING_ACCOUNT_NAME_STYLE}>{pattern.bas_account_name}</span>
                                         </td>
-                                        <td style={{ padding: '0.5rem', textAlign: 'right', color: 'var(--text-primary)' }}>{vatLabel(pattern.vat_rate)}</td>
-                                        <td style={{ padding: '0.5rem', textAlign: 'right', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
+                                        <td style={BOOKKEEPING_CELL_RIGHT_PRIMARY_STYLE}>{vatLabel(pattern.vat_rate)}</td>
+                                        <td style={BOOKKEEPING_CELL_RIGHT_NOWRAP_PRIMARY_STYLE}>
                                             {formatAmount(pattern.avg_amount)} kr
                                         </td>
-                                        <td style={{ padding: '0.5rem', textAlign: 'right', color: 'var(--text-primary)' }}>
+                                        <td style={BOOKKEEPING_CELL_RIGHT_PRIMARY_STYLE}>
                                             {pattern.usage_count}
                                         </td>
-                                        <td style={{ padding: '0.5rem' }}>
-                                            <span style={{
-                                                padding: '0.15rem 0.5rem',
-                                                borderRadius: '999px',
-                                                fontSize: '0.7rem',
-                                                fontWeight: 600,
-                                                background: isAutoApply
-                                                    ? 'rgba(16, 185, 129, 0.15)'
-                                                    : isTrusted
-                                                        ? 'rgba(59, 130, 246, 0.15)'
-                                                        : 'rgba(255, 255, 255, 0.08)',
-                                                color: isAutoApply
-                                                    ? '#10b981'
-                                                    : isTrusted
-                                                        ? '#3b82f6'
-                                                        : 'var(--text-secondary)'
-                                            }}>
+                                        <td style={BOOKKEEPING_CELL_BASE_STYLE}>
+                                            <span style={getRuleStatusStyle(isAutoApply, isTrusted)}>
                                                 {isAutoApply ? 'Auto' : isTrusted ? 'Betrodd' : 'Ny'}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '0.5rem', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+                                        <td style={BOOKKEEPING_CELL_LAST_USED_STYLE}>
                                             {formatDate(pattern.last_used_at)}
                                         </td>
-                                        <td style={{ padding: '0.5rem', textAlign: 'right' }}>
+                                        <td style={BOOKKEEPING_CELL_ACTION_STYLE}>
                                             <button
                                                 type="button"
                                                 onClick={() => void handleDelete(pattern.id, pattern.supplier_name)}
                                                 disabled={isDeleting}
                                                 data-testid={`bookkeeping-rules-delete-${pattern.id}`}
-                                                style={{
-                                                    height: '28px',
-                                                    padding: '0 0.6rem',
-                                                    borderRadius: '8px',
-                                                    border: '1px solid var(--glass-border)',
-                                                    background: 'transparent',
-                                                    color: '#ef4444',
-                                                    fontSize: '0.72rem',
-                                                    cursor: isDeleting ? 'wait' : 'pointer'
-                                                }}
+                                                style={getDeleteButtonStyle(isDeleting)}
                                             >
                                                 {isDeleting ? '...' : 'Ta bort'}
                                             </button>
@@ -358,12 +473,8 @@ export function BookkeepingRulesPanel({ onBack }: BookkeepingRulesPanelProps) {
             </div>
 
             {/* Help text */}
-            <div className="panel-card panel-card--no-hover" style={{
-                fontSize: '0.8rem',
-                color: 'var(--text-secondary)',
-                lineHeight: 1.5
-            }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Hur fungerar regler?</strong>
+            <div className="panel-card panel-card--no-hover" style={BOOKKEEPING_HELP_CARD_STYLE}>
+                <strong style={BOOKKEEPING_HELP_TITLE_STYLE}>Hur fungerar regler?</strong>
                 <br />
                 När du konterar en transaktion läggs leverantören och kontot till automatiskt.
                 Efter 2 bekräftelser visas förslaget automatiskt. Efter 6 bekräftelser

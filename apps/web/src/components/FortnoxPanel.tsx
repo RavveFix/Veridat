@@ -4,6 +4,8 @@ import { logger } from '../services/LoggerService';
 import { companyService } from '../services/CompanyService';
 import { CopilotPanel } from './CopilotPanel';
 import { getFortnoxList } from '../utils/fortnoxResponse';
+import { InvoicePostingReviewDrawer } from './InvoicePostingReviewDrawer';
+import { getInvoicePostingReviewEnabled, invoicePostingReviewService, type InvoicePostingTrace, type InvoicePostingType } from '../services/InvoicePostingReviewService';
 
 interface FortnoxPanelProps {
     onBack: () => void;
@@ -47,6 +49,18 @@ interface TableCell {
     content: string | number;
     align?: TableAlign;
     nowrap?: boolean;
+}
+
+interface InvoiceSummaryData {
+    overdue: number;
+    unbooked: number;
+    total: number;
+    unbookedLabel: string;
+}
+
+interface OptionItem<T extends string> {
+    id: T;
+    label: string;
 }
 
 function todayString(): string {
@@ -112,6 +126,54 @@ function getCustomerStatus(invoice: CustomerInvoiceSummary): string {
     return 'Skapad';
 }
 
+function summarizeSupplierInvoices(
+    source: SupplierInvoiceSummary[],
+    today = todayString()
+): InvoiceSummaryData {
+    let overdue = 0;
+    let unbooked = 0;
+
+    for (const invoice of source) {
+        if (isInvoiceOverdue(invoice.DueDate, invoice.Balance, today)) {
+            overdue += 1;
+        }
+        if (!invoice.Booked && hasOutstandingBalance(invoice.Balance)) {
+            unbooked += 1;
+        }
+    }
+
+    return {
+        overdue,
+        unbooked,
+        total: source.length,
+        unbookedLabel: 'Obokförda',
+    };
+}
+
+function summarizeCustomerInvoices(
+    source: CustomerInvoiceSummary[],
+    today = todayString()
+): InvoiceSummaryData {
+    let overdue = 0;
+    let unpaid = 0;
+
+    for (const invoice of source) {
+        if (isInvoiceOverdue(invoice.DueDate, invoice.Balance, today)) {
+            overdue += 1;
+        }
+        if (hasOutstandingBalance(invoice.Balance)) {
+            unpaid += 1;
+        }
+    }
+
+    return {
+        overdue,
+        unbooked: unpaid,
+        total: source.length,
+        unbookedLabel: 'Obetalda',
+    };
+}
+
 const INVOICE_TABLE_STYLE = { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' } as const;
 const TABLE_HEADER_LEFT_STYLE = { textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' } as const;
 const TABLE_HEADER_RIGHT_STYLE = { textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' } as const;
@@ -130,6 +192,69 @@ const TOOLBAR_BUTTON_BASE_STYLE = {
     display: 'inline-flex',
     alignItems: 'center'
 } as const;
+const FORTNOX_PANEL_ROOT_STYLE = { display: 'flex', flexDirection: 'column', gap: '1.2rem' } as const;
+const FORTNOX_HEADER_STYLE = { display: 'flex', alignItems: 'center', gap: '0.75rem' } as const;
+const FORTNOX_BACK_BUTTON_STYLE = {
+    background: 'transparent',
+    border: '1px solid var(--glass-border)',
+    borderRadius: '8px',
+    color: 'var(--text-secondary)',
+    padding: '0.4rem 0.75rem',
+    fontSize: '0.8rem',
+    cursor: 'pointer'
+} as const;
+const FORTNOX_HEADER_HINT_STYLE = { fontSize: '0.85rem', color: 'var(--text-secondary)' } as const;
+const FORTNOX_SUMMARY_GRID_STYLE = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: '0.75rem'
+} as const;
+const FORTNOX_SUMMARY_UPDATED_STYLE = { fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' } as const;
+const FORTNOX_PERMISSION_CARD_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.6rem' } as const;
+const FORTNOX_PERMISSION_ROW_STYLE = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' } as const;
+const FORTNOX_PERMISSION_TEXT_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.2rem' } as const;
+const FORTNOX_PERMISSION_MESSAGE_STYLE = { fontSize: '0.85rem', color: 'var(--text-primary)' } as const;
+const FORTNOX_MAIN_GRID_STYLE = {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)',
+    gap: '1rem'
+} as const;
+const FORTNOX_TABLE_CARD_STYLE = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+    minHeight: '360px'
+} as const;
+const FORTNOX_TABLE_HEADER_STYLE = { display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' } as const;
+const FORTNOX_TABLE_TITLE_WRAP_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.35rem' } as const;
+const FORTNOX_SECTION_TITLE_STYLE = { margin: 0 } as const;
+const FORTNOX_TABLE_SUBTEXT_STYLE = { fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
+const FORTNOX_TOOLBAR_GROUP_STYLE = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } as const;
+const FORTNOX_ERROR_BOX_STYLE = {
+    padding: '0.6rem 0.8rem',
+    borderRadius: '8px',
+    background: 'rgba(239, 68, 68, 0.12)',
+    color: '#ef4444',
+    fontSize: '0.8rem'
+} as const;
+const FORTNOX_TABLE_SCROLL_STYLE = { overflowX: 'auto' } as const;
+const FORTNOX_COPILOT_CARD_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.75rem' } as const;
+const FORTNOX_COPILOT_SUBTEXT_STYLE = { fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
+const INVOICE_VIEW_OPTIONS: OptionItem<InvoiceView>[] = [
+    { id: 'supplier', label: 'Leverantörer' },
+    { id: 'customer', label: 'Kunder' },
+];
+const SUPPLIER_FILTER_OPTIONS: OptionItem<SupplierFilterMode>[] = [
+    { id: 'all', label: 'Alla' },
+    { id: 'unbooked', label: 'Obokförda' },
+    { id: 'overdue', label: 'Förfallna' },
+    { id: 'authorizepending', label: 'Under attest' },
+];
+const CUSTOMER_FILTER_OPTIONS: OptionItem<CustomerFilterMode>[] = [
+    { id: 'all', label: 'Alla' },
+    { id: 'unpaid', label: 'Obetalda' },
+    { id: 'overdue', label: 'Förfallna' },
+];
 const SUPPLIER_BASE_COLUMNS: TableColumn[] = [
     { key: 'invoice', label: 'Faktura' },
     { key: 'supplier', label: 'Lev.nr' },
@@ -138,6 +263,7 @@ const SUPPLIER_BASE_COLUMNS: TableColumn[] = [
     { key: 'balance', label: 'Rest', align: 'right' },
     { key: 'status', label: 'Status' }
 ];
+const TRACE_ACTION_COLUMN: TableColumn = { key: 'trace', label: 'Kontering', align: 'right' };
 const SUPPLIER_ACTION_COLUMN: TableColumn = { key: 'action', label: 'Åtgärd', align: 'right' };
 const CUSTOMER_COLUMNS: TableColumn[] = [
     { key: 'invoice', label: 'Faktura' },
@@ -147,6 +273,7 @@ const CUSTOMER_COLUMNS: TableColumn[] = [
     { key: 'balance', label: 'Rest', align: 'right' },
     { key: 'status', label: 'Status' }
 ];
+const CUSTOMER_COLUMNS_WITH_TRACE: TableColumn[] = [...CUSTOMER_COLUMNS, TRACE_ACTION_COLUMN];
 
 function getHeaderCellStyle(align: TableAlign = 'left') {
     return align === 'right' ? TABLE_HEADER_RIGHT_STYLE : TABLE_HEADER_LEFT_STYLE;
@@ -214,6 +341,18 @@ function getRefreshButtonStyle(isLoading: boolean) {
     } as const;
 }
 
+function getTraceButtonStyle(isLoading: boolean) {
+    return {
+        ...TOOLBAR_BUTTON_BASE_STYLE,
+        height: '30px',
+        background: 'rgba(148, 163, 184, 0.16)',
+        color: 'var(--text-primary)',
+        fontSize: '0.72rem',
+        borderRadius: '8px',
+        cursor: isLoading ? 'wait' : 'pointer',
+    } as const;
+}
+
 function getPermissionBadgeStyle(status: PermissionState) {
     return {
         padding: '0.25rem 0.75rem',
@@ -239,8 +378,90 @@ function getPermissionBadgeLabel(status: PermissionState): string {
     return 'Okänt';
 }
 
+function getInvoiceSectionTitle(isSupplierView: boolean): string {
+    return isSupplierView ? 'Leverantörsfakturor' : 'Kundfakturor';
+}
+
+function getInvoiceSectionDescription(isSupplierView: boolean): string {
+    return isSupplierView
+        ? 'Filtrera och följ upp leverantörsfakturor i Fortnox.'
+        : 'Filtrera och följ upp kundfakturor i Fortnox.';
+}
+
+function isSupplierActionLoading(actionLoadingId: string | null, givenNumber: number | string): boolean {
+    return actionLoadingId === String(givenNumber);
+}
+
+function buildSupplierTableCells(invoice: SupplierInvoiceSummary, mode: SupplierFilterMode): TableCell[] {
+    return [
+        { key: 'invoice', content: String(invoice.InvoiceNumber || invoice.GivenNumber), nowrap: true },
+        { key: 'supplier', content: invoice.SupplierNumber },
+        { key: 'dueDate', content: formatDate(invoice.DueDate) },
+        { key: 'total', content: formatAmount(toNumber(invoice.Total)), align: 'right' },
+        { key: 'balance', content: formatAmount(toNumber(invoice.Balance)), align: 'right' },
+        { key: 'status', content: getStatus(invoice, mode) },
+    ];
+}
+
+function buildCustomerTableCells(invoice: CustomerInvoiceSummary): TableCell[] {
+    return [
+        { key: 'invoice', content: invoice.InvoiceNumber, nowrap: true },
+        { key: 'customer', content: invoice.CustomerNumber },
+        { key: 'dueDate', content: formatDate(invoice.DueDate) },
+        { key: 'total', content: formatAmount(toNumber(invoice.Total)), align: 'right' },
+        { key: 'balance', content: formatAmount(toNumber(invoice.Balance)), align: 'right' },
+        { key: 'status', content: getCustomerStatus(invoice) },
+    ];
+}
+
+function PermissionStatusRow({
+    title,
+    message,
+    status,
+    messageTestId,
+    badgeTestId,
+}: {
+    title: string;
+    message: string;
+    status: PermissionState;
+    messageTestId: string;
+    badgeTestId: string;
+}) {
+    return (
+        <div style={FORTNOX_PERMISSION_ROW_STYLE}>
+            <div style={FORTNOX_PERMISSION_TEXT_STYLE}>
+                <div className="panel-label">{title}</div>
+                <div data-testid={messageTestId} style={FORTNOX_PERMISSION_MESSAGE_STYLE}>
+                    {message}
+                </div>
+            </div>
+            <span data-testid={badgeTestId} style={getPermissionBadgeStyle(status)}>
+                {getPermissionBadgeLabel(status)}
+            </span>
+        </div>
+    );
+}
+
+function SummaryStatCard({ label, value }: { label: string; value: number }) {
+    return (
+        <div className="panel-card panel-card--no-hover">
+            <div className="panel-label">{label}</div>
+            <div className="panel-stat panel-stat--neutral">{value}</div>
+        </div>
+    );
+}
+
+function renderEmptyInvoiceTableRow(columnCount: number) {
+    return (
+        <tr>
+            <td colSpan={columnCount} style={TABLE_EMPTY_CELL_STYLE}>
+                Inga fakturor att visa.
+            </td>
+        </tr>
+    );
+}
+
 export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
-    const companyId = companyService.getCurrentId();
     const fortnoxEndpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`;
     const [loadingSupplier, setLoadingSupplier] = useState(false);
     const [loadingCustomer, setLoadingCustomer] = useState(false);
@@ -258,6 +479,11 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
     const [scopeMessage, setScopeMessage] = useState<string>('Ej kontrollerad');
     const [attestStatus, setAttestStatus] = useState<PermissionState>('unknown');
     const [attestMessage, setAttestMessage] = useState<string>('Ej kontrollerad');
+    const [postingDrawerOpen, setPostingDrawerOpen] = useState(false);
+    const [postingTraceLoading, setPostingTraceLoading] = useState(false);
+    const [postingTraceError, setPostingTraceError] = useState<string | null>(null);
+    const [postingTrace, setPostingTrace] = useState<InvoicePostingTrace | null>(null);
+    const invoicePostingReviewEnabled = getInvoicePostingReviewEnabled();
 
     const updateScopeStatus = (message?: string, ok = false) => {
         if (ok) {
@@ -347,7 +573,6 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         action: string,
         options: {
             payload?: Record<string, unknown>;
-            includeCompanyId?: boolean;
             fallbackErrorMessage: string;
             missingAuthMessage: string;
         }
@@ -358,9 +583,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         }
 
         const body: Record<string, unknown> = { action };
-        if (options.includeCompanyId) {
-            body.companyId = companyId;
-        }
+        body.companyId = companyService.getCurrentId();
         if (options.payload !== undefined) {
             body.payload = options.payload;
         }
@@ -475,7 +698,6 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             const result = await callFortnox(
                 action === 'bookkeep' ? 'approveSupplierInvoiceBookkeep' : 'approveSupplierInvoicePayment',
                 {
-                    includeCompanyId: true,
                     payload: {
                         givenNumber,
                         idempotencyKey: buildIdempotencyKey(action, givenNumber),
@@ -496,6 +718,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             }
 
             updateAttestStatus(undefined, true);
+            invoicePostingReviewService.invalidateInvoice(companyService.getCurrentId(), 'supplier', givenNumber);
             await loadSupplierInvoices({ target: 'all' });
             if (supplierFilter === 'authorizepending') {
                 await loadSupplierInvoices({ filter: 'authorizepending', target: 'pending' });
@@ -505,6 +728,35 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             setSupplierError('Ett fel uppstod vid attestering.');
         } finally {
             setActionLoadingId(null);
+        }
+    };
+
+    const openPostingTrace = async (invoiceType: InvoicePostingType, invoiceId: number | string) => {
+        if (!invoicePostingReviewEnabled) return;
+        const numericInvoiceId = Number(invoiceId);
+        if (!Number.isFinite(numericInvoiceId)) {
+            setPostingTraceError('Kunde inte läsa faktura-id för kontering.');
+            setPostingDrawerOpen(true);
+            return;
+        }
+
+        setPostingDrawerOpen(true);
+        setPostingTraceLoading(true);
+        setPostingTraceError(null);
+        setPostingTrace(null);
+
+        try {
+            const trace = await invoicePostingReviewService.fetchPostingTrace({
+                companyId: companyService.getCurrentId(),
+                invoiceType,
+                invoiceId: numericInvoiceId,
+            });
+            setPostingTrace(trace);
+        } catch (error) {
+            setPostingTrace(null);
+            setPostingTraceError(error instanceof Error ? error.message : 'Kunde inte hämta kontering.');
+        } finally {
+            setPostingTraceLoading(false);
         }
     };
 
@@ -545,172 +797,130 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         const today = todayString();
         if (invoiceView === 'customer') {
             const source = customerInvoices ?? [];
-            const overdue = source.filter((inv) => isInvoiceOverdue(inv.DueDate, inv.Balance, today)).length;
-            const unpaid = source.filter((inv) => hasOutstandingBalance(inv.Balance)).length;
-            return { overdue, unbooked: unpaid, total: source.length, unbookedLabel: 'Obetalda' };
+            return summarizeCustomerInvoices(source, today);
         }
-        const overdue = invoices.filter((inv) => isInvoiceOverdue(inv.DueDate, inv.Balance, today)).length;
-        const unbooked = invoices.filter((inv) => !inv.Booked && hasOutstandingBalance(inv.Balance)).length;
-        return { overdue, unbooked, total: invoices.length, unbookedLabel: 'Obokförda' };
+        return summarizeSupplierInvoices(invoices, today);
     }, [invoiceView, invoices, customerInvoices]);
-
-    const supplierFilterOptions: { id: SupplierFilterMode; label: string }[] = [
-        { id: 'all', label: 'Alla' },
-        { id: 'unbooked', label: 'Obokförda' },
-        { id: 'overdue', label: 'Förfallna' },
-        { id: 'authorizepending', label: 'Under attest' }
-    ];
-
-    const customerFilterOptions: { id: CustomerFilterMode; label: string }[] = [
-        { id: 'all', label: 'Alla' },
-        { id: 'unpaid', label: 'Obetalda' },
-        { id: 'overdue', label: 'Förfallna' }
-    ];
+    const summaryCards = [
+        { id: 'overdue', label: 'Förfallna', value: summary.overdue },
+        { id: 'unbooked', label: summary.unbookedLabel, value: summary.unbooked },
+        { id: 'total', label: 'Totalt', value: summary.total },
+    ] as const;
 
     const isSupplierView = invoiceView === 'supplier';
-    const activeFilterOptions = isSupplierView ? supplierFilterOptions : customerFilterOptions;
+    const activeFilterOptions = isSupplierView ? SUPPLIER_FILTER_OPTIONS : CUSTOMER_FILTER_OPTIONS;
     const activeFilter = isSupplierView ? supplierFilter : customerFilter;
     const activeError = isSupplierView ? supplierError : customerError;
     const activeLoading = isSupplierView ? loadingSupplier : loadingCustomer;
-    const supplierColumns = supplierFilter === 'authorizepending'
-        ? [...SUPPLIER_BASE_COLUMNS, SUPPLIER_ACTION_COLUMN]
-        : SUPPLIER_BASE_COLUMNS;
+    const supplierColumns: TableColumn[] = [
+        ...SUPPLIER_BASE_COLUMNS,
+        ...(invoicePostingReviewEnabled ? [TRACE_ACTION_COLUMN] : []),
+        ...(supplierFilter === 'authorizepending' ? [SUPPLIER_ACTION_COLUMN] : []),
+    ];
+    const customerColumns = invoicePostingReviewEnabled ? CUSTOMER_COLUMNS_WITH_TRACE : CUSTOMER_COLUMNS;
+
+    function applyActiveFilter(optionId: SupplierFilterMode | CustomerFilterMode): void {
+        if (isSupplierView) {
+            setSupplierFilter(optionId as SupplierFilterMode);
+            return;
+        }
+        setCustomerFilter(optionId as CustomerFilterMode);
+    }
+
+    function refreshActiveView(): void {
+        if (isSupplierView) {
+            if (supplierFilter === 'authorizepending') {
+                void loadSupplierInvoices({ filter: 'authorizepending', target: 'pending' });
+                return;
+            }
+            void loadSupplierInvoices({ target: 'all' });
+            return;
+        }
+        void loadCustomerInvoices();
+    }
 
     return (
         <div
             className="panel-stagger"
             data-testid="fortnox-panel-root"
-            style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}
+            style={FORTNOX_PANEL_ROOT_STYLE}
         >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={FORTNOX_HEADER_STYLE}>
                 <button
                     type="button"
                     onClick={onBack}
-                    style={{
-                        background: 'transparent',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: '8px',
-                        color: 'var(--text-secondary)',
-                        padding: '0.4rem 0.75rem',
-                        fontSize: '0.8rem',
-                        cursor: 'pointer'
-                    }}
+                    style={FORTNOX_BACK_BUTTON_STYLE}
                 >
                     Tillbaka
                 </button>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <span style={FORTNOX_HEADER_HINT_STYLE}>
                     Fortnox-panelen samlar leverantörsfakturor och avvikelser på ett ställe.
                 </span>
             </div>
 
-            <div className="panel-stagger" style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: '0.75rem'
-            }}>
-                <div className="panel-card panel-card--no-hover">
-                    <div className="panel-label">Förfallna</div>
-                    <div className="panel-stat panel-stat--neutral">{summary.overdue}</div>
-                </div>
-                <div className="panel-card panel-card--no-hover">
-                    <div className="panel-label">{summary.unbookedLabel}</div>
-                    <div className="panel-stat panel-stat--neutral">{summary.unbooked}</div>
-                </div>
-                <div className="panel-card panel-card--no-hover">
-                    <div className="panel-label">Totalt</div>
-                    <div className="panel-stat panel-stat--neutral">{summary.total}</div>
-                </div>
+            <div className="panel-stagger" style={FORTNOX_SUMMARY_GRID_STYLE}>
+                {summaryCards.map((card) => (
+                    <SummaryStatCard key={card.id} label={card.label} value={card.value} />
+                ))}
                 <div className="panel-card panel-card--no-hover">
                     <div className="panel-label">Senast uppdaterad</div>
-                    <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    <div style={FORTNOX_SUMMARY_UPDATED_STYLE}>
                         {lastUpdated ? formatDate(lastUpdated) : '—'}
                     </div>
                 </div>
             </div>
 
-            <div className="panel-card panel-card--no-hover" style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.6rem'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                        <div className="panel-label">Behörighetsstatus</div>
-                        <div data-testid="fortnox-scope-message" style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{scopeMessage}</div>
-                    </div>
-                    <span
-                        data-testid="fortnox-scope-status"
-                        style={getPermissionBadgeStyle(scopeStatus)}
-                    >
-                        {getPermissionBadgeLabel(scopeStatus)}
-                    </span>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                        <div className="panel-label">Attestbehörighet</div>
-                        <div data-testid="fortnox-attest-message" style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{attestMessage}</div>
-                    </div>
-                    <span
-                        data-testid="fortnox-attest-status"
-                        style={getPermissionBadgeStyle(attestStatus)}
-                    >
-                        {getPermissionBadgeLabel(attestStatus)}
-                    </span>
-                </div>
+            <div className="panel-card panel-card--no-hover" style={FORTNOX_PERMISSION_CARD_STYLE}>
+                <PermissionStatusRow
+                    title="Behörighetsstatus"
+                    message={scopeMessage}
+                    status={scopeStatus}
+                    messageTestId="fortnox-scope-message"
+                    badgeTestId="fortnox-scope-status"
+                />
+                <PermissionStatusRow
+                    title="Attestbehörighet"
+                    message={attestMessage}
+                    status={attestStatus}
+                    messageTestId="fortnox-attest-message"
+                    badgeTestId="fortnox-attest-status"
+                />
             </div>
 
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)',
-                gap: '1rem'
-            }}>
-                <div className="panel-card panel-card--no-hover" style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.75rem',
-                    minHeight: '360px'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                            <div className="panel-section-title" style={{ margin: 0 }}>
-                                {isSupplierView ? 'Leverantörsfakturor' : 'Kundfakturor'}
+            <div style={FORTNOX_MAIN_GRID_STYLE}>
+                <div className="panel-card panel-card--no-hover" style={FORTNOX_TABLE_CARD_STYLE}>
+                    <div style={FORTNOX_TABLE_HEADER_STYLE}>
+                        <div style={FORTNOX_TABLE_TITLE_WRAP_STYLE}>
+                            <div className="panel-section-title" style={FORTNOX_SECTION_TITLE_STYLE}>
+                                {getInvoiceSectionTitle(isSupplierView)}
                             </div>
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                {isSupplierView
-                                    ? 'Filtrera och följ upp leverantörsfakturor i Fortnox.'
-                                    : 'Filtrera och följ upp kundfakturor i Fortnox.'}
+                            <div style={FORTNOX_TABLE_SUBTEXT_STYLE}>
+                                {getInvoiceSectionDescription(isSupplierView)}
                             </div>
-                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                {(['supplier', 'customer'] as InvoiceView[]).map((view) => (
+                            <div style={FORTNOX_TOOLBAR_GROUP_STYLE}>
+                                {INVOICE_VIEW_OPTIONS.map((viewOption) => (
                                     <button
-                                        key={view}
+                                        key={viewOption.id}
                                         type="button"
-                                        onClick={() => setInvoiceView(view)}
-                                        data-testid={`fortnox-view-${view}`}
+                                        onClick={() => setInvoiceView(viewOption.id)}
+                                        data-testid={`fortnox-view-${viewOption.id}`}
                                         style={getSelectorButtonStyle(
-                                            view === invoiceView,
+                                            viewOption.id === invoiceView,
                                             'rgba(14, 165, 233, 0.18)',
                                             '#0ea5e9'
                                         )}
                                     >
-                                        {view === 'supplier' ? 'Leverantörer' : 'Kunder'}
+                                        {viewOption.label}
                                     </button>
                                 ))}
                             </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <div style={FORTNOX_TOOLBAR_GROUP_STYLE}>
                             {activeFilterOptions.map((option) => (
                                 <button
                                     key={option.id}
                                     type="button"
-                                    onClick={() => {
-                                        if (isSupplierView) {
-                                            setSupplierFilter(option.id as SupplierFilterMode);
-                                        } else {
-                                            setCustomerFilter(option.id as CustomerFilterMode);
-                                        }
-                                    }}
+                                    onClick={() => applyActiveFilter(option.id)}
                                     data-testid={`fortnox-filter-${option.id}`}
                                     style={getSelectorButtonStyle(
                                         option.id === activeFilter,
@@ -723,17 +933,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                             ))}
                             <button
                                 type="button"
-                                onClick={() => {
-                                    if (isSupplierView) {
-                                        if (supplierFilter === 'authorizepending') {
-                                            void loadSupplierInvoices({ filter: 'authorizepending', target: 'pending' });
-                                        } else {
-                                            void loadSupplierInvoices({ target: 'all' });
-                                        }
-                                    } else {
-                                        void loadCustomerInvoices();
-                                    }
-                                }}
+                                onClick={refreshActiveView}
                                 disabled={activeLoading}
                                 data-testid="fortnox-refresh-button"
                                 style={getRefreshButtonStyle(activeLoading)}
@@ -744,118 +944,124 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                     </div>
 
                     {activeError && (
-                        <div style={{
-                            padding: '0.6rem 0.8rem',
-                            borderRadius: '8px',
-                            background: 'rgba(239, 68, 68, 0.12)',
-                            color: '#ef4444',
-                            fontSize: '0.8rem'
-                        }}>
+                        <div style={FORTNOX_ERROR_BOX_STYLE}>
                             {activeError}
                         </div>
                     )}
 
-                    <div style={{ overflowX: 'auto' }}>
+                    <div style={FORTNOX_TABLE_SCROLL_STYLE}>
                         {isSupplierView ? (
                             <table style={INVOICE_TABLE_STYLE}>
                                 {renderTableHeader(supplierColumns)}
                                 <tbody>
                                     {filteredSupplierInvoices.length === 0 && !loadingSupplier && (
-                                        <tr>
-                                            <td colSpan={supplierColumns.length} style={TABLE_EMPTY_CELL_STYLE}>
-                                                Inga fakturor att visa.
-                                            </td>
-                                        </tr>
+                                        renderEmptyInvoiceTableRow(supplierColumns.length)
                                     )}
-                                    {filteredSupplierInvoices.map((invoice) => (
-                                        <tr
-                                            key={`${invoice.GivenNumber}-${invoice.SupplierNumber}`}
-                                            data-testid={`fortnox-supplier-row-${invoice.GivenNumber}`}
-                                        >
-                                            {renderTableCells([
-                                                { key: 'invoice', content: String(invoice.InvoiceNumber || invoice.GivenNumber), nowrap: true },
-                                                { key: 'supplier', content: invoice.SupplierNumber },
-                                                { key: 'dueDate', content: formatDate(invoice.DueDate) },
-                                                { key: 'total', content: formatAmount(toNumber(invoice.Total)), align: 'right' },
-                                                { key: 'balance', content: formatAmount(toNumber(invoice.Balance)), align: 'right' },
-                                                { key: 'status', content: getStatus(invoice, supplierFilter) }
-                                            ])}
-                                            {supplierFilter === 'authorizepending' && (
-                                                <td style={TABLE_CELL_RIGHT_STYLE}>
-                                                    <div style={TABLE_ACTIONS_WRAP_STYLE}>
+                                    {filteredSupplierInvoices.map((invoice) => {
+                                        const actionLoading = isSupplierActionLoading(actionLoadingId, invoice.GivenNumber);
+                                        return (
+                                            <tr
+                                                key={`${invoice.GivenNumber}-${invoice.SupplierNumber}`}
+                                                data-testid={`fortnox-supplier-row-${invoice.GivenNumber}`}
+                                            >
+                                                {renderTableCells(buildSupplierTableCells(invoice, supplierFilter))}
+                                                {invoicePostingReviewEnabled && (
+                                                    <td style={TABLE_CELL_RIGHT_STYLE}>
                                                         <button
                                                             type="button"
-                                                            onClick={() => void approveSupplierInvoice(invoice.GivenNumber, 'bookkeep')}
-                                                            disabled={actionLoadingId === String(invoice.GivenNumber)}
-                                                            data-testid={`fortnox-approve-bookkeep-${invoice.GivenNumber}`}
-                                                            style={getApprovalButtonStyle('bookkeep', actionLoadingId === String(invoice.GivenNumber))}
+                                                            data-testid={`fortnox-view-posting-supplier-${invoice.GivenNumber}`}
+                                                            onClick={() => void openPostingTrace('supplier', invoice.GivenNumber)}
+                                                            style={getTraceButtonStyle(postingTraceLoading)}
                                                         >
-                                                            {actionLoadingId === String(invoice.GivenNumber) ? 'Attesterar...' : 'Godkänn bokföring'}
+                                                            Visa kontering
                                                         </button>
-                                                        {invoice.PaymentPending && (
+                                                    </td>
+                                                )}
+                                                {supplierFilter === 'authorizepending' && (
+                                                    <td style={TABLE_CELL_RIGHT_STYLE}>
+                                                        <div style={TABLE_ACTIONS_WRAP_STYLE}>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => void approveSupplierInvoice(invoice.GivenNumber, 'payment')}
-                                                                disabled={actionLoadingId === String(invoice.GivenNumber)}
-                                                                data-testid={`fortnox-approve-payment-${invoice.GivenNumber}`}
-                                                                style={getApprovalButtonStyle('payment', actionLoadingId === String(invoice.GivenNumber))}
+                                                                onClick={() => void approveSupplierInvoice(invoice.GivenNumber, 'bookkeep')}
+                                                                disabled={actionLoading}
+                                                                data-testid={`fortnox-approve-bookkeep-${invoice.GivenNumber}`}
+                                                                style={getApprovalButtonStyle('bookkeep', actionLoading)}
                                                             >
-                                                                Godkänn betalning
+                                                                {actionLoading ? 'Attesterar...' : 'Godkänn bokföring'}
                                                             </button>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                            )}
-                                        </tr>
-                                    ))}
+                                                            {invoice.PaymentPending && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void approveSupplierInvoice(invoice.GivenNumber, 'payment')}
+                                                                    disabled={actionLoading}
+                                                                    data-testid={`fortnox-approve-payment-${invoice.GivenNumber}`}
+                                                                    style={getApprovalButtonStyle('payment', actionLoading)}
+                                                                >
+                                                                    Godkänn betalning
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         ) : (
                             <table style={INVOICE_TABLE_STYLE}>
-                                {renderTableHeader(CUSTOMER_COLUMNS)}
+                                {renderTableHeader(customerColumns)}
                                 <tbody>
                                     {filteredCustomerInvoices.length === 0 && !loadingCustomer && (
-                                        <tr>
-                                            <td colSpan={CUSTOMER_COLUMNS.length} style={TABLE_EMPTY_CELL_STYLE}>
-                                                Inga fakturor att visa.
-                                            </td>
-                                        </tr>
+                                        renderEmptyInvoiceTableRow(customerColumns.length)
                                     )}
-                                    {filteredCustomerInvoices.map((invoice) => (
-                                        <tr
-                                            key={`${invoice.InvoiceNumber}-${invoice.CustomerNumber}`}
-                                            data-testid={`fortnox-customer-row-${invoice.InvoiceNumber}`}
-                                        >
-                                            {renderTableCells([
-                                                { key: 'invoice', content: invoice.InvoiceNumber, nowrap: true },
-                                                { key: 'customer', content: invoice.CustomerNumber },
-                                                { key: 'dueDate', content: formatDate(invoice.DueDate) },
-                                                { key: 'total', content: formatAmount(toNumber(invoice.Total)), align: 'right' },
-                                                { key: 'balance', content: formatAmount(toNumber(invoice.Balance)), align: 'right' },
-                                                { key: 'status', content: getCustomerStatus(invoice) }
-                                            ])}
-                                        </tr>
-                                    ))}
+                                    {filteredCustomerInvoices.map((invoice) => {
+                                        const rowId = invoice.InvoiceNumber;
+                                        return (
+                                            <tr
+                                                key={`${invoice.InvoiceNumber}-${invoice.CustomerNumber}`}
+                                                data-testid={`fortnox-customer-row-${invoice.InvoiceNumber}`}
+                                            >
+                                                {renderTableCells(buildCustomerTableCells(invoice))}
+                                                {invoicePostingReviewEnabled && (
+                                                    <td style={TABLE_CELL_RIGHT_STYLE}>
+                                                        <button
+                                                            type="button"
+                                                            data-testid={`fortnox-view-posting-customer-${rowId}`}
+                                                            onClick={() => void openPostingTrace('customer', rowId)}
+                                                            style={getTraceButtonStyle(postingTraceLoading)}
+                                                        >
+                                                            Visa kontering
+                                                        </button>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         )}
                     </div>
                 </div>
 
-                <div className="panel-card panel-card--no-hover" style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.75rem'
-                }}>
+                <div className="panel-card panel-card--no-hover" style={FORTNOX_COPILOT_CARD_STYLE}>
                     <div>
-                        <div className="panel-section-title" style={{ margin: 0 }}>Copilot</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        <div className="panel-section-title" style={FORTNOX_SECTION_TITLE_STYLE}>Copilot</div>
+                        <div style={FORTNOX_COPILOT_SUBTEXT_STYLE}>
                             Påminnelser och smarta förslag baserade på Fortnox-data.
                         </div>
                     </div>
                     <CopilotPanel />
                 </div>
             </div>
+
+            <InvoicePostingReviewDrawer
+                open={postingDrawerOpen}
+                loading={postingTraceLoading}
+                error={postingTraceError}
+                trace={postingTrace}
+                onClose={() => setPostingDrawerOpen(false)}
+            />
         </div>
     );
 }

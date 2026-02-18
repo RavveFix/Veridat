@@ -4,6 +4,7 @@ import { generateExcelFile, copyReportToClipboard } from '../utils/excelExport';
 import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { logger } from '../services/LoggerService';
+import { companyService } from '../services/CompanyService';
 import { BorderBeam } from '@/registry/magicui/border-beam';
 import { ValidationBadges } from './vat/ValidationBadges';
 import { VATDetails } from './vat/VATDetails';
@@ -21,6 +22,46 @@ interface VATReportCardProps {
     onFortnoxExport?: (reportId: string) => Promise<void>;
     initialTab?: TabId;
 }
+
+const VOUCHER_SERIES_OPTIONS = ['A', 'B', 'C', 'D', 'E'] as const;
+
+const FORTNOX_STATUS_LOADING_WRAP_STYLE = {
+    textAlign: 'center',
+    padding: '1rem',
+} as const;
+
+const FORTNOX_STATUS_LOADING_SPINNER_STYLE = {
+    margin: '0 auto 0.5rem',
+    width: '20px',
+    height: '20px',
+} as const;
+
+const FORTNOX_STATUS_LOADING_TEXT_STYLE = {
+    fontSize: '0.85rem',
+    color: 'var(--text-secondary)',
+} as const;
+
+const FORTNOX_VOUCHER_ROW_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    marginBottom: '0.5rem',
+} as const;
+
+const FORTNOX_VOUCHER_LABEL_STYLE = {
+    fontSize: '0.85rem',
+    color: 'var(--text-secondary)',
+    whiteSpace: 'nowrap',
+} as const;
+
+const FORTNOX_VOUCHER_SELECT_STYLE = {
+    padding: '0.35rem 0.5rem',
+    borderRadius: '6px',
+    border: '1px solid var(--glass-border)',
+    background: 'var(--surface-primary)',
+    color: 'var(--text-primary)',
+    fontSize: '0.85rem',
+} as const;
 
 /**
  * Preact version of VATReportCard component
@@ -135,11 +176,13 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                 if (!session?.session?.access_token) {
                     throw new Error('Inte inloggad');
                 }
+                const companyId = companyService.getCurrentId();
 
                 // Check Fortnox token exists
                 const { data: tokenData } = await supabase
                     .from('fortnox_tokens')
                     .select('expires_at')
+                    .eq('company_id', companyId)
                     .maybeSingle();
 
                 if (!tokenData) {
@@ -162,7 +205,7 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                     },
                     body: JSON.stringify({
                         action: 'exportVoucher',
-                        companyId: data.company?.org_number || 'unknown',
+                        companyId,
                         payload: {
                             idempotencyKey: `vat_export:${reportId}:${data.period}:${voucherSeries}`,
                             sourceContext: 'vat-report-card',
@@ -379,31 +422,24 @@ export const VATReportCard: FunctionComponent<VATReportCardProps> = ({ data, rep
                 {reportId && (
                     <div class="report-section">
                         {fortnoxStatusLoading ? (
-                            <div class="fortnox-sync-panel not_synced" style={{ textAlign: 'center', padding: '1rem' }}>
-                                <div class="modal-spinner" style={{ margin: '0 auto 0.5rem', width: '20px', height: '20px' }} role="status" aria-label="Laddar Fortnox-status" />
-                                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Hämtar Fortnox-status...</span>
+                            <div class="fortnox-sync-panel not_synced" style={FORTNOX_STATUS_LOADING_WRAP_STYLE}>
+                                <div class="modal-spinner" style={FORTNOX_STATUS_LOADING_SPINNER_STYLE} role="status" aria-label="Laddar Fortnox-status" />
+                                <span style={FORTNOX_STATUS_LOADING_TEXT_STYLE}>Hämtar Fortnox-status...</span>
                             </div>
                         ) : (
                             <>
                                 {fortnoxStatus.status !== 'success' && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                        <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                                    <div style={FORTNOX_VOUCHER_ROW_STYLE}>
+                                        <label style={FORTNOX_VOUCHER_LABEL_STYLE}>
                                             Verifikationsserie:
                                         </label>
                                         <select
                                             value={voucherSeries}
                                             onChange={(e) => setVoucherSeries((e.target as HTMLSelectElement).value)}
-                                            style={{
-                                                padding: '0.35rem 0.5rem',
-                                                borderRadius: '6px',
-                                                border: '1px solid var(--glass-border)',
-                                                background: 'var(--surface-primary)',
-                                                color: 'var(--text-primary)',
-                                                fontSize: '0.85rem',
-                                            }}
+                                            style={FORTNOX_VOUCHER_SELECT_STYLE}
                                         >
-                                            {['A', 'B', 'C', 'D', 'E'].map(s => (
-                                                <option key={s} value={s}>{s}</option>
+                                            {VOUCHER_SERIES_OPTIONS.map((series) => (
+                                                <option key={series} value={series}>{series}</option>
                                             ))}
                                         </select>
                                     </div>

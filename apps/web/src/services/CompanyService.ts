@@ -10,6 +10,7 @@
 import type { Company, CreateCompanyInput, UpdateCompanyInput } from '../types/company';
 import { createEmptyCompany } from '../types/company';
 import { supabase } from '../lib/supabase';
+import { CURRENT_TERMS_VERSION } from '../constants/termsVersion';
 import { logger } from './LoggerService';
 
 const STORAGE_KEYS = {
@@ -413,6 +414,32 @@ class CompanyServiceClass {
         return this.dbUserId;
     }
 
+    private normalizeOrgNumber(orgNumber: string | null | undefined): string | null {
+        if (!orgNumber) return null;
+        const normalized = orgNumber.trim();
+        return normalized.length > 0 ? normalized : null;
+    }
+
+    private async backfillDpaOrgNumber(userId: string, company: Company): Promise<void> {
+        const companyOrgNumber = this.normalizeOrgNumber(company.orgNumber);
+        if (!companyOrgNumber) return;
+
+        const { error } = await supabase
+            .from('legal_acceptances')
+            .update({
+                company_id: company.id,
+                company_org_number: companyOrgNumber
+            })
+            .eq('user_id', userId)
+            .eq('doc_type', 'dpa')
+            .eq('version', CURRENT_TERMS_VERSION)
+            .is('company_org_number', null);
+
+        if (error) {
+            logger.warn('Failed to backfill DPA org number', { companyId: company.id, error });
+        }
+    }
+
     private async upsertCompanyToDatabase(company: Company): Promise<void> {
         try {
             const userId = await this.getAuthenticatedUserId();
@@ -434,7 +461,10 @@ class CompanyServiceClass {
 
             if (error) {
                 logger.error('Failed to upsert company to DB', { companyId: company.id, error });
+                return;
             }
+
+            await this.backfillDpaOrgNumber(userId, company);
         } catch (e) {
             logger.error('Exception upserting company to DB', e);
         }
@@ -583,6 +613,7 @@ class CompanyServiceClass {
             }
 
             this.saveToStorage();
+            await this.backfillDpaOrgNumber(userId, this.getCurrent());
             logger.info('Company sync completed', {
                 companies: this.companies.length,
                 currentCompanyId: this.currentCompanyId

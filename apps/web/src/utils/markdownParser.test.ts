@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     parseAIResponse,
+    markdownToHtml,
     containsMarkdownTable,
     containsCodeBlock
 } from './markdownParser';
@@ -180,6 +181,30 @@ line 3
 
             expect(containsCodeBlock(code)).toBe(true);
         });
+    });
+});
+
+describe('markdownToHtml', () => {
+    it('renders heading, emphasis and paragraph classes', () => {
+        const html = markdownToHtml('# Rubrik\n\n**fet** text');
+        expect(html).toContain('class="md-h1"');
+        expect(html).toContain('<strong>fet</strong>');
+        expect(html).toContain('class="md-p"');
+    });
+
+    it('renders list classes for ordered and unordered lists', () => {
+        const html = markdownToHtml('- punkt\n1. nummer');
+        expect(html).toContain('class="md-ul"');
+        expect(html).toContain('class="md-ol"');
+        expect(html).toContain('class="md-li"');
+        expect(html).toContain('class="md-li-ordered"');
+    });
+
+    it('renders safe links with expected attributes', () => {
+        const html = markdownToHtml('[Skatteverket](https://www.skatteverket.se)');
+        expect(html).toContain('class="md-link"');
+        expect(html).toContain('target="_blank"');
+        expect(html).toContain('rel="noopener noreferrer"');
     });
 });
 

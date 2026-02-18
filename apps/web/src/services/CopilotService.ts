@@ -129,6 +129,14 @@ class CopilotServiceClass extends EventTarget {
         super();
         this.supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         this.loadFromStorage();
+        if (typeof window !== 'undefined') {
+            window.addEventListener('company-changed', () => {
+                this.lastCheckAt = 0;
+                this.notifications = [];
+                this.saveToStorage();
+                this.dispatchUpdate();
+            });
+        }
     }
 
     start(): void {
@@ -816,7 +824,8 @@ class CopilotServiceClass extends EventTarget {
 
     private async fetchFortnoxList<T>(action: string, key: string): Promise<T[]> {
         try {
-            const response = await this.callAuthedFunction('fortnox', { action });
+            const companyId = companyService.getCurrentId();
+            const response = await this.callAuthedFunction('fortnox', { action, companyId });
             if (!response?.ok) return [];
             const result = await response.json().catch(() => ({}));
             return getFortnoxList<T>(result, key);

@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -47,5 +47,43 @@ export default defineConfig({
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',
         video: 'retain-on-failure'
-    }
+    },
+    projects: [
+        {
+            name: 'desktop-chromium',
+            use: {
+                browserName: 'chromium',
+                viewport: { width: 1440, height: 900 },
+                isMobile: false,
+                hasTouch: false
+            }
+        },
+        {
+            name: 'tablet-chromium',
+            use: {
+                browserName: 'chromium',
+                viewport: { width: 1024, height: 1366 },
+                isMobile: false,
+                hasTouch: true
+            }
+        },
+        {
+            name: 'mobile-chromium',
+            use: {
+                browserName: 'chromium',
+                viewport: { width: 412, height: 915 },
+                screen: { width: 412, height: 915 },
+                isMobile: true,
+                hasTouch: true,
+                deviceScaleFactor: 3
+            }
+        },
+        {
+            name: 'mobile-webkit',
+            use: {
+                ...devices['iPhone 12'],
+                browserName: 'webkit'
+            }
+        }
+    ]
 });

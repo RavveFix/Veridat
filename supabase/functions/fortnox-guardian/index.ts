@@ -66,26 +66,6 @@ async function hashFingerprint(parts: string[]): Promise<string> {
     return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function resolveCompanyId(
-    supabaseAdmin: AdminClient,
-    userId: string,
-    preferredCompanyId?: string
-): Promise<string> {
-    if (preferredCompanyId && preferredCompanyId.trim().length > 0) {
-        return preferredCompanyId;
-    }
-
-    const { data } = await supabaseAdmin
-        .from('companies')
-        .select('id')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-    return (data?.id as string | undefined) || 'default';
-}
-
 async function upsertOpenAlert(
     supabaseAdmin: AdminClient,
     userId: string,
@@ -205,7 +185,7 @@ async function runChecksForUser(
         redirectUri: '',
     };
 
-    const fortnox = new FortnoxService(fortnoxConfig, supabaseAdmin, userId);
+    const fortnox = new FortnoxService(fortnoxConfig, supabaseAdmin, userId, companyId);
     const complianceService = createSwedishComplianceService(supabaseAdmin);
     const activeFingerprints = new Set<string>();
     let created = 0;
@@ -547,12 +527,15 @@ async function runGuardianChecks(
 
     let query = supabaseAdmin
         .from('fortnox_tokens')
-        .select('user_id, expires_at, updated_at')
+        .select('user_id, company_id, expires_at, updated_at')
         .order('updated_at', { ascending: false })
         .limit(options.limit);
 
     if (options.userId) {
         query = query.eq('user_id', options.userId);
+    }
+    if (options.companyId) {
+        query = query.eq('company_id', options.companyId);
     }
 
     const { data: tokenRows, error } = await query;
@@ -563,16 +546,15 @@ async function runGuardianChecks(
     const rows = tokenRows || [];
     for (const row of rows) {
         const userId = String(row.user_id || '');
+        const companyId = String(row.company_id || '');
         const expiresAt = String(row.expires_at || '');
-        if (!userId) continue;
+        if (!userId || !companyId) continue;
 
         try {
             const plan = await getUserPlan(supabaseAdmin, userId);
             if (plan === 'free') {
                 continue;
             }
-
-            const companyId = await resolveCompanyId(supabaseAdmin, userId, options.companyId);
             const outcome = await runChecksForUser(supabaseAdmin, userId, expiresAt, companyId);
             summary.processedUsers += 1;
             summary.alertsCreated += outcome.created;
