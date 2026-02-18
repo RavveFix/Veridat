@@ -29,6 +29,11 @@ import {
 } from "./posting-trace-matcher.ts";
 import { buildPostingIssues } from "./posting-trace-issues.ts";
 import { normalizeCustomerInvoiceListResponse } from "./customer-invoice-normalization.ts";
+import {
+    buildPostingCorrectionVoucher,
+    normalizePostingCorrectionRequest,
+    PostingCorrectionValidationError,
+} from "./posting-correction.ts";
 
 const logger = createLogger('fortnox');
 
@@ -38,6 +43,7 @@ const WRITE_ACTIONS_TO_OPERATION: Partial<Record<string, FortnoxOperation>> = {
     createInvoice: 'create_invoice',
     registerInvoicePayment: 'register_invoice_payment',
     exportVoucher: 'export_voucher',
+    createPostingCorrectionVoucher: 'export_voucher',
     registerSupplierInvoicePayment: 'register_supplier_invoice_payment',
     exportSupplierInvoice: 'export_supplier_invoice',
     bookSupplierInvoice: 'book_supplier_invoice',
@@ -63,6 +69,7 @@ const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
     'getVouchers',
     'getVoucher',
     'exportVoucher',
+    'createPostingCorrectionVoucher',
     'getSupplierInvoices',
     'getSupplierInvoice',
     'getInvoicePostingTrace',
@@ -1528,6 +1535,86 @@ Deno.serve(async (req: Request) => {
                     if (syncId) {
                         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
                         await auditService.failFortnoxSync(syncId!, 'VOUCHER_CREATE_ERROR', errorMessage, undefined, requestMeta);
+                    }
+                    throw error;
+                }
+                break;
+            }
+
+            case 'createPostingCorrectionVoucher': {
+                let correctionRequest;
+                try {
+                    correctionRequest = normalizePostingCorrectionRequest(payload);
+                } catch (error) {
+                    if (error instanceof PostingCorrectionValidationError) {
+                        throw new RequestValidationError(
+                            'INVALID_PAYLOAD',
+                            error.message,
+                            { field: error.field }
+                        );
+                    }
+                    throw error;
+                }
+
+                const writePayload = {
+                    invoiceType: correctionRequest.invoiceType,
+                    invoiceId: correctionRequest.invoiceId,
+                    correction: correctionRequest.correction,
+                    idempotencyKey: correctionRequest.idempotencyKey,
+                    sourceContext: correctionRequest.sourceContext,
+                    aiDecisionId: correctionRequest.aiDecisionId,
+                };
+
+                const write = await prepareWriteAction(
+                    'export_voucher',
+                    writePayload,
+                    action
+                );
+
+                if (write.cachedResult) {
+                    result = write.cachedResult;
+                    break;
+                }
+
+                syncId = write.syncId;
+                const voucherData = buildPostingCorrectionVoucher(correctionRequest);
+
+                try {
+                    const createdVoucher = await requireFortnoxService().createVoucher(voucherData);
+                    const voucherRecord = createdVoucher?.Voucher;
+                    result = {
+                        Voucher: voucherRecord ? {
+                            VoucherSeries: voucherRecord.VoucherSeries,
+                            VoucherNumber: voucherRecord.VoucherNumber,
+                            Year: voucherRecord.Year,
+                        } : null,
+                        correction: {
+                            invoiceType: correctionRequest.invoiceType,
+                            invoiceId: correctionRequest.invoiceId,
+                            side: correctionRequest.correction.side,
+                            fromAccount: correctionRequest.correction.fromAccount,
+                            toAccount: correctionRequest.correction.toAccount,
+                            amount: correctionRequest.correction.amount,
+                        },
+                    };
+
+                    if (syncId) {
+                        await auditService.completeFortnoxSync(syncId, {
+                            fortnoxDocumentNumber: String(voucherRecord?.VoucherNumber ?? ''),
+                            fortnoxVoucherSeries: voucherRecord?.VoucherSeries,
+                            responsePayload: result as Record<string, unknown>,
+                        }, requestMeta);
+                    }
+                } catch (error) {
+                    if (syncId) {
+                        const message = error instanceof Error ? error.message : 'Unknown error';
+                        await auditService.failFortnoxSync(
+                            syncId,
+                            'POSTING_CORRECTION_CREATE_ERROR',
+                            message,
+                            undefined,
+                            requestMeta
+                        );
                     }
                     throw error;
                 }

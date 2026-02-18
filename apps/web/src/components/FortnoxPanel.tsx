@@ -5,7 +5,13 @@ import { companyService } from '../services/CompanyService';
 import { CopilotPanel } from './CopilotPanel';
 import { getFortnoxList } from '../utils/fortnoxResponse';
 import { InvoicePostingReviewDrawer } from './InvoicePostingReviewDrawer';
-import { getInvoicePostingReviewEnabled, invoicePostingReviewService, type InvoicePostingTrace, type InvoicePostingType } from '../services/InvoicePostingReviewService';
+import {
+    getInvoicePostingReviewEnabled,
+    invoicePostingReviewService,
+    type InvoicePostingTrace,
+    type InvoicePostingType,
+    type PostingCorrectionResult,
+} from '../services/InvoicePostingReviewService';
 
 interface FortnoxPanelProps {
     onBack: () => void;
@@ -789,6 +795,41 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         }
     };
 
+    const createPostingCorrectionVoucher = async (payload: {
+        invoiceType: 'customer';
+        invoiceId: number;
+        correction: {
+            side: 'debit' | 'credit';
+            fromAccount: number;
+            toAccount: number;
+            amount: number;
+            voucherSeries: string;
+            transactionDate: string;
+            reason: string;
+        };
+    }): Promise<PostingCorrectionResult> => {
+        const companyId = companyService.getCurrentId();
+        const created = await invoicePostingReviewService.createPostingCorrectionVoucher({
+            companyId,
+            invoiceType: payload.invoiceType,
+            invoiceId: payload.invoiceId,
+            correction: payload.correction,
+            sourceContext: 'invoice-posting-review',
+        });
+
+        invoicePostingReviewService.invalidateInvoice(companyId, payload.invoiceType, payload.invoiceId);
+        const refreshed = await invoicePostingReviewService.fetchPostingTrace({
+            companyId,
+            invoiceType: payload.invoiceType,
+            invoiceId: payload.invoiceId,
+            forceRefresh: true,
+        });
+        setPostingTrace(refreshed);
+        setPostingTraceError(null);
+
+        return created;
+    };
+
     useEffect(() => {
         if (invoiceView === 'customer' && customerInvoices === null && !loadingCustomer) {
             void loadCustomerInvoices();
@@ -1102,6 +1143,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 error={postingTraceError}
                 trace={postingTrace}
                 onClose={() => setPostingDrawerOpen(false)}
+                onCreateCorrection={createPostingCorrectionVoucher}
             />
         </div>
     );

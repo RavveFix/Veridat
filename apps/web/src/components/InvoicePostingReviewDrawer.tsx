@@ -1,4 +1,13 @@
-import { getCheckBadges, getHighestIssueSeverity, type InvoicePostingTrace, type InvoicePostingRow, type PostingIssue, type PostingSeverity } from '../services/InvoicePostingReviewService';
+import { useEffect, useState } from 'preact/hooks';
+import {
+    getCheckBadges,
+    getHighestIssueSeverity,
+    type InvoicePostingTrace,
+    type InvoicePostingRow,
+    type PostingCorrectionResult,
+    type PostingIssue,
+    type PostingSeverity,
+} from '../services/InvoicePostingReviewService';
 
 interface InvoicePostingReviewDrawerProps {
     open: boolean;
@@ -6,6 +15,19 @@ interface InvoicePostingReviewDrawerProps {
     error: string | null;
     trace: InvoicePostingTrace | null;
     onClose: () => void;
+    onCreateCorrection?: (payload: {
+        invoiceType: 'customer';
+        invoiceId: number;
+        correction: {
+            side: 'debit' | 'credit';
+            fromAccount: number;
+            toAccount: number;
+            amount: number;
+            voucherSeries: string;
+            transactionDate: string;
+            reason: string;
+        };
+    }) => Promise<PostingCorrectionResult>;
 }
 
 const OVERLAY_STYLE = {
@@ -201,6 +223,138 @@ const ISSUE_DEBUG_CODE_STYLE = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
 } as const;
 
+const ACTION_ROW_STYLE = {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '0.55rem',
+    flexWrap: 'wrap',
+} as const;
+
+const ACTION_BUTTON_STYLE = {
+    height: '34px',
+    padding: '0 0.9rem',
+    borderRadius: '10px',
+    border: '1px solid var(--surface-border)',
+    background: 'rgba(59, 130, 246, 0.16)',
+    color: '#93c5fd',
+    fontSize: '0.76rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+} as const;
+
+const ACTION_SECONDARY_BUTTON_STYLE = {
+    ...ACTION_BUTTON_STYLE,
+    background: 'rgba(148, 163, 184, 0.14)',
+    color: 'var(--text-primary)',
+} as const;
+
+const CORRECTION_MODAL_OVERLAY_STYLE = {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 2300,
+    background: 'rgba(2, 6, 23, 0.68)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '1rem',
+} as const;
+
+const CORRECTION_MODAL_STYLE = {
+    width: 'min(640px, 96vw)',
+    maxHeight: '92vh',
+    overflowY: 'auto',
+    borderRadius: '14px',
+    border: '1px solid var(--surface-border)',
+    background: 'var(--surface-1)',
+    boxShadow: 'var(--surface-shadow-strong)',
+    padding: '1rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.9rem',
+} as const;
+
+const CORRECTION_MODAL_HEADER_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '1rem',
+} as const;
+
+const CORRECTION_MODAL_TITLE_STYLE = {
+    margin: 0,
+    fontSize: '0.95rem',
+    color: 'var(--text-primary)',
+} as const;
+
+const CORRECTION_HELP_STYLE = {
+    margin: 0,
+    fontSize: '0.78rem',
+    color: 'var(--text-secondary)',
+    lineHeight: 1.45,
+} as const;
+
+const CORRECTION_FORM_GRID_STYLE = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+    gap: '0.7rem',
+} as const;
+
+const CORRECTION_FIELD_STYLE = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.35rem',
+} as const;
+
+const CORRECTION_LABEL_STYLE = {
+    fontSize: '0.72rem',
+    color: 'var(--text-secondary)',
+    fontWeight: 600,
+} as const;
+
+const CORRECTION_INPUT_STYLE = {
+    height: '34px',
+    borderRadius: '8px',
+    border: '1px solid var(--surface-border)',
+    background: 'rgba(15, 23, 42, 0.35)',
+    color: 'var(--text-primary)',
+    fontSize: '0.78rem',
+    padding: '0 0.55rem',
+} as const;
+
+const CORRECTION_TEXTAREA_STYLE = {
+    minHeight: '74px',
+    borderRadius: '8px',
+    border: '1px solid var(--surface-border)',
+    background: 'rgba(15, 23, 42, 0.35)',
+    color: 'var(--text-primary)',
+    fontSize: '0.78rem',
+    padding: '0.5rem 0.55rem',
+    resize: 'vertical',
+    fontFamily: 'inherit',
+} as const;
+
+const CORRECTION_MODAL_ACTIONS_STYLE = {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '0.55rem',
+    flexWrap: 'wrap',
+} as const;
+
+const CORRECTION_SUCCESS_BOX_STYLE = {
+    border: '1px solid rgba(16, 185, 129, 0.45)',
+    borderRadius: '10px',
+    background: 'rgba(16, 185, 129, 0.11)',
+    color: '#10b981',
+    fontSize: '0.8rem',
+    padding: '0.65rem 0.75rem',
+    lineHeight: 1.4,
+} as const;
+
+const PENDING_CHAT_PROMPT_KEY = 'veridat_pending_chat_prompt';
+const CORRECTION_SUPPORTED_ISSUE_CODES = new Set(['ROW_ACCOUNT_CONSISTENCY', 'CONTROL_ACCOUNT_MISSING', 'UNBALANCED_POSTING']);
+const CORRECTION_BLOCKING_ISSUE_CODES = new Set(['TOTAL_MISMATCH', 'VAT_MISMATCH']);
+const CONTROL_ACCOUNTS = new Set([1510, 1930]);
+
 function formatAmount(value: number): string {
     return Number(value || 0).toLocaleString('sv-SE', {
         minimumFractionDigits: 2,
@@ -378,6 +532,265 @@ function hasIssue(trace: InvoicePostingTrace, code: string): boolean {
     return trace.issues.some((issue) => issue.code === code);
 }
 
+function resolveChatInputElement(): HTMLInputElement | HTMLTextAreaElement | null {
+    const input = document.getElementById('user-input');
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+        return input;
+    }
+    const legacyInput = document.getElementById('message-input');
+    if (legacyInput instanceof HTMLInputElement || legacyInput instanceof HTMLTextAreaElement) {
+        return legacyInput;
+    }
+    return null;
+}
+
+function resolveChatFormElement(): HTMLFormElement | null {
+    const form = document.getElementById('chat-form');
+    return form instanceof HTMLFormElement ? form : null;
+}
+
+function trySubmitPromptToChat(prompt: string): boolean {
+    const input = resolveChatInputElement();
+    const form = resolveChatFormElement();
+    if (!input || !form) return false;
+
+    input.value = prompt;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+    form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    return true;
+}
+
+function sendPromptToAiChat(prompt: string): void {
+    if (trySubmitPromptToChat(prompt)) {
+        sessionStorage.removeItem(PENDING_CHAT_PROMPT_KEY);
+        return;
+    }
+
+    sessionStorage.setItem(PENDING_CHAT_PROMPT_KEY, prompt);
+    window.dispatchEvent(new CustomEvent('create-new-chat'));
+
+    let attempts = 0;
+    const retryInject = () => {
+        attempts += 1;
+        const pending = sessionStorage.getItem(PENDING_CHAT_PROMPT_KEY);
+        if (!pending) return;
+        if (trySubmitPromptToChat(pending)) {
+            sessionStorage.removeItem(PENDING_CHAT_PROMPT_KEY);
+            return;
+        }
+        if (attempts < 10) {
+            window.setTimeout(retryInject, 200);
+        }
+    };
+
+    window.setTimeout(retryInject, 200);
+}
+
+function formatRowsForPrompt(rows: InvoicePostingRow[]): string {
+    if (rows.length === 0) return '- Inga rader';
+    return rows.map((row) => (
+        `- Konto ${row.account}: Debet ${formatAmount(row.debit)}, Kredit ${formatAmount(row.credit)}, Kommentar ${row.description || '—'}`
+    )).join('\n');
+}
+
+function formatIssuesForPrompt(issues: PostingIssue[]): string {
+    if (issues.length === 0) return '- Inga avvikelser';
+    return issues.map((issue) => `- ${issue.code}: ${issue.message}`).join('\n');
+}
+
+function buildAiEconomistPrompt(trace: InvoicePostingTrace): string {
+    const status = getPostingStatusLabel(trace.posting.status, trace.posting.source);
+    const matchPath = getMatchPathLabel(trace);
+    const voucherRef = formatVoucherRef(trace.posting.voucherRef);
+    const expectedRows = formatRowsForPrompt(trace.expectedPosting.rows);
+    const actualRows = formatRowsForPrompt(trace.posting.rows);
+    const issues = formatIssuesForPrompt(trace.issues);
+
+    return `Du är min AI-ekonom. Hjälp mig bedöma denna faktura och kontering i Fortnox.
+
+Mål:
+1) Förklara varför avvikelsen uppstod.
+2) Säg om detta ser ut som faktisk bokföringsavvikelse eller matchnings/dataproblem.
+3) Ge konkret nästa steg i Fortnox.
+4) Föreslå korrigeringsverifikation (debet/kredit) om det behövs.
+
+Faktura:
+- Typ: ${trace.invoice.type}
+- Fakturanummer: ${trace.invoice.invoiceNumber}
+- Motpart: ${trace.invoice.counterpartyName || trace.invoice.counterpartyNumber || '—'}
+- Total: ${formatAmount(trace.invoice.total)} ${trace.invoice.currency}
+- Moms: ${formatAmount(trace.invoice.vat)} ${trace.invoice.currency}
+- Status: ${status}
+- Matchad via: ${matchPath}
+- Verifikation: ${voucherRef}
+
+Faktisk kontering:
+${actualRows}
+
+Förväntad kontering:
+${expectedRows}
+
+Avvikelser:
+${issues}
+
+Svara kort och konkret på svenska.`;
+}
+
+interface CorrectionFormState {
+    invoiceType: 'customer';
+    invoiceId: number;
+    side: 'debit' | 'credit';
+    fromAccount: string;
+    toAccount: string;
+    amount: string;
+    voucherSeries: string;
+    transactionDate: string;
+    reason: string;
+}
+
+function getTodayIsoDate(): string {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function hasAnyIssueCode(trace: InvoicePostingTrace, codes: Set<string>): boolean {
+    return trace.issues.some((issue) => codes.has(issue.code));
+}
+
+function isCorrectionScopeEligible(trace: InvoicePostingTrace): boolean {
+    if (trace.invoice.type !== 'customer') return false;
+    if (trace.posting.rows.length === 0) return false;
+    if (hasAnyIssueCode(trace, CORRECTION_BLOCKING_ISSUE_CODES)) return false;
+    return hasAnyIssueCode(trace, CORRECTION_SUPPORTED_ISSUE_CODES);
+}
+
+function pickDefaultCorrectionRow(trace: InvoicePostingTrace): InvoicePostingRow | null {
+    if (trace.posting.rows.length === 0) return null;
+
+    const expectedAccounts = new Set(
+        trace.expectedPosting.rows
+            .map((row) => row.account)
+            .filter((account) => !CONTROL_ACCOUNTS.has(account))
+    );
+
+    const explicitMismatch = trace.posting.rows.find((row) => (
+        !CONTROL_ACCOUNTS.has(row.account)
+        && !expectedAccounts.has(row.account)
+        && (row.debit > 0 || row.credit > 0)
+    ));
+    if (explicitMismatch) return explicitMismatch;
+
+    const firstNonControl = trace.posting.rows.find((row) => !CONTROL_ACCOUNTS.has(row.account));
+    return firstNonControl || trace.posting.rows[0];
+}
+
+function buildInitialCorrectionForm(trace: InvoicePostingTrace): CorrectionFormState | null {
+    if (!isCorrectionScopeEligible(trace)) return null;
+
+    const row = pickDefaultCorrectionRow(trace);
+    if (!row) return null;
+    const invoiceIdFromTrace = Number(trace.invoice.id);
+    const invoiceIdFallback = Number(trace.invoice.invoiceNumber);
+    const invoiceId = Number.isFinite(invoiceIdFromTrace) && invoiceIdFromTrace > 0
+        ? Math.round(invoiceIdFromTrace)
+        : Number.isFinite(invoiceIdFallback) && invoiceIdFallback > 0
+            ? Math.round(invoiceIdFallback)
+            : null;
+    if (invoiceId === null) return null;
+
+    const side = row.debit >= row.credit ? 'debit' : 'credit';
+    const amount = side === 'debit'
+        ? (row.debit > 0 ? row.debit : Math.max(row.debit, row.credit))
+        : (row.credit > 0 ? row.credit : Math.max(row.debit, row.credit));
+    const amountText = Number(amount || 0).toFixed(2);
+
+    return {
+        invoiceType: 'customer',
+        invoiceId,
+        side,
+        fromAccount: String(row.account),
+        toAccount: '',
+        amount: amountText,
+        voucherSeries: trace.posting.voucherRef?.series || 'A',
+        transactionDate: trace.invoice.invoiceDate || getTodayIsoDate(),
+        reason: `Korrigering avvikelse kundfaktura ${trace.invoice.invoiceNumber}`,
+    };
+}
+
+function parsePositiveAccount(value: string): number | null {
+    const parsed = Number(value.trim());
+    if (!Number.isFinite(parsed)) return null;
+    const rounded = Math.round(parsed);
+    if (rounded < 1000 || rounded > 9999) return null;
+    return rounded;
+}
+
+function parsePositiveAmount(value: string): number | null {
+    const parsed = Number(value.replace(',', '.').trim());
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return Math.round((parsed + Number.EPSILON) * 100) / 100;
+}
+
+function validateCorrectionForm(state: CorrectionFormState): {
+    invoiceType: 'customer';
+    invoiceId: number;
+    correction: {
+        side: 'debit' | 'credit';
+        fromAccount: number;
+        toAccount: number;
+        amount: number;
+        voucherSeries: string;
+        transactionDate: string;
+        reason: string;
+    };
+} {
+    const fromAccount = parsePositiveAccount(state.fromAccount);
+    if (fromAccount === null) {
+        throw new Error('Felkonto måste vara ett giltigt 4-siffrigt BAS-konto.');
+    }
+    const toAccount = parsePositiveAccount(state.toAccount);
+    if (toAccount === null) {
+        throw new Error('Nytt konto måste vara ett giltigt 4-siffrigt BAS-konto.');
+    }
+    if (fromAccount === toAccount) {
+        throw new Error('Nytt konto måste skilja sig från felkonto.');
+    }
+    const amount = parsePositiveAmount(state.amount);
+    if (amount === null) {
+        throw new Error('Belopp måste vara större än 0.');
+    }
+    const voucherSeries = state.voucherSeries.trim().toUpperCase();
+    if (!/^[A-Z0-9]{1,6}$/.test(voucherSeries)) {
+        throw new Error('Serie måste vara 1-6 tecken (A-Z, 0-9).');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(state.transactionDate.trim())) {
+        throw new Error('Datum måste vara i format YYYY-MM-DD.');
+    }
+    const reason = state.reason.trim();
+    if (!reason) {
+        throw new Error('Ange en kort kommentar för korrigeringen.');
+    }
+
+    return {
+        invoiceType: state.invoiceType,
+        invoiceId: state.invoiceId,
+        correction: {
+            side: state.side,
+            fromAccount,
+            toAccount,
+            amount,
+            voucherSeries,
+            transactionDate: state.transactionDate.trim(),
+            reason,
+        },
+    };
+}
+
+function getVoucherLink(voucher: PostingCorrectionResult['Voucher']): string | null {
+    if (!voucher) return null;
+    return `https://apps.fortnox.se/vouchers/${voucher.VoucherSeries}/${voucher.VoucherNumber}`;
+}
+
 function isPermissionErrorMessage(error: string): boolean {
     const normalized = error.toLowerCase();
     return normalized.includes('403')
@@ -406,11 +819,69 @@ export function InvoicePostingReviewDrawer({
     error,
     trace,
     onClose,
+    onCreateCorrection,
 }: InvoicePostingReviewDrawerProps) {
+    const [correctionOpen, setCorrectionOpen] = useState(false);
+    const [correctionForm, setCorrectionForm] = useState<CorrectionFormState | null>(null);
+    const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
+    const [correctionError, setCorrectionError] = useState<string | null>(null);
+    const [correctionResult, setCorrectionResult] = useState<PostingCorrectionResult | null>(null);
+
+    useEffect(() => {
+        if (!open) {
+            setCorrectionOpen(false);
+            setCorrectionForm(null);
+            setCorrectionSubmitting(false);
+            setCorrectionError(null);
+            setCorrectionResult(null);
+        }
+    }, [open]);
+
+    useEffect(() => {
+        setCorrectionOpen(false);
+        setCorrectionForm(null);
+        setCorrectionSubmitting(false);
+        setCorrectionError(null);
+        setCorrectionResult(null);
+    }, [trace?.invoice.id]);
+
     if (!open) return null;
 
     const badges = trace ? getCheckBadges(trace.checks) : [];
     const highestSeverity = trace ? getHighestIssueSeverity(trace.issues) : 'info';
+    const canShowCorrection = Boolean(trace && onCreateCorrection && isCorrectionScopeEligible(trace));
+
+    const openCorrectionModal = () => {
+        if (!trace) return;
+        const initial = buildInitialCorrectionForm(trace);
+        if (!initial) {
+            setCorrectionError('Kunde inte skapa förhandsgranskning för korrigering.');
+            return;
+        }
+        setCorrectionForm(initial);
+        setCorrectionResult(null);
+        setCorrectionError(null);
+        setCorrectionOpen(true);
+    };
+
+    const submitCorrection = async () => {
+        if (!correctionForm) return;
+        if (!onCreateCorrection) {
+            setCorrectionError('Korrigeringsflödet är inte tillgängligt i denna vy.');
+            return;
+        }
+        try {
+            const payload = validateCorrectionForm(correctionForm);
+            setCorrectionSubmitting(true);
+            setCorrectionError(null);
+            const result = await onCreateCorrection(payload);
+            setCorrectionResult(result);
+        } catch (submitError) {
+            setCorrectionError(submitError instanceof Error ? submitError.message : 'Kunde inte skapa korrigeringsverifikation.');
+        } finally {
+            setCorrectionSubmitting(false);
+        }
+    };
 
     return (
         <div
@@ -497,6 +968,29 @@ export function InvoicePostingReviewDrawer({
                                         </span>
                                     )}
                                 </div>
+                                <div style={ACTION_ROW_STYLE}>
+                                    {canShowCorrection && (
+                                        <button
+                                            type="button"
+                                            style={ACTION_SECONDARY_BUTTON_STYLE}
+                                            data-testid="invoice-posting-correct-issue-button"
+                                            onClick={openCorrectionModal}
+                                        >
+                                            Ändra avvikelse
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        style={ACTION_BUTTON_STYLE}
+                                        data-testid="invoice-posting-send-ai-button"
+                                        onClick={() => {
+                                            sendPromptToAiChat(buildAiEconomistPrompt(trace));
+                                            onClose();
+                                        }}
+                                    >
+                                        Skicka till AI-ekonom
+                                    </button>
+                                </div>
                             </section>
 
                             <section style={CARD_STYLE}>
@@ -552,6 +1046,202 @@ export function InvoicePostingReviewDrawer({
                     )}
                 </div>
             </aside>
+
+            {correctionOpen && correctionForm && (
+                <div
+                    style={CORRECTION_MODAL_OVERLAY_STYLE}
+                    onClick={() => {
+                        if (!correctionSubmitting) {
+                            setCorrectionOpen(false);
+                        }
+                    }}
+                    data-testid="invoice-posting-correction-modal"
+                >
+                    <section
+                        style={CORRECTION_MODAL_STYLE}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div style={CORRECTION_MODAL_HEADER_STYLE}>
+                            <h4 style={CORRECTION_MODAL_TITLE_STYLE}>Förhandsgranska korrigering</h4>
+                            <button
+                                type="button"
+                                style={CLOSE_BUTTON_STYLE}
+                                disabled={correctionSubmitting}
+                                onClick={() => setCorrectionOpen(false)}
+                            >
+                                Stäng
+                            </button>
+                        </div>
+
+                        <p style={CORRECTION_HELP_STYLE}>
+                            Kontrollera konto, sida och belopp innan export. Detta skapar en ny korrigeringsverifikation i Fortnox.
+                        </p>
+
+                        {trace && (
+                            <div style={CARD_STYLE}>
+                                <div style={INFO_GRID_STYLE}>
+                                    <div style={INFO_ROW_STYLE}>
+                                        <span style={INFO_LABEL_STYLE}>Faktura</span>
+                                        <span style={INFO_VALUE_STYLE}>{trace.invoice.invoiceNumber}</span>
+                                    </div>
+                                    <div style={INFO_ROW_STYLE}>
+                                        <span style={INFO_LABEL_STYLE}>Matchad via</span>
+                                        <span style={INFO_VALUE_STYLE}>{getMatchPathLabel(trace)}</span>
+                                    </div>
+                                    <div style={INFO_ROW_STYLE}>
+                                        <span style={INFO_LABEL_STYLE}>Verifikation</span>
+                                        <span style={INFO_VALUE_STYLE}>{formatVoucherRef(trace.posting.voucherRef)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {correctionResult?.Voucher && (
+                            <div style={CORRECTION_SUCCESS_BOX_STYLE} data-testid="invoice-posting-correction-success">
+                                Korrigeringsverifikation skapad: {correctionResult.Voucher.VoucherSeries}/{correctionResult.Voucher.VoucherNumber}
+                                {correctionResult.Voucher.Year ? `/${correctionResult.Voucher.Year}` : ''}.
+                                {' '}Konteringsspåret har uppdaterats.
+                                {getVoucherLink(correctionResult.Voucher) && (
+                                    <>
+                                        {' '}<a
+                                            href={getVoucherLink(correctionResult.Voucher) as string}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            style={{ color: '#bbf7d0', textDecoration: 'underline' }}
+                                        >
+                                            Öppna i Fortnox
+                                        </a>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {!correctionResult && (
+                            <div style={CORRECTION_FORM_GRID_STYLE}>
+                                <div style={CORRECTION_FIELD_STYLE}>
+                                    <label style={CORRECTION_LABEL_STYLE} htmlFor="posting-correction-from-account">Felkonto</label>
+                                    <input
+                                        id="posting-correction-from-account"
+                                        style={CORRECTION_INPUT_STYLE}
+                                        value={correctionForm.fromAccount}
+                                        onInput={(event) => {
+                                            const value = (event.currentTarget as HTMLInputElement).value;
+                                            setCorrectionForm((prev) => prev ? { ...prev, fromAccount: value } : prev);
+                                        }}
+                                    />
+                                </div>
+                                <div style={CORRECTION_FIELD_STYLE}>
+                                    <label style={CORRECTION_LABEL_STYLE} htmlFor="posting-correction-to-account">Nytt konto</label>
+                                    <input
+                                        id="posting-correction-to-account"
+                                        style={CORRECTION_INPUT_STYLE}
+                                        value={correctionForm.toAccount}
+                                        onInput={(event) => {
+                                            const value = (event.currentTarget as HTMLInputElement).value;
+                                            setCorrectionForm((prev) => prev ? { ...prev, toAccount: value } : prev);
+                                        }}
+                                        placeholder="t.ex. 3041"
+                                    />
+                                </div>
+                                <div style={CORRECTION_FIELD_STYLE}>
+                                    <label style={CORRECTION_LABEL_STYLE} htmlFor="posting-correction-side">Sida</label>
+                                    <select
+                                        id="posting-correction-side"
+                                        style={CORRECTION_INPUT_STYLE}
+                                        value={correctionForm.side}
+                                        onChange={(event) => {
+                                            const value = (event.currentTarget as HTMLSelectElement).value as 'debit' | 'credit';
+                                            setCorrectionForm((prev) => prev ? { ...prev, side: value } : prev);
+                                        }}
+                                    >
+                                        <option value="debit">Debet</option>
+                                        <option value="credit">Kredit</option>
+                                    </select>
+                                </div>
+                                <div style={CORRECTION_FIELD_STYLE}>
+                                    <label style={CORRECTION_LABEL_STYLE} htmlFor="posting-correction-amount">Belopp</label>
+                                    <input
+                                        id="posting-correction-amount"
+                                        style={CORRECTION_INPUT_STYLE}
+                                        value={correctionForm.amount}
+                                        onInput={(event) => {
+                                            const value = (event.currentTarget as HTMLInputElement).value;
+                                            setCorrectionForm((prev) => prev ? { ...prev, amount: value } : prev);
+                                        }}
+                                    />
+                                </div>
+                                <div style={CORRECTION_FIELD_STYLE}>
+                                    <label style={CORRECTION_LABEL_STYLE} htmlFor="posting-correction-series">Serie</label>
+                                    <input
+                                        id="posting-correction-series"
+                                        style={CORRECTION_INPUT_STYLE}
+                                        value={correctionForm.voucherSeries}
+                                        onInput={(event) => {
+                                            const value = (event.currentTarget as HTMLInputElement).value;
+                                            setCorrectionForm((prev) => prev ? { ...prev, voucherSeries: value } : prev);
+                                        }}
+                                    />
+                                </div>
+                                <div style={CORRECTION_FIELD_STYLE}>
+                                    <label style={CORRECTION_LABEL_STYLE} htmlFor="posting-correction-date">Datum</label>
+                                    <input
+                                        id="posting-correction-date"
+                                        type="date"
+                                        style={CORRECTION_INPUT_STYLE}
+                                        value={correctionForm.transactionDate}
+                                        onInput={(event) => {
+                                            const value = (event.currentTarget as HTMLInputElement).value;
+                                            setCorrectionForm((prev) => prev ? { ...prev, transactionDate: value } : prev);
+                                        }}
+                                    />
+                                </div>
+                                <div style={{ ...CORRECTION_FIELD_STYLE, gridColumn: '1 / -1' }}>
+                                    <label style={CORRECTION_LABEL_STYLE} htmlFor="posting-correction-reason">Kommentar</label>
+                                    <textarea
+                                        id="posting-correction-reason"
+                                        style={CORRECTION_TEXTAREA_STYLE}
+                                        value={correctionForm.reason}
+                                        onInput={(event) => {
+                                            const value = (event.currentTarget as HTMLTextAreaElement).value;
+                                            setCorrectionForm((prev) => prev ? { ...prev, reason: value } : prev);
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {correctionError && (
+                            <div style={getWarningCardStyle()} data-testid="invoice-posting-correction-error">
+                                {isPermissionErrorMessage(correctionError)
+                                    ? 'Fortnox-behörighet saknas för att skapa korrigeringsverifikation. Kontrollera rättigheter för Bokföring/Verifikationer.'
+                                    : correctionError}
+                            </div>
+                        )}
+
+                        <div style={CORRECTION_MODAL_ACTIONS_STYLE}>
+                            <button
+                                type="button"
+                                style={ACTION_SECONDARY_BUTTON_STYLE}
+                                disabled={correctionSubmitting}
+                                onClick={() => setCorrectionOpen(false)}
+                            >
+                                Avbryt
+                            </button>
+                            {!correctionResult && (
+                                <button
+                                    type="button"
+                                    style={ACTION_BUTTON_STYLE}
+                                    data-testid="invoice-posting-correction-confirm-button"
+                                    disabled={correctionSubmitting}
+                                    onClick={() => void submitCorrection()}
+                                >
+                                    {correctionSubmitting ? 'Skapar...' : 'Bekräfta & skapa verifikation'}
+                                </button>
+                            )}
+                        </div>
+                    </section>
+                </div>
+            )}
         </div>
     );
 }

@@ -47,6 +47,42 @@ export interface PostingReferenceEvidence {
     referenceNumber?: string;
 }
 
+export type PostingCorrectionSide = 'debit' | 'credit';
+
+export interface PostingCorrectionRequest {
+    companyId: string;
+    invoiceType: Extract<InvoicePostingType, 'customer'>;
+    invoiceId: number;
+    correction: {
+        side: PostingCorrectionSide;
+        fromAccount: number;
+        toAccount: number;
+        amount: number;
+        voucherSeries: string;
+        transactionDate: string;
+        reason: string;
+    };
+    idempotencyKey?: string;
+    sourceContext?: string;
+    aiDecisionId?: string;
+}
+
+export interface PostingCorrectionResult {
+    Voucher: {
+        VoucherSeries: string;
+        VoucherNumber: number;
+        Year?: number;
+    } | null;
+    correction: {
+        invoiceType: 'customer';
+        invoiceId: number;
+        side: PostingCorrectionSide;
+        fromAccount: number;
+        toAccount: number;
+        amount: number;
+    };
+}
+
 export interface InvoicePostingTrace {
     invoice: {
         type: InvoicePostingType;
@@ -147,6 +183,14 @@ function asPostingTrace(value: unknown): InvoicePostingTrace {
         throw new Error('Invalid posting trace response');
     }
     return record as unknown as InvoicePostingTrace;
+}
+
+function asPostingCorrectionResult(value: unknown): PostingCorrectionResult {
+    const record = asRecord(value);
+    if (!record) {
+        throw new Error('Invalid posting correction response');
+    }
+    return record as unknown as PostingCorrectionResult;
 }
 
 export function parseBooleanEnvFlag(value: unknown): boolean {
@@ -250,6 +294,41 @@ class InvoicePostingReviewService {
         });
 
         return trace;
+    }
+
+    async createPostingCorrectionVoucher(params: PostingCorrectionRequest): Promise<PostingCorrectionResult> {
+        const { data: { session } } = await supabase.auth.getSession();
+        const accessToken = session?.access_token;
+        if (!accessToken) {
+            throw new Error('Du maste vara inloggad for att skapa korrigering.');
+        }
+
+        const response = await fetch(FORTNOX_FUNCTION_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+                action: 'createPostingCorrectionVoucher',
+                companyId: params.companyId,
+                payload: {
+                    invoiceType: params.invoiceType,
+                    invoiceId: params.invoiceId,
+                    correction: params.correction,
+                    idempotencyKey: params.idempotencyKey,
+                    sourceContext: params.sourceContext,
+                    aiDecisionId: params.aiDecisionId,
+                },
+            }),
+        });
+
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(getPostingTraceErrorMessage(body, response.status));
+        }
+
+        return asPostingCorrectionResult(body);
     }
 }
 
