@@ -97,9 +97,9 @@
     --space-9: 48px;
 
     /* Layout Gutters */
-    --app-gutter: var(--space-7);
+    --app-gutter: var(--space-6);
     --panel-gutter: var(--space-6);
-    --content-max-width: 1120px;
+    --content-max-width: 980px;
     --sidebar-gutter: var(--space-6);
 
     /* Chat Card System */
@@ -490,6 +490,7 @@ body.debug-grid .workspace-split::before {
 
 .new-chat-btn {
     width: 100%;
+    min-height: 44px;
     background: #1a1a1a;
     color: #ffffff;
     border: none;
@@ -1317,6 +1318,45 @@ body.debug-grid .workspace-split::before {
     justify-content: flex-end;
 }
 
+.topbar-control-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.topbar-control-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-primary);
+}
+
+.topbar-control-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+[data-theme="light"] .topbar-control-btn {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .topbar-control-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
 .current-context {
     display: flex;
     align-items: center;
@@ -1754,7 +1794,7 @@ h1 {
     height: 0;
     /* Force flex item to respect overflow */
     overflow-y: auto;
-    padding: var(--space-7) var(--app-gutter) var(--space-4);
+    padding: var(--space-6) var(--app-gutter) var(--space-3);
     /* No need for large padding - flex layout handles input placement */
     display: flex;
     flex-direction: column;
@@ -1774,7 +1814,7 @@ h1 {
 .chat-list {
     display: flex;
     flex-direction: column;
-    gap: var(--space-6);
+    gap: var(--space-5);
     /* Modern SaaS spacing */
     padding-bottom: var(--space-4);
     /* Just a small buffer after last message */
@@ -1783,7 +1823,7 @@ h1 {
 .message {
     display: flex;
     gap: 0.75rem;
-    max-width: 85%;
+    max-width: 82%;
     /* GPU-accelererad animation för smidigare rendering */
     animation: messageSlideIn 0.25s ease-out;
     will-change: opacity, transform;
@@ -1808,7 +1848,7 @@ h1 {
 
 .ai-message {
     align-self: flex-start;
-    max-width: min(96%, 100ch);
+    max-width: min(96%, 92ch);
 }
 
 .user-message {
@@ -1848,10 +1888,10 @@ h1 {
 }
 
 .bubble {
-    padding: 0.8rem 1.25rem;
+    padding: 0.7rem 1.05rem;
     border-radius: 20px;
-    font-size: 1rem;
-    line-height: 1.7;
+    font-size: 0.95rem;
+    line-height: 1.62;
     position: relative;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
     white-space: pre-wrap;
@@ -1866,7 +1906,7 @@ h1 {
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
     position: relative;
     overflow: hidden;
-    width: min(100%, 84ch);
+    width: min(100%, 78ch);
 }
 
 .ai-message .bubble:has(.artifact-table) {
@@ -2997,7 +3037,7 @@ h1 {
 
 /* Floating Input */
 .floating-input-container {
-    padding: var(--space-4) var(--app-gutter) var(--space-6);
+    padding: var(--space-4) var(--app-gutter) var(--space-5);
     display: flex !important;
     justify-content: center;
     background: transparent;
@@ -3019,7 +3059,7 @@ h1 {
         0 10px 15px -3px rgba(0, 0, 0, 0.05),
         0 0 0 1px rgba(0, 0, 0, 0.03);
     /* Subtle border ring */
-    padding: 0.6rem;
+    padding: 0.5rem;
     display: flex;
     align-items: center;
     width: 100%;
@@ -5126,8 +5166,8 @@ h1 {
 /* Integrated Pro Sidebar Toggle */
 .sidebar-toggle {
     display: flex;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     background: transparent; /* Invisible by default */
     border: none;
     border-radius: 50%; /* Perfect circle */
@@ -5186,6 +5226,7 @@ h1 {
 
 .sidebar-backdrop.visible {
     display: block;
+    left: var(--sidebar-width);
     opacity: 1;
 }
 
@@ -5247,7 +5288,7 @@ h1 {
 /* Compact desktop (1024px - 1280px) */
 @media (min-width: 1024px) and (max-width: 1280px) {
     .chat-container {
-        max-width: 800px;
+        max-width: 760px;
         padding: 1.5rem;
     }
 
@@ -5268,7 +5309,7 @@ h1 {
 /* Standard laptop (1280px - 1440px) */
 @media (min-width: 1280px) and (max-width: 1440px) {
     .chat-container {
-        max-width: 900px;
+        max-width: 840px;
     }
 
     .excel-panel.open {
@@ -5280,7 +5321,7 @@ h1 {
 /* Large monitor (1440px - 1920px) */
 @media (min-width: 1440px) and (max-width: 1920px) {
     .chat-container {
-        max-width: 1000px;
+        max-width: 920px;
         padding: 2.5rem;
     }
 
@@ -5294,7 +5335,7 @@ h1 {
 /* Ultrawide (> 1920px) */
 @media (min-width: 1920px) {
     .chat-container {
-        max-width: 1100px;
+        max-width: 980px;
         padding: 3rem;
     }
 

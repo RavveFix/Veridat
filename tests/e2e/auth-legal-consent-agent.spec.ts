@@ -36,8 +36,7 @@ test('auth/legal consent-agent verifierar sync + re-consent vid utdaterad versio
     await deleteLegalAcceptancesForVersion(userId, CURRENT_TERMS_VERSION);
 
     const { actionLink } = await generateMagicLinkWithUser(email);
-    await page.goto('/login');
-    await page.goto(actionLink);
+    await page.goto(actionLink, { waitUntil: 'domcontentloaded' });
     await page.waitForURL('**/app/**', { timeout: 30_000 });
 
     const modal = page.getByTestId('legal-consent-modal');

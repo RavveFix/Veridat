@@ -13,7 +13,7 @@ import { logger } from '../services/LoggerService';
 class SidebarControllerService {
     private sidebar: HTMLElement | null = null;
     private appLayout: HTMLElement | null = null;
-    private toggleBtn: HTMLElement | null = null;
+    private toggleButtons: HTMLElement[] = [];
     private backdrop: HTMLElement | null = null;
     private isCollapsed = false;
     private isOverlay = false;
@@ -24,7 +24,7 @@ class SidebarControllerService {
     init(): void {
         this.sidebar = document.querySelector('.sidebar');
         this.appLayout = document.querySelector('.app-layout');
-        this.toggleBtn = document.getElementById('sidebar-toggle');
+        this.toggleButtons = Array.from(document.querySelectorAll<HTMLElement>('[data-sidebar-toggle]'));
 
         if (!this.sidebar || !this.appLayout) {
             logger.warn('SidebarController: Required elements not found');
@@ -63,7 +63,9 @@ class SidebarControllerService {
 
     private setupEventListeners(): void {
         // Toggle button click
-        this.toggleBtn?.addEventListener('click', () => this.toggleSidebar());
+        for (const toggleButton of this.toggleButtons) {
+            toggleButton.addEventListener('click', () => this.toggleSidebar());
+        }
 
         // Responsive check on resize (debounced)
         let resizeTimeout: number;

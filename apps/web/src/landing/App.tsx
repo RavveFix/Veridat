@@ -26,23 +26,23 @@ export function App() {
                     <div class="logo brand-logo" style="font-size: 1.5rem;">
                         Veridat
                     </div>
-                    <div style="display: flex; align-items: center; gap: 1.5rem;">
-                        <a href="#features" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
+                    <div class="header-links">
+                        <a href="#features" class="support-link header-nav-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
                             Funktioner
                         </a>
-                        <a href="#how-it-works" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
+                        <a href="#how-it-works" class="support-link header-nav-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
                             Hur det funkar
                         </a>
-                        <a href="#pricing" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
+                        <a href="#pricing" class="support-link header-nav-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
                             Priser
                         </a>
-                        <a href="#about" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
+                        <a href="#about" class="support-link header-nav-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
                             Om oss
                         </a>
-                        <a href="mailto:support@veridat.se" class="support-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
+                        <a href="mailto:support@veridat.se" class="support-link header-nav-link" style="text-decoration: none; color: var(--text-secondary); font-size: 0.9rem; transition: color 0.2s ease;">
                             Support
                         </a>
-                        <a href="/login" class="btn btn-glass btn-glow" style="padding: 0.5rem 1.5rem; font-size: 0.9rem; border-radius: 12px;">
+                        <a href="/login" class="btn btn-glass btn-glow header-login-btn">
                             Logga in
                         </a>
                     </div>

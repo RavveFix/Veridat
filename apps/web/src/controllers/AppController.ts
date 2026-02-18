@@ -454,10 +454,10 @@ export class AppController {
         // Mount global search modal
         this.mountSearchModal();
 
-        // Setup search button click handler
-        const searchBtn = document.getElementById('search-btn');
-        if (searchBtn) {
-            searchBtn.addEventListener('click', () => {
+        // Setup search trigger click handlers (topbar + sidebar)
+        const searchTriggers = Array.from(document.querySelectorAll<HTMLElement>('[data-search-trigger]'));
+        for (const trigger of searchTriggers) {
+            trigger.addEventListener('click', () => {
                 window.dispatchEvent(new CustomEvent('open-search-modal'));
             });
         }

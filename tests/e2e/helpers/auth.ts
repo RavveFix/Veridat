@@ -14,6 +14,11 @@ function isTransientNetworkError(error: unknown): boolean {
     return /(fetch failed|failed to fetch|econnrefused|enotfound|network|authretryablefetcherror)/i.test(error.message);
 }
 
+function isNavigationInterruptionError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    return /(interrupted by another navigation|navigation.*aborted)/i.test(error.message);
+}
+
 async function waitForAuthHealth(timeoutMs = 30_000): Promise<void> {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
@@ -169,9 +174,15 @@ export async function loginWithMagicLink(
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-            await page.goto('/login');
+            await page.goto('/login', { waitUntil: 'domcontentloaded' });
             await seedLocalConsent(page, fullName);
-            await page.goto(actionLink);
+            try {
+                await page.goto(actionLink, { waitUntil: 'domcontentloaded' });
+            } catch (error) {
+                if (!isNavigationInterruptionError(error)) {
+                    throw error;
+                }
+            }
             await page.waitForURL('**/app/**', { timeout: 30_000 });
             enteredApp = true;
             break;
