@@ -613,6 +613,119 @@ Deno.test("resolveReferenceVoucherMatch hittar referensträff på sista vouchers
     assertEquals(output.match?.acceptedByReference, true);
 });
 
+Deno.test("resolveReferenceVoucherMatch kan matcha när voucherlista saknar referensfält men detalj har dem", async () => {
+    const expectedRows: PostingRow[] = [
+        { account: 2440, debit: 0, credit: 1250, description: "" },
+        { account: 2641, debit: 250, credit: 0, description: "" },
+        { account: 6110, debit: 1000, credit: 0, description: "" },
+    ];
+
+    const service = {
+        async getVouchers(financialYear?: number, _voucherSeries?: string, pagination?: { page?: number; limit?: number }) {
+            if (financialYear !== 2026) {
+                return { Vouchers: [], MetaInformation: { "@TotalPages": 0 } };
+            }
+
+            const page = pagination?.page ?? 1;
+            if (page === 1) {
+                return {
+                    Vouchers: Array.from({ length: 150 }, (_, index) => ({
+                        Description: "Filler",
+                        VoucherRows: [],
+                        VoucherSeries: "A",
+                        VoucherNumber: 2000 + index,
+                        Year: 2026,
+                        TransactionDate: "2026-01-01",
+                    })),
+                    MetaInformation: { "@TotalPages": 12 },
+                };
+            }
+
+            if (page === 12) {
+                return {
+                    Vouchers: [
+                        {
+                            Description: "Candidate without list reference",
+                            VoucherRows: [],
+                            VoucherSeries: "Z",
+                            VoucherNumber: 8888,
+                            Year: 2026,
+                            TransactionDate: "2025-11-07",
+                        },
+                    ],
+                    MetaInformation: { "@TotalPages": 12 },
+                };
+            }
+
+            return {
+                Vouchers: [],
+                MetaInformation: { "@TotalPages": 12 },
+            };
+        },
+        async getVoucher(series: string, number: number) {
+            if (series === "Z" && number === 8888) {
+                return {
+                    Voucher: {
+                        Description: "Detail has reference",
+                        VoucherSeries: "Z",
+                        VoucherNumber: 8888,
+                        Year: 2026,
+                        TransactionDate: "2025-11-07",
+                        ReferenceType: "SUPPLIERINVOICE",
+                        ReferenceNumber: "24",
+                        VoucherRows: [
+                            { Account: 2440, Debit: 0, Credit: 1250, TransactionInformation: "" },
+                            { Account: 2641, Debit: 250, Credit: 0, TransactionInformation: "" },
+                            { Account: 6110, Debit: 1000, Credit: 0, TransactionInformation: "" },
+                        ],
+                    },
+                };
+            }
+            return {
+                Voucher: {
+                    Description: "Filler",
+                    VoucherSeries: series,
+                    VoucherNumber: number,
+                    Year: 2026,
+                    TransactionDate: "2026-01-01",
+                    VoucherRows: [],
+                },
+            };
+        },
+    };
+
+    const output = await resolveReferenceVoucherMatch({
+        fortnoxService: service,
+        invoiceType: "supplier",
+        invoice: {
+            id: "24",
+            invoiceNumber: "49173621",
+            invoiceDate: "2025-11-07",
+            dueDate: "2025-11-27",
+            total: 1250,
+            booked: true,
+        },
+        expectedRows,
+        invoiceRecord: {
+            GivenNumber: 24,
+            InvoiceNumber: "49173621",
+        },
+        logger: {
+            warn: () => undefined,
+            info: () => undefined,
+        },
+        runtimeBudgetMs: 5000,
+        detailConcurrency: 2,
+        maxDetailFetches: 20,
+        dateWindowDaysForBooked: 180,
+    });
+
+    assert(output.match !== null);
+    assertEquals(output.match?.voucherRef.series, "Z");
+    assertEquals(output.match?.voucherRef.number, 8888);
+    assertEquals(output.match?.acceptedByReference, true);
+});
+
 Deno.test("resolveHeuristicVoucherMatch avbryter med runtime-guard utan att kasta", async () => {
     let getVoucherCalls = 0;
     let now = 0;

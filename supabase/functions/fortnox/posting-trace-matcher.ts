@@ -160,7 +160,8 @@ const DEFAULT_DETAIL_CONCURRENCY = 6;
 const DEFAULT_MAX_DETAIL_FETCHES = 80;
 const DEFAULT_BOOKED_DATE_WINDOW_DAYS = 180;
 const VOUCHER_PAGE_LIMIT = 150;
-const VOUCHER_MAX_PAGES_PER_YEAR = 3;
+const VOUCHER_MAX_PAGES_PER_YEAR_HEURISTIC = 3;
+const VOUCHER_MAX_PAGES_PER_YEAR_REFERENCE = 8;
 
 const SUPPLIER_REFERENCE_PRIORITY = [
     "SUPPLIERINVOICE",
@@ -897,16 +898,17 @@ function buildPageProbeOrder(
         return probes;
     }
 
-    // Probe from the tail next; booked invoices are typically in recent vouchers.
-    for (let offset = 0; probes.length < maxPages; offset += 1) {
-        const tailPage = totalPages - offset;
-        if (tailPage < 1) break;
-        pushPage(tailPage);
-    }
-
-    // Fill any remaining slots from low pages to keep backward compatibility.
-    for (let page = 2; probes.length < maxPages && page <= totalPages; page += 1) {
-        pushPage(page);
+    // Probe from the tail first (newest vouchers) and interleave lower pages.
+    // This gives broad coverage when we only have a small page budget.
+    let tail = totalPages;
+    let head = 2;
+    while (probes.length < maxPages) {
+        pushPage(tail);
+        tail -= 1;
+        if (probes.length >= maxPages) break;
+        pushPage(head);
+        head += 1;
+        if (tail < 1 && head > totalPages) break;
     }
 
     return probes;
@@ -1041,6 +1043,9 @@ async function resolveVoucherSearchMatch(
 
     const deduped = new Map<string, InternalVoucherCandidate>();
     const minReferenceScore = options.minReferenceScore ?? 0.68;
+    const maxPagesPerYear = options.strictReferenceMatch
+        ? VOUCHER_MAX_PAGES_PER_YEAR_REFERENCE
+        : VOUCHER_MAX_PAGES_PER_YEAR_HEURISTIC;
 
     for (const financialYear of scopedYears) {
         if (isTimedOut()) break;
@@ -1096,7 +1101,8 @@ async function resolveVoucherSearchMatch(
                 candidate.matchedReferenceNumber = referenceMatch.matchedNumber;
 
                 if (options.strictReferenceMatch) {
-                    if (!referenceMatch.exact || referenceMatch.score < minReferenceScore) {
+                    const candidateHasReference = Boolean(candidate.referenceType && candidate.referenceNumber);
+                    if ((!referenceMatch.exact || referenceMatch.score < minReferenceScore) && candidateHasReference) {
                         continue;
                     }
                 }
@@ -1112,7 +1118,7 @@ async function resolveVoucherSearchMatch(
             const totalPages = parseTotalPages(voucherListResult.response.MetaInformation);
             if (pageIndex === 0 && totalPagesForYear === null) {
                 totalPagesForYear = totalPages;
-                const expanded = buildPageProbeOrder(totalPagesForYear, VOUCHER_MAX_PAGES_PER_YEAR);
+                const expanded = buildPageProbeOrder(totalPagesForYear, maxPagesPerYear);
                 for (const extraPage of expanded) {
                     if (!pageOrder.includes(extraPage)) {
                         pageOrder.push(extraPage);
