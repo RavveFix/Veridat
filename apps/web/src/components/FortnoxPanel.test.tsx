@@ -424,4 +424,138 @@ describe('FortnoxPanel', () => {
             expect(container.textContent).toContain('Konteringskontroll');
         });
     });
+
+    it('uses DocumentNumber fallback for customer posting trace when InvoiceNumber is missing', async () => {
+        setPostingReviewFlag('true');
+
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? '{}')) as {
+                action?: string;
+                companyId?: string;
+                payload?: { invoiceType?: string; invoiceId?: number };
+            };
+            if (body.action === 'getSupplierInvoices') {
+                return createJsonResponse({ SupplierInvoices: [] });
+            }
+            if (body.action === 'getInvoices') {
+                expect(body.companyId).toBe('company-test');
+                return createJsonResponse({
+                    Invoices: [{
+                        DocumentNumber: 302,
+                        CustomerNumber: 'KUND-302',
+                        DueDate: '2026-02-18',
+                        Total: 3020,
+                        Balance: 0,
+                        Booked: true,
+                    }],
+                });
+            }
+            if (body.action === 'getInvoicePostingTrace') {
+                expect(body.companyId).toBe('company-test');
+                expect(body.payload?.invoiceType).toBe('customer');
+                expect(body.payload?.invoiceId).toBe(302);
+                return createJsonResponse({
+                    invoice: {
+                        type: 'customer',
+                        id: '302',
+                        invoiceNumber: '302',
+                        counterpartyNumber: 'KUND-302',
+                        counterpartyName: 'Kund 302 AB',
+                        invoiceDate: '2026-02-18',
+                        dueDate: '2026-03-20',
+                        total: 3020,
+                        vat: 604,
+                        balance: 0,
+                        currency: 'SEK',
+                        booked: true
+                    },
+                    expectedPosting: {
+                        rows: [{ account: 1510, debit: 3020, credit: 0, description: 'Kundfordran' }],
+                        totals: { debit: 3020, credit: 3020, balanced: true }
+                    },
+                    posting: {
+                        status: 'booked',
+                        source: 'explicit',
+                        confidence: 0.98,
+                        voucherRef: { series: 'A', number: 302, year: 2026 },
+                        rows: [{ account: 1510, debit: 3020, credit: 0, description: 'Kundfordran' }],
+                        totals: { debit: 3020, credit: 3020, balanced: true }
+                    },
+                    checks: {
+                        balanced: true,
+                        total_match: true,
+                        vat_match: true,
+                        control_account_present: true,
+                        row_account_consistency: true
+                    },
+                    issues: []
+                });
+            }
+            throw new Error(`Unexpected action: ${body.action}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await renderPanel();
+        await click(getByTestId('fortnox-view-customer'));
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('fortnox-customer-row-302')).not.toBeNull();
+        });
+
+        await click(getByTestId('fortnox-view-posting-customer-302'));
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('invoice-posting-drawer')).not.toBeNull();
+        });
+    });
+
+    it('disables customer posting trace when both InvoiceNumber and DocumentNumber are missing', async () => {
+        setPostingReviewFlag('true');
+
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? '{}')) as {
+                action?: string;
+                companyId?: string;
+            };
+            if (body.action === 'getSupplierInvoices') {
+                return createJsonResponse({ SupplierInvoices: [] });
+            }
+            if (body.action === 'getInvoices') {
+                expect(body.companyId).toBe('company-test');
+                return createJsonResponse({
+                    Invoices: [{
+                        CustomerNumber: 'KUND-404',
+                        DueDate: '2026-02-20',
+                        Total: 4040,
+                        Balance: 4040,
+                        Booked: true,
+                    }],
+                });
+            }
+            if (body.action === 'getInvoicePostingTrace') {
+                throw new Error('Posting trace should not be called without customer invoice id');
+            }
+            throw new Error(`Unexpected action: ${body.action}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await renderPanel();
+        await click(getByTestId('fortnox-view-customer'));
+
+        await waitForAssertion(() => {
+            const button = getByTestId('fortnox-view-posting-customer-missing-id-0') as HTMLButtonElement;
+            expect(button.disabled).toBe(true);
+            expect(button.textContent).toContain('ID saknas för kontering');
+        });
+
+        const row = getByTestId('fortnox-customer-row-missing-id-0');
+        const firstCell = row.querySelector('td');
+        expect(firstCell?.textContent?.trim()).toBe('—');
+
+        const traceCalls = fetchMock.mock.calls.filter(([_input, init]) => {
+            const body = JSON.parse(String(init?.body ?? '{}')) as { action?: string };
+            return body.action === 'getInvoicePostingTrace';
+        });
+        expect(traceCalls.length).toBe(0);
+    });
 });

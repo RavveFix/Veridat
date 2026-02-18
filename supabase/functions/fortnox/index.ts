@@ -28,6 +28,7 @@ import {
     type PostingMatchPath,
 } from "./posting-trace-matcher.ts";
 import { buildPostingIssues } from "./posting-trace-issues.ts";
+import { normalizeCustomerInvoiceListResponse } from "./customer-invoice-normalization.ts";
 
 const logger = createLogger('fortnox');
 
@@ -1329,12 +1330,22 @@ Deno.serve(async (req: Request) => {
                 const toDate = payload?.toDate as string | undefined;
                 const customerNumber = payload?.customerNumber as string | undefined;
                 const pagination = parsePagination(payload);
-                result = await requireFortnoxService().getInvoices({
+                const invoicesResponse = await requireFortnoxService().getInvoices({
                     fromDate,
                     toDate,
                     customerNumber,
                     ...pagination,
                 });
+                const normalized = normalizeCustomerInvoiceListResponse(invoicesResponse);
+                if (normalized.diagnostics.missingInvoiceIdCount > 0) {
+                    logger.warn('Fortnox getInvoices returned customer invoices without InvoiceNumber/DocumentNumber', {
+                        userId,
+                        companyId: resolvedCompanyId,
+                        missingInvoiceIdCount: normalized.diagnostics.missingInvoiceIdCount,
+                        filledFromDocumentNumber: normalized.diagnostics.filledFromDocumentNumber,
+                    });
+                }
+                result = normalized.response;
                 break;
             }
 

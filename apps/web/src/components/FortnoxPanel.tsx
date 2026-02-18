@@ -23,7 +23,8 @@ interface SupplierInvoiceSummary {
 }
 
 interface CustomerInvoiceSummary {
-    InvoiceNumber: number;
+    InvoiceNumber?: number | string;
+    DocumentNumber?: number | string;
     CustomerNumber: string;
     DueDate?: string;
     Total?: number;
@@ -124,6 +125,27 @@ function getCustomerStatus(invoice: CustomerInvoiceSummary): string {
     if (hasOutstandingBalance(invoice.Balance)) return 'Obetald';
     if (invoice.Booked) return 'Bokförd';
     return 'Skapad';
+}
+
+function toTraceInvoiceId(value: unknown): number | null {
+    const numeric = typeof value === 'number'
+        ? value
+        : typeof value === 'string'
+            ? Number(value.trim())
+            : NaN;
+    if (!Number.isFinite(numeric) || numeric < 1) {
+        return null;
+    }
+    return Math.round(numeric);
+}
+
+function resolveCustomerTraceInvoiceId(invoice: CustomerInvoiceSummary): number | null {
+    return toTraceInvoiceId(invoice.InvoiceNumber) ?? toTraceInvoiceId(invoice.DocumentNumber);
+}
+
+function getCustomerInvoiceDisplayNumber(invoice: CustomerInvoiceSummary): string {
+    const resolved = resolveCustomerTraceInvoiceId(invoice);
+    return resolved === null ? '—' : String(resolved);
 }
 
 function summarizeSupplierInvoices(
@@ -274,6 +296,7 @@ const CUSTOMER_COLUMNS: TableColumn[] = [
     { key: 'status', label: 'Status' }
 ];
 const CUSTOMER_COLUMNS_WITH_TRACE: TableColumn[] = [...CUSTOMER_COLUMNS, TRACE_ACTION_COLUMN];
+const CUSTOMER_TRACE_ID_MISSING_MESSAGE = 'Kundfakturan saknar läsbart Fortnox-ID (InvoiceNumber/DocumentNumber).';
 
 function getHeaderCellStyle(align: TableAlign = 'left') {
     return align === 'right' ? TABLE_HEADER_RIGHT_STYLE : TABLE_HEADER_LEFT_STYLE;
@@ -341,7 +364,7 @@ function getRefreshButtonStyle(isLoading: boolean) {
     } as const;
 }
 
-function getTraceButtonStyle(isLoading: boolean) {
+function getTraceButtonStyle(isLoading: boolean, disabled = false) {
     return {
         ...TOOLBAR_BUTTON_BASE_STYLE,
         height: '30px',
@@ -349,7 +372,8 @@ function getTraceButtonStyle(isLoading: boolean) {
         color: 'var(--text-primary)',
         fontSize: '0.72rem',
         borderRadius: '8px',
-        cursor: isLoading ? 'wait' : 'pointer',
+        cursor: isLoading ? 'wait' : disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.62 : 1,
     } as const;
 }
 
@@ -405,7 +429,7 @@ function buildSupplierTableCells(invoice: SupplierInvoiceSummary, mode: Supplier
 
 function buildCustomerTableCells(invoice: CustomerInvoiceSummary): TableCell[] {
     return [
-        { key: 'invoice', content: invoice.InvoiceNumber, nowrap: true },
+        { key: 'invoice', content: getCustomerInvoiceDisplayNumber(invoice), nowrap: true },
         { key: 'customer', content: invoice.CustomerNumber },
         { key: 'dueDate', content: formatDate(invoice.DueDate) },
         { key: 'total', content: formatAmount(toNumber(invoice.Total)), align: 'right' },
@@ -735,7 +759,11 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         if (!invoicePostingReviewEnabled) return;
         const numericInvoiceId = Number(invoiceId);
         if (!Number.isFinite(numericInvoiceId)) {
-            setPostingTraceError('Kunde inte läsa faktura-id för kontering.');
+            setPostingTraceError(
+                invoiceType === 'customer'
+                    ? CUSTOMER_TRACE_ID_MISSING_MESSAGE
+                    : 'Kunde inte läsa faktura-id för kontering.'
+            );
             setPostingDrawerOpen(true);
             return;
         }
@@ -1016,23 +1044,35 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                                     {filteredCustomerInvoices.length === 0 && !loadingCustomer && (
                                         renderEmptyInvoiceTableRow(customerColumns.length)
                                     )}
-                                    {filteredCustomerInvoices.map((invoice) => {
-                                        const rowId = invoice.InvoiceNumber;
+                                    {filteredCustomerInvoices.map((invoice, index) => {
+                                        const rowId = resolveCustomerTraceInvoiceId(invoice);
+                                        const rowIdText = rowId === null ? `missing-id-${index}` : String(rowId);
+                                        const missingTraceId = rowId === null;
                                         return (
                                             <tr
-                                                key={`${invoice.InvoiceNumber}-${invoice.CustomerNumber}`}
-                                                data-testid={`fortnox-customer-row-${invoice.InvoiceNumber}`}
+                                                key={`${rowIdText}-${invoice.CustomerNumber}`}
+                                                data-testid={missingTraceId
+                                                    ? `fortnox-customer-row-missing-id-${index}`
+                                                    : `fortnox-customer-row-${rowId}`}
                                             >
                                                 {renderTableCells(buildCustomerTableCells(invoice))}
                                                 {invoicePostingReviewEnabled && (
                                                     <td style={TABLE_CELL_RIGHT_STYLE}>
                                                         <button
                                                             type="button"
-                                                            data-testid={`fortnox-view-posting-customer-${rowId}`}
-                                                            onClick={() => void openPostingTrace('customer', rowId)}
-                                                            style={getTraceButtonStyle(postingTraceLoading)}
+                                                            data-testid={missingTraceId
+                                                                ? `fortnox-view-posting-customer-missing-id-${index}`
+                                                                : `fortnox-view-posting-customer-${rowId}`}
+                                                            onClick={() => {
+                                                                if (rowId !== null) {
+                                                                    void openPostingTrace('customer', rowId);
+                                                                }
+                                                            }}
+                                                            disabled={postingTraceLoading || missingTraceId}
+                                                            title={missingTraceId ? CUSTOMER_TRACE_ID_MISSING_MESSAGE : undefined}
+                                                            style={getTraceButtonStyle(postingTraceLoading, missingTraceId)}
                                                         >
-                                                            Visa kontering
+                                                            {missingTraceId ? 'ID saknas för kontering' : 'Visa kontering'}
                                                         </button>
                                                     </td>
                                                 )}
