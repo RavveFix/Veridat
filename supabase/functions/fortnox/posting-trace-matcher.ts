@@ -868,6 +868,50 @@ function parseTotalPages(metaInformation: unknown): number | null {
     return totalPages;
 }
 
+function buildPageProbeOrder(
+    totalPages: number | null,
+    maxPages: number
+): number[] {
+    const probes: number[] = [];
+    const seen = new Set<number>();
+
+    const pushPage = (page: number) => {
+        if (!Number.isFinite(page) || page < 1) return;
+        if (seen.has(page)) return;
+        seen.add(page);
+        probes.push(page);
+    };
+
+    // Always sample page 1 first so we can derive total pages when available.
+    pushPage(1);
+
+    if (maxPages <= 1) {
+        return probes;
+    }
+
+    if (totalPages === null) {
+        // Fall back to linear probing when Fortnox omits pagination metadata.
+        for (let page = 2; page <= maxPages; page += 1) {
+            pushPage(page);
+        }
+        return probes;
+    }
+
+    // Probe from the tail next; booked invoices are typically in recent vouchers.
+    for (let offset = 0; probes.length < maxPages; offset += 1) {
+        const tailPage = totalPages - offset;
+        if (tailPage < 1) break;
+        pushPage(tailPage);
+    }
+
+    // Fill any remaining slots from low pages to keep backward compatibility.
+    for (let page = 2; probes.length < maxPages && page <= totalPages; page += 1) {
+        pushPage(page);
+    }
+
+    return probes;
+}
+
 function parseVoucherCandidates(
     voucherList: FortnoxVoucherListResponse,
     fallbackYear?: number
@@ -1002,7 +1046,11 @@ async function resolveVoucherSearchMatch(
         if (isTimedOut()) break;
         diagnostics.yearsSearched.push(financialYear ?? "unscoped");
 
-        for (let page = 1; page <= VOUCHER_MAX_PAGES_PER_YEAR; page += 1) {
+        let totalPagesForYear: number | null = null;
+        const pageOrder: number[] = [1];
+
+        for (let pageIndex = 0; pageIndex < pageOrder.length; pageIndex += 1) {
+            const page = pageOrder[pageIndex];
             if (isTimedOut()) break;
 
             let voucherListResult;
@@ -1062,9 +1110,18 @@ async function resolveVoucherSearchMatch(
 
             const listLength = (voucherListResult.response.Vouchers || []).length;
             const totalPages = parseTotalPages(voucherListResult.response.MetaInformation);
+            if (pageIndex === 0 && totalPagesForYear === null) {
+                totalPagesForYear = totalPages;
+                const expanded = buildPageProbeOrder(totalPagesForYear, VOUCHER_MAX_PAGES_PER_YEAR);
+                for (const extraPage of expanded) {
+                    if (!pageOrder.includes(extraPage)) {
+                        pageOrder.push(extraPage);
+                    }
+                }
+            }
             if (listLength === 0) break;
             if (totalPages !== null && page >= totalPages) break;
-            if (listLength < VOUCHER_PAGE_LIMIT) break;
+            if (totalPagesForYear === null && listLength < VOUCHER_PAGE_LIMIT) break;
         }
     }
 

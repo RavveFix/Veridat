@@ -493,9 +493,124 @@ Deno.test("resolveHeuristicVoucherMatch hittar match från senare vouchersida", 
     assert(output.match !== null);
     assertEquals(output.match?.voucherRef.series, "A");
     assertEquals(output.match?.voucherRef.number, 777);
-    assert(output.diagnostics.candidateCount >= 301);
+    assert(output.diagnostics.candidateCount >= 151);
     assert(output.diagnostics.filteredCandidateCount >= 1);
     assert(output.diagnostics.detailFetchCount > 0);
+});
+
+Deno.test("resolveReferenceVoucherMatch hittar referensträff på sista vouchersidan inom år", async () => {
+    const expectedRows: PostingRow[] = [
+        { account: 2440, debit: 0, credit: 1250, description: "" },
+        { account: 2641, debit: 250, credit: 0, description: "" },
+        { account: 6110, debit: 1000, credit: 0, description: "" },
+    ];
+
+    const service = {
+        async getVouchers(financialYear?: number, _voucherSeries?: string, pagination?: { page?: number; limit?: number }) {
+            if (financialYear !== 2026) {
+                return { Vouchers: [], MetaInformation: { "@TotalPages": 0 } };
+            }
+
+            const page = pagination?.page ?? 1;
+            if (page === 1) {
+                return {
+                    Vouchers: Array.from({ length: 150 }, (_, index) => ({
+                        Description: "Filler",
+                        VoucherRows: [],
+                        VoucherSeries: "A",
+                        VoucherNumber: 1000 + index,
+                        Year: 2026,
+                        TransactionDate: "2026-01-01",
+                    })),
+                    MetaInformation: { "@TotalPages": 12 },
+                };
+            }
+
+            if (page === 12) {
+                return {
+                    Vouchers: [
+                        {
+                            Description: "Tail reference match",
+                            VoucherRows: [],
+                            VoucherSeries: "Z",
+                            VoucherNumber: 9999,
+                            Year: 2026,
+                            TransactionDate: "2025-11-07",
+                            ReferenceType: "SUPPLIERINVOICE",
+                            ReferenceNumber: "24",
+                        },
+                    ],
+                    MetaInformation: { "@TotalPages": 12 },
+                };
+            }
+
+            return {
+                Vouchers: [],
+                MetaInformation: { "@TotalPages": 12 },
+            };
+        },
+        async getVoucher(series: string, number: number) {
+            if (series === "Z" && number === 9999) {
+                return {
+                    Voucher: {
+                        Description: "Tail reference match",
+                        VoucherSeries: "Z",
+                        VoucherNumber: 9999,
+                        Year: 2026,
+                        TransactionDate: "2025-11-07",
+                        ReferenceType: "SUPPLIERINVOICE",
+                        ReferenceNumber: "24",
+                        VoucherRows: [
+                            { Account: 2440, Debit: 0, Credit: 1250, TransactionInformation: "" },
+                            { Account: 2641, Debit: 250, Credit: 0, TransactionInformation: "" },
+                            { Account: 6110, Debit: 1000, Credit: 0, TransactionInformation: "" },
+                        ],
+                    },
+                };
+            }
+            return {
+                Voucher: {
+                    Description: "Filler",
+                    VoucherSeries: series,
+                    VoucherNumber: number,
+                    Year: 2026,
+                    TransactionDate: "2026-01-01",
+                    VoucherRows: [],
+                },
+            };
+        },
+    };
+
+    const output = await resolveReferenceVoucherMatch({
+        fortnoxService: service,
+        invoiceType: "supplier",
+        invoice: {
+            id: "24",
+            invoiceNumber: "49173621",
+            invoiceDate: "2025-11-07",
+            dueDate: "2025-11-27",
+            total: 1250,
+            booked: true,
+        },
+        expectedRows,
+        invoiceRecord: {
+            GivenNumber: 24,
+            InvoiceNumber: "49173621",
+        },
+        logger: {
+            warn: () => undefined,
+            info: () => undefined,
+        },
+        runtimeBudgetMs: 5000,
+        detailConcurrency: 2,
+        maxDetailFetches: 20,
+        dateWindowDaysForBooked: 180,
+    });
+
+    assert(output.match !== null);
+    assertEquals(output.match?.voucherRef.series, "Z");
+    assertEquals(output.match?.voucherRef.number, 9999);
+    assertEquals(output.match?.acceptedByReference, true);
 });
 
 Deno.test("resolveHeuristicVoucherMatch avbryter med runtime-guard utan att kasta", async () => {
