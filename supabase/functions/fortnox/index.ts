@@ -1449,8 +1449,15 @@ Deno.serve(async (req: Request) => {
             case 'getVouchers': {
                 const financialYear = payload?.financialYear as number | undefined;
                 const voucherSeries = payload?.voucherSeries as string | undefined;
+                const fromDate = payload?.fromDate as string | undefined;
+                const toDate = payload?.toDate as string | undefined;
                 const pagination = parsePagination(payload);
-                result = await requireFortnoxService().getVouchers(financialYear, voucherSeries, pagination);
+                result = await requireFortnoxService().getVouchers(
+                    financialYear,
+                    voucherSeries,
+                    pagination,
+                    { fromDate, toDate }
+                );
                 break;
             }
 

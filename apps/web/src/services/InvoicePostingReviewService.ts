@@ -119,8 +119,17 @@ function getFunctionErrorCode(payload: unknown): string | null {
 
 export function getPostingTraceErrorMessage(payload: unknown, statusCode: number): string {
     const errorCode = getFunctionErrorCode(payload);
+    if (errorCode === 'FortnoxPermissionError') {
+        return 'Fortnox nekar åtkomst (403). Kontrollera användarbehörighet i Fortnox och återanslut integrationen.';
+    }
+    if (errorCode === 'PLAN_REQUIRED') {
+        return 'Fortnox kräver Veridat Pro eller Trial för den här funktionen.';
+    }
     if (errorCode === 'FortnoxClientError') {
         return 'Faktisk kontering kunde inte hämtas för den här fakturan just nu. Kontrollera fakturan i Fortnox och försök igen.';
+    }
+    if (statusCode === 403) {
+        return 'Åtkomst nekad (403). Kontrollera Fortnox-behörighet och anslutning.';
     }
     return getFunctionErrorMessage(payload) || `Kunde inte hamta kontering (${statusCode}).`;
 }

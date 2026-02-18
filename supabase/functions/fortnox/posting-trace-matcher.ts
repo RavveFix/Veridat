@@ -6,6 +6,7 @@ import {
     getFortnoxStatusCode,
     getVoucherWithYearFallback,
     getVouchersWithYearFallback,
+    type VoucherListSearch,
     shouldPropagatePostingTraceError,
 } from "./posting-trace-fallback.ts";
 
@@ -60,7 +61,8 @@ type VoucherLookupService = {
     getVouchers(
         financialYear?: number,
         voucherSeries?: string,
-        pagination?: { page?: number; limit?: number; allPages?: boolean }
+        pagination?: { page?: number; limit?: number; allPages?: boolean },
+        search?: VoucherListSearch
     ): Promise<FortnoxVoucherListResponse>;
     getVoucher(
         voucherSeries: string,
@@ -162,6 +164,9 @@ const DEFAULT_BOOKED_DATE_WINDOW_DAYS = 180;
 const VOUCHER_PAGE_LIMIT = 150;
 const VOUCHER_MAX_PAGES_PER_YEAR_HEURISTIC = 3;
 const VOUCHER_MAX_PAGES_PER_YEAR_REFERENCE = 8;
+const VOUCHER_DATE_FILTER_WINDOW_DAYS = 45;
+const VOUCHER_DATE_FILTER_PAGES_REFERENCE = 4;
+const VOUCHER_DATE_FILTER_PAGES_HEURISTIC = 2;
 
 const SUPPLIER_REFERENCE_PRIORITY = [
     "SUPPLIERINVOICE",
@@ -245,6 +250,20 @@ function parseYearFromIsoDate(value: string): number | null {
     const year = Number.parseInt(value.slice(0, 4), 10);
     if (!Number.isFinite(year) || year < 1900 || year > 9999) return null;
     return year;
+}
+
+function toIsoDateUtc(ms: number): string {
+    return new Date(ms).toISOString().slice(0, 10);
+}
+
+function buildInvoiceDateSearchWindow(invoiceDate: string): VoucherListSearch | null {
+    const invoiceDateMs = parseDate(invoiceDate);
+    if (invoiceDateMs === null) return null;
+    const dayMs = 1000 * 60 * 60 * 24;
+    return {
+        fromDate: toIsoDateUtc(invoiceDateMs - (VOUCHER_DATE_FILTER_WINDOW_DAYS * dayMs)),
+        toDate: toIsoDateUtc(invoiceDateMs + (VOUCHER_DATE_FILTER_WINDOW_DAYS * dayMs)),
+    };
 }
 
 function normalizePostingRows(rows: unknown[]): PostingRow[] {
@@ -1046,88 +1065,115 @@ async function resolveVoucherSearchMatch(
     const maxPagesPerYear = options.strictReferenceMatch
         ? VOUCHER_MAX_PAGES_PER_YEAR_REFERENCE
         : VOUCHER_MAX_PAGES_PER_YEAR_HEURISTIC;
+    const invoiceDateSearch = buildInvoiceDateSearchWindow(options.invoice.invoiceDate);
+    const dateFilterPages = options.strictReferenceMatch
+        ? VOUCHER_DATE_FILTER_PAGES_REFERENCE
+        : VOUCHER_DATE_FILTER_PAGES_HEURISTIC;
+    const searchPasses: Array<{
+        search?: VoucherListSearch;
+        maxPages: number;
+        passName: "date_window" | "full_scan";
+    }> = [];
+    if (invoiceDateSearch) {
+        searchPasses.push({
+            search: invoiceDateSearch,
+            maxPages: dateFilterPages,
+            passName: "date_window",
+        });
+    }
+    searchPasses.push({
+        search: undefined,
+        maxPages: maxPagesPerYear,
+        passName: "full_scan",
+    });
 
     for (const financialYear of scopedYears) {
         if (isTimedOut()) break;
         diagnostics.yearsSearched.push(financialYear ?? "unscoped");
 
-        let totalPagesForYear: number | null = null;
-        const pageOrder: number[] = [1];
-
-        for (let pageIndex = 0; pageIndex < pageOrder.length; pageIndex += 1) {
-            const page = pageOrder[pageIndex];
+        for (const searchPass of searchPasses) {
             if (isTimedOut()) break;
 
-            let voucherListResult;
-            try {
-                voucherListResult = await getVouchersWithYearFallback(
-                    options.fortnoxService,
-                    financialYear,
-                    {
+            let totalPagesForYear: number | null = null;
+            const pageOrder: number[] = [1];
+
+            for (let pageIndex = 0; pageIndex < pageOrder.length; pageIndex += 1) {
+                const page = pageOrder[pageIndex];
+                if (isTimedOut()) break;
+
+                let voucherListResult;
+                try {
+                    voucherListResult = await getVouchersWithYearFallback(
+                        options.fortnoxService,
+                        financialYear,
+                        {
+                            page,
+                            limit: VOUCHER_PAGE_LIMIT,
+                            allPages: false,
+                        },
+                        searchPass.search
+                    );
+                } catch (error) {
+                    options.logger.warn("Voucher list lookup failed", {
+                        mode: options.strictReferenceMatch ? "reference" : "heuristic",
+                        invoiceType: options.invoiceType,
+                        invoiceId: options.invoice.id,
+                        financialYear,
                         page,
-                        limit: VOUCHER_PAGE_LIMIT,
-                        allPages: false,
+                        searchPass: searchPass.passName,
+                        fortnoxStatusCode: getFortnoxStatusCode(error),
+                    });
+                    if (shouldPropagatePostingTraceError(error)) {
+                        throw error;
                     }
-                );
-            } catch (error) {
-                options.logger.warn("Voucher list lookup failed", {
-                    mode: options.strictReferenceMatch ? "reference" : "heuristic",
-                    invoiceType: options.invoiceType,
-                    invoiceId: options.invoice.id,
-                    financialYear,
-                    page,
-                    fortnoxStatusCode: getFortnoxStatusCode(error),
-                });
-                if (shouldPropagatePostingTraceError(error)) {
-                    throw error;
+                    break;
                 }
-                break;
-            }
 
-            diagnostics.usedListFallback = diagnostics.usedListFallback || voucherListResult.usedFallback;
+                diagnostics.usedListFallback = diagnostics.usedListFallback || voucherListResult.usedFallback;
 
-            const candidates = parseVoucherCandidates(voucherListResult.response, financialYear);
-            for (const candidate of candidates) {
-                const referenceMatch = evaluateReferenceMatch(
-                    options.invoiceType,
-                    candidate.referenceType,
-                    candidate.referenceNumber,
-                    referenceSignals
-                );
+                const candidates = parseVoucherCandidates(voucherListResult.response, financialYear);
+                for (const candidate of candidates) {
+                    const referenceMatch = evaluateReferenceMatch(
+                        options.invoiceType,
+                        candidate.referenceType,
+                        candidate.referenceNumber,
+                        referenceSignals
+                    );
 
-                candidate.referenceScoreHint = referenceMatch.score;
-                candidate.referenceExact = referenceMatch.exact;
-                candidate.matchedReferenceType = referenceMatch.matchedType;
-                candidate.matchedReferenceNumber = referenceMatch.matchedNumber;
+                    candidate.referenceScoreHint = referenceMatch.score;
+                    candidate.referenceExact = referenceMatch.exact;
+                    candidate.matchedReferenceType = referenceMatch.matchedType;
+                    candidate.matchedReferenceNumber = referenceMatch.matchedNumber;
 
-                if (options.strictReferenceMatch) {
-                    const candidateHasReference = Boolean(candidate.referenceType && candidate.referenceNumber);
-                    if ((!referenceMatch.exact || referenceMatch.score < minReferenceScore) && candidateHasReference) {
-                        continue;
+                    if (options.strictReferenceMatch) {
+                        const candidateHasReference = Boolean(candidate.referenceType && candidate.referenceNumber);
+                        if ((!referenceMatch.exact || referenceMatch.score < minReferenceScore) && candidateHasReference) {
+                            continue;
+                        }
+                    }
+
+                    const key = candidateKey(candidate);
+                    const existing = deduped.get(key);
+                    if (!existing || (candidate.referenceScoreHint ?? 0) > (existing.referenceScoreHint ?? 0)) {
+                        deduped.set(key, candidate);
                     }
                 }
 
-                const key = candidateKey(candidate);
-                const existing = deduped.get(key);
-                if (!existing || (candidate.referenceScoreHint ?? 0) > (existing.referenceScoreHint ?? 0)) {
-                    deduped.set(key, candidate);
-                }
-            }
-
-            const listLength = (voucherListResult.response.Vouchers || []).length;
-            const totalPages = parseTotalPages(voucherListResult.response.MetaInformation);
-            if (pageIndex === 0 && totalPagesForYear === null) {
-                totalPagesForYear = totalPages;
-                const expanded = buildPageProbeOrder(totalPagesForYear, maxPagesPerYear);
-                for (const extraPage of expanded) {
-                    if (!pageOrder.includes(extraPage)) {
-                        pageOrder.push(extraPage);
+                const listLength = (voucherListResult.response.Vouchers || []).length;
+                const totalPages = parseTotalPages(voucherListResult.response.MetaInformation);
+                if (pageIndex === 0 && totalPagesForYear === null) {
+                    totalPagesForYear = totalPages;
+                    const expanded = buildPageProbeOrder(totalPagesForYear, searchPass.maxPages);
+                    for (const extraPage of expanded) {
+                        if (!pageOrder.includes(extraPage)) {
+                            pageOrder.push(extraPage);
+                        }
                     }
                 }
+                if (listLength === 0) break;
+                if (totalPages !== null && page >= totalPages) break;
+                if (totalPagesForYear === null && listLength < VOUCHER_PAGE_LIMIT) break;
             }
-            if (listLength === 0) break;
-            if (totalPages !== null && page >= totalPages) break;
-            if (totalPagesForYear === null && listLength < VOUCHER_PAGE_LIMIT) break;
         }
     }
 

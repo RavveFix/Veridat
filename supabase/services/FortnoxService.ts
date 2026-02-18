@@ -58,6 +58,11 @@ interface PaginationOptions {
     allPages?: boolean;
 }
 
+interface VoucherSearchOptions {
+    fromDate?: string;
+    toDate?: string;
+}
+
 const logger = createLogger('fortnox');
 
 export class FortnoxService {
@@ -580,7 +585,8 @@ export class FortnoxService {
     async getVouchers(
         financialYear?: number,
         voucherSeries?: string,
-        pagination?: PaginationOptions
+        pagination?: PaginationOptions,
+        search?: VoucherSearchOptions
     ): Promise<FortnoxVoucherListResponse> {
         const paged = await this.requestPaginatedList<FortnoxVoucherListResponse['Vouchers'][number]>(
             '/vouchers',
@@ -588,6 +594,8 @@ export class FortnoxService {
             {
                 financialyear: financialYear,
                 voucherseries: voucherSeries,
+                fromdate: search?.fromDate,
+                todate: search?.toDate,
             },
             pagination
         );

@@ -13,11 +13,17 @@ export interface VoucherListPagination {
     allPages?: boolean;
 }
 
+export interface VoucherListSearch {
+    fromDate?: string;
+    toDate?: string;
+}
+
 type VoucherListService = {
     getVouchers(
         financialYear?: number,
         voucherSeries?: string,
-        pagination?: VoucherListPagination
+        pagination?: VoucherListPagination,
+        search?: VoucherListSearch
     ): Promise<FortnoxVoucherListResponse>;
 };
 
@@ -56,18 +62,19 @@ export function shouldPropagatePostingTraceError(error: unknown): boolean {
 export async function getVouchersWithYearFallback(
     service: VoucherListService,
     financialYear: number | undefined,
-    pagination: VoucherListPagination
+    pagination: VoucherListPagination,
+    search?: VoucherListSearch
 ): Promise<VoucherListFallbackResult> {
     if (financialYear === undefined) {
         return {
-            response: await service.getVouchers(undefined, undefined, pagination),
+            response: await service.getVouchers(undefined, undefined, pagination, search),
             usedFallback: false,
         };
     }
 
     try {
         return {
-            response: await service.getVouchers(financialYear, undefined, pagination),
+            response: await service.getVouchers(financialYear, undefined, pagination, search),
             usedFallback: false,
         };
     } catch (error) {
@@ -76,7 +83,7 @@ export async function getVouchersWithYearFallback(
         }
 
         const initialStatusCode = getFortnoxStatusCode(error);
-        const response = await service.getVouchers(undefined, undefined, pagination);
+        const response = await service.getVouchers(undefined, undefined, pagination, search);
         return {
             response,
             usedFallback: true,
