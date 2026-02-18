@@ -75,26 +75,43 @@ test('responsive core audit: app-shell + search modal + sidebar fungerar per vie
     await mockSearchRoute(page);
 
     await expect(page.locator('.app-layout')).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator('#sidebar-toggle')).toBeVisible();
-    await expect(page.locator('#search-btn')).toBeVisible();
+
+    const overlayViewport = isOverlaySidebarViewport(page);
+    const sidebarToggleTopbar = page.locator('#sidebar-toggle');
+    const sidebarToggleSidebar = page.locator('#sidebar-toggle-sidebar');
+    const searchTopbar = page.locator('#search-btn');
+    const searchSidebar = page.locator('#search-btn-sidebar');
+
+    if (overlayViewport) {
+        await expect(sidebarToggleTopbar).toBeVisible();
+        await expect(searchTopbar).toBeVisible();
+    } else {
+        await expect(sidebarToggleTopbar).toBeHidden();
+        await expect(searchTopbar).toBeHidden();
+        await expect(sidebarToggleSidebar).toBeVisible();
+        await expect(searchSidebar).toBeVisible();
+    }
+
+    const sidebarToggleSelector = overlayViewport ? '#sidebar-toggle' : '#sidebar-toggle-sidebar';
+    const searchSelector = overlayViewport ? '#search-btn' : '#search-btn-sidebar';
 
     await assertNoHorizontalOverflow(page, ['html', 'body', '.app-layout', '.main-content']);
-    await assertCriticalControlsInViewport(page, ['#sidebar-toggle', '#search-btn']);
-    await assertTapTargetMinimum(page, ['#sidebar-toggle', '#search-btn', '#new-chat-btn']);
+    await assertCriticalControlsInViewport(page, [sidebarToggleSelector, searchSelector]);
+    await assertTapTargetMinimum(page, [sidebarToggleSelector, searchSelector, '#new-chat-btn']);
 
-    await page.click('#sidebar-toggle');
-    if (isOverlaySidebarViewport(page)) {
+    await page.click(sidebarToggleSelector);
+    if (overlayViewport) {
         await expect(page.locator('.sidebar.overlay.open')).toBeVisible();
         await expect(page.locator('.sidebar-backdrop.visible')).toBeVisible();
         await page.locator('.sidebar-backdrop').click({ force: true });
         await expect(page.locator('.sidebar.overlay.open')).toHaveCount(0);
     } else {
         await expect(page.locator('.app-layout')).toHaveClass(/sidebar-collapsed/);
-        await page.click('#sidebar-toggle');
+        await page.click(sidebarToggleSelector);
         await expect(page.locator('.app-layout')).not.toHaveClass(/sidebar-collapsed/);
     }
 
-    await page.click('#search-btn');
+    await page.click(searchSelector);
     await expect(page.locator('.search-modal')).toBeVisible();
     await assertCriticalControlsInViewport(page, ['.search-modal__input', '.search-modal__action']);
     await assertTapTargetMinimum(page, ['.search-modal__action']);
