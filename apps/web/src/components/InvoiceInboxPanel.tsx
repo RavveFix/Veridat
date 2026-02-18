@@ -1252,6 +1252,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 companyId,
                 invoiceType: 'supplier',
                 invoiceId: item.fortnoxGivenNumber,
+                forceRefresh: true,
             });
             setPostingTrace(trace);
         } catch (error) {

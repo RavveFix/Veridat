@@ -750,6 +750,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 companyId: companyService.getCurrentId(),
                 invoiceType,
                 invoiceId: numericInvoiceId,
+                forceRefresh: true,
             });
             setPostingTrace(trace);
         } catch (error) {
