@@ -55,7 +55,7 @@ export function buildPostingIssues(
             code: "VOUCHER_LINK_MISSING",
             severity: "warning",
             message: "Fakturan är bokförd men verifikationen kunde inte kopplas automatiskt.",
-            suggestion: "Öppna fakturan i Fortnox och verifiera serie/nummer manuellt.",
+            suggestion: "Verifiera serie/nummer i Fortnox. Om felet kvarstår: kontrollera behörighet för Bokföring/Verifikationer och koppla om Fortnox-integrationen.",
         });
     }
 

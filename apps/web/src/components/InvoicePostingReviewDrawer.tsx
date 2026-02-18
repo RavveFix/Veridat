@@ -374,6 +374,18 @@ function getConfidenceLabel(trace: InvoicePostingTrace): string {
     return `${Math.round((trace.posting.confidence || 0) * 100)}%`;
 }
 
+function hasIssue(trace: InvoicePostingTrace, code: string): boolean {
+    return trace.issues.some((issue) => issue.code === code);
+}
+
+function isPermissionErrorMessage(error: string): boolean {
+    const normalized = error.toLowerCase();
+    return normalized.includes('403')
+        || normalized.includes('fortnoxpermissionerror')
+        || normalized.includes('behörighet')
+        || normalized.includes('åtkomst nekad');
+}
+
 function IssueCard({ issue }: { issue: PostingIssue }) {
     return (
         <div style={getIssueCardStyle(issue.severity)}>
@@ -429,7 +441,9 @@ export function InvoicePostingReviewDrawer({
 
                     {!loading && error && (
                         <div style={getWarningCardStyle()}>
-                            {error}
+                            {isPermissionErrorMessage(error)
+                                ? 'Fortnox-behörighet saknas för att läsa faktisk kontering. Kontrollera rättigheter för Bokföring/Verifikationer och koppla om integrationen.'
+                                : error}
                         </div>
                     )}
 
@@ -518,6 +532,12 @@ export function InvoicePostingReviewDrawer({
 
                             <section style={CARD_STYLE}>
                                 <h4 style={SECTION_TITLE_STYLE}>Avvikelser och förslag</h4>
+                                {hasIssue(trace, 'VOUCHER_LINK_MISSING') && (
+                                    <div style={getWarningCardStyle()}>
+                                        Vanlig orsak: saknad Fortnox-behörighet för Bokföring/Verifikationer.
+                                        Om felet återkommer, koppla om Fortnox-integrationen med ett konto som har dessa rättigheter.
+                                    </div>
+                                )}
                                 {trace.issues.length === 0 ? (
                                     <div style={MESSAGE_STYLE}>Inga avvikelser hittades.</div>
                                 ) : (
