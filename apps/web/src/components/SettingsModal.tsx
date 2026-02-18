@@ -8,12 +8,190 @@ import { ModalWrapper } from './ModalWrapper';
 import { UsageDisplay } from './settings/UsageDisplay';
 import { ChangelogPanel } from './settings/ChangelogPanel';
 import { AccountingMemoryPanel } from './settings/AccountingMemoryPanel';
-import { AgentDashboard } from './settings/AgentDashboard';
 
 
 interface SettingsModalProps {
     onClose: () => void;
     onLogout: () => void;
+}
+
+const SETTINGS_LOADING_CONTAINER_STYLE = {
+    textAlign: 'center',
+    padding: '2rem'
+};
+
+const SETTINGS_LOADING_SPINNER_STYLE = {
+    margin: '0 auto 1rem'
+};
+
+const SETTINGS_LOADING_TIMEOUT_NOTICE_STYLE = {
+    fontSize: '0.85rem',
+    color: 'var(--accent-primary)',
+    marginTop: '0.5rem'
+};
+
+const SETTINGS_SECTION_STYLE = {
+    marginBottom: '2rem'
+};
+
+const SETTINGS_SECTION_TITLE_STYLE = {
+    fontSize: '1.1rem',
+    marginBottom: '1rem',
+    color: 'var(--text-primary)'
+};
+
+const SETTINGS_SECTION_TITLE_COMPACT_STYLE = {
+    fontSize: '1.1rem',
+    marginBottom: '0.35rem',
+    color: 'var(--text-primary)'
+};
+
+const SETTINGS_SECTION_DESCRIPTION_STYLE = {
+    margin: 0,
+    color: 'var(--text-secondary)',
+    fontSize: '0.9rem'
+};
+
+const SETTINGS_PRIMARY_PILL_LINK_STYLE = {
+    display: 'inline-block',
+    marginTop: '0.9rem',
+    padding: '0.7rem 1rem',
+    borderRadius: '999px',
+    textDecoration: 'none',
+    fontWeight: 600,
+    fontSize: '0.9rem',
+    color: '#fff',
+    background: '#2563eb',
+    boxShadow: 'none'
+};
+
+const SETTINGS_FIELD_WRAPPER_STYLE = {
+    marginBottom: '1rem'
+};
+
+const SETTINGS_LABEL_STYLE = {
+    display: 'block',
+    marginBottom: '0.5rem',
+    color: 'var(--text-secondary)',
+    fontSize: '0.9rem'
+};
+
+const SETTINGS_DISABLED_INPUT_STYLE = {
+    width: '100%',
+    padding: '0.8rem',
+    borderRadius: '8px',
+    border: '1px solid var(--surface-border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text-secondary)',
+    cursor: 'not-allowed'
+};
+
+const SETTINGS_EDITABLE_INPUT_STYLE = {
+    width: '100%',
+    padding: '0.8rem',
+    borderRadius: '8px',
+    border: '1px solid var(--surface-border)',
+    background: 'var(--input-bg)',
+    color: 'var(--text-primary)',
+    outline: 'none',
+    boxShadow: 'inset 0 1px 2px rgba(15, 23, 42, 0.06)'
+};
+
+const SETTINGS_LEGAL_SECTION_STYLE = {
+    marginBottom: '2rem',
+    borderTop: '1px solid var(--surface-border)',
+    paddingTop: '1.5rem'
+};
+
+const SETTINGS_TOP_BORDER_SECTION_STYLE = {
+    borderTop: '1px solid var(--surface-border)',
+    paddingTop: '1.5rem'
+};
+
+const SETTINGS_LEGAL_ROW_STYLE = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '1rem'
+};
+
+const SETTINGS_MUTED_TEXT_STYLE = {
+    color: 'var(--text-secondary)'
+};
+
+const SETTINGS_TERMS_VERSION_BADGE_STYLE = {
+    background: 'var(--surface-2)',
+    border: '1px solid var(--surface-border)',
+    padding: '0.2rem 0.6rem',
+    borderRadius: '4px',
+    fontSize: '0.9rem'
+};
+
+const SETTINGS_LINK_ROW_STYLE = {
+    display: 'flex',
+    gap: '1rem'
+};
+
+const SETTINGS_LEGAL_LINK_STYLE = {
+    color: 'var(--accent-primary)',
+    textDecoration: 'none',
+    fontSize: '0.9rem'
+};
+
+const SETTINGS_LOGOUT_BUTTON_STYLE = {
+    width: '100%',
+    padding: '0.8rem',
+    borderRadius: '8px',
+    border: '1px solid var(--surface-border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text-primary)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.5rem',
+    transition: 'background 0.2s',
+    boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
+};
+
+function getSettingsMessageStyle(messageType: 'success' | 'error') {
+    return {
+        padding: '0.8rem',
+        borderRadius: '8px',
+        marginBottom: '1rem',
+        background: messageType === 'success'
+            ? 'var(--status-success-bg)'
+            : 'var(--status-danger-bg)',
+        color: messageType === 'success'
+            ? 'var(--status-success)'
+            : 'var(--status-danger)',
+        border: `1px solid ${messageType === 'success'
+            ? 'var(--status-success-border)'
+            : 'var(--status-danger-border)'}`
+    };
+}
+
+function getSettingsSaveButtonStyle(saving: boolean) {
+    return {
+        width: '100%',
+        padding: '0.85rem',
+        borderRadius: '99px',
+        border: 'none',
+        background: '#2563eb',
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: '0.95rem',
+        cursor: saving ? 'wait' : 'pointer',
+        opacity: saving ? 0.7 : 1,
+        boxShadow: 'none'
+    };
+}
+
+function getTermsVersionBadgeStyle(termsVersion: string) {
+    return {
+        ...SETTINGS_TERMS_VERSION_BADGE_STYLE,
+        color: termsVersion === CURRENT_TERMS_VERSION ? '#10b981' : 'var(--text-secondary)'
+    };
 }
 
 export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
@@ -208,16 +386,12 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
     }
 
     return (
-        <ModalWrapper onClose={onClose} title="Inställningar" maxWidth="1200px">
+        <ModalWrapper onClose={onClose} title="Inställningar" maxWidth="600px">
                 {loading ? (
-                    <div style={{ textAlign: 'center', padding: '2rem' }}>
-                        <div className="modal-spinner" style={{ margin: '0 auto 1rem' }} role="status" aria-label="Laddar"></div>
+                    <div style={SETTINGS_LOADING_CONTAINER_STYLE}>
+                        <div className="modal-spinner" style={SETTINGS_LOADING_SPINNER_STYLE} role="status" aria-label="Laddar"></div>
                         {loadingTimeout && (
-                            <div style={{
-                                fontSize: '0.85rem',
-                                color: 'var(--accent-primary)',
-                                marginTop: '0.5rem'
-                            }}>
+                            <div style={SETTINGS_LOADING_TIMEOUT_NOTICE_STYLE}>
                                 Detta tar längre tid än vanligt. Kontrollera din internetanslutning.
                             </div>
                         )}
@@ -235,27 +409,16 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                         {user && (plan === 'pro' || plan === 'trial') ? (
                             <AccountingMemoryPanel userId={user.id} plan={plan} />
                         ) : (
-                            <section style={{ marginBottom: '2rem' }}>
-                                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.35rem', color: 'var(--text-primary)' }}>
+                            <section style={SETTINGS_SECTION_STYLE}>
+                                <h3 style={SETTINGS_SECTION_TITLE_COMPACT_STYLE}>
                                     Redovisningsminne (Pro)
                                 </h3>
-                                <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                <p style={SETTINGS_SECTION_DESCRIPTION_STYLE}>
                                     Få en översikt av AI-minnet per bolag, godkänn viktiga siffror och säkra redovisningskvaliteten.
                                 </p>
                                 <a
                                     href="mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20vill%20uppgradera%20till%20Pro%20(40%20förfrågningar%2Ftimme%2C%20200%2Fdag)%20för%20att%20få%20redovisningsminne.%0A%0AMvh"
-                                    style={{
-                                        display: 'inline-block',
-                                        marginTop: '0.9rem',
-                                        padding: '0.7rem 1rem',
-                                        borderRadius: '999px',
-                                        textDecoration: 'none',
-                                        fontWeight: 600,
-                                        fontSize: '0.9rem',
-                                        color: '#fff',
-                                        background: '#2563eb',
-                                        boxShadow: 'none'
-                                    }}
+                                    style={SETTINGS_PRIMARY_PILL_LINK_STYLE}
                                     onMouseOver={(e) => (e.currentTarget.style.background = '#1d4ed8')}
                                     onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
                                 >
@@ -264,65 +427,35 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                             </section>
                         )}
 
-                        <section style={{ marginBottom: '2rem' }}>
-                            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Profil</h3>
+                        <section style={SETTINGS_SECTION_STYLE}>
+                            <h3 style={SETTINGS_SECTION_TITLE_STYLE}>Profil</h3>
                             {user && (
                                 <form onSubmit={handleSave}>
-                                    <div style={{ marginBottom: '1rem' }}>
-                                        <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                    <div style={SETTINGS_FIELD_WRAPPER_STYLE}>
+                                        <label style={SETTINGS_LABEL_STYLE}>
                                             E-post
                                         </label>
                                         <input
                                             type="email"
                                             value={user.email}
                                             disabled
-                                            style={{
-                                                width: '100%',
-                                                padding: '0.8rem',
-                                                borderRadius: '8px',
-                                                border: '1px solid var(--surface-border)',
-                                                background: 'var(--surface-2)',
-                                                color: 'var(--text-secondary)',
-                                                cursor: 'not-allowed'
-                                            }}
+                                            style={SETTINGS_DISABLED_INPUT_STYLE}
                                         />
                                     </div>
-                                    <div style={{ marginBottom: '1rem' }}>
-                                        <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                    <div style={SETTINGS_FIELD_WRAPPER_STYLE}>
+                                        <label style={SETTINGS_LABEL_STYLE}>
                                             Namn
                                         </label>
                                         <input
                                             type="text"
                                             value={fullName}
                                             onInput={(e) => setFullName((e.target as HTMLInputElement).value)}
-                                            style={{
-                                                width: '100%',
-                                                padding: '0.8rem',
-                                                borderRadius: '8px',
-                                                border: '1px solid var(--surface-border)',
-                                                background: 'var(--input-bg)',
-                                                color: 'var(--text-primary)',
-                                                outline: 'none',
-                                                boxShadow: 'inset 0 1px 2px rgba(15, 23, 42, 0.06)'
-                                            }}
+                                            style={SETTINGS_EDITABLE_INPUT_STYLE}
                                         />
                                     </div>
 
                                     {message && (
-                                        <div style={{
-                                            padding: '0.8rem',
-                                            borderRadius: '8px',
-                                            marginBottom: '1rem',
-                                            background: message.type === 'success'
-                                                ? 'var(--status-success-bg)'
-                                                : 'var(--status-danger-bg)',
-                                            color: message.type === 'success'
-                                                ? 'var(--status-success)'
-                                                : 'var(--status-danger)',
-                                            border: `1px solid ${message.type === 'success'
-                                                ? 'var(--status-success-border)'
-                                                : 'var(--status-danger-border)'}`
-                                        }}>
+                                        <div style={getSettingsMessageStyle(message.type)}>
                                             {message.text}
                                         </div>
                                     )}
@@ -330,19 +463,7 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                                     <button
                                         type="submit"
                                         disabled={saving}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.85rem',
-                                            borderRadius: '99px',
-                                            border: 'none',
-                                            background: '#2563eb',
-                                            color: '#fff',
-                                            fontWeight: '600',
-                                            fontSize: '0.95rem',
-                                            cursor: saving ? 'wait' : 'pointer',
-                                            opacity: saving ? 0.7 : 1,
-                                            boxShadow: 'none'
-                                        }}
+                                        style={getSettingsSaveButtonStyle(saving)}
                                         onMouseOver={(e) => !saving && (e.currentTarget.style.background = '#1d4ed8')}
                                         onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
                                     >
@@ -352,61 +473,27 @@ export function SettingsModal({ onClose, onLogout }: SettingsModalProps) {
                             )}
                         </section>
 
-                        <section style={{ marginBottom: '2rem', borderTop: '1px solid var(--surface-border)', paddingTop: '1.5rem' }}>
-                            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Juridik</h3>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>Godkänd version:</span>
-                                <span style={{
-                                    background: 'var(--surface-2)',
-                                    border: '1px solid var(--surface-border)',
-                                    padding: '0.2rem 0.6rem',
-                                    borderRadius: '4px',
-                                    fontSize: '0.9rem',
-                                    color: termsVersion === CURRENT_TERMS_VERSION ? '#10b981' : 'var(--text-secondary)'
-                                }}>
+                        <section style={SETTINGS_LEGAL_SECTION_STYLE}>
+                            <h3 style={SETTINGS_SECTION_TITLE_STYLE}>Juridik</h3>
+                            <div style={SETTINGS_LEGAL_ROW_STYLE}>
+                                <span style={SETTINGS_MUTED_TEXT_STYLE}>Godkänd version:</span>
+                                <span style={getTermsVersionBadgeStyle(termsVersion)}>
                                     {termsVersion}
                                 </span>
                             </div>
-                            <div style={{ display: 'flex', gap: '1rem' }}>
-                                <a href="/terms.html" target="_blank" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontSize: '0.9rem' }}>Användarvillkor</a>
-                                <a href="/privacy.html" target="_blank" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontSize: '0.9rem' }}>Integritetspolicy</a>
+                            <div style={SETTINGS_LINK_ROW_STYLE}>
+                                <a href="/terms.html" target="_blank" style={SETTINGS_LEGAL_LINK_STYLE}>Användarvillkor</a>
+                                <a href="/privacy.html" target="_blank" style={SETTINGS_LEGAL_LINK_STYLE}>Integritetspolicy</a>
                             </div>
                         </section>
 
                         <ChangelogPanel />
 
-                        <section
-                            style={{ marginBottom: '2rem', borderTop: '1px solid var(--surface-border)', paddingTop: '1.5rem' }}
-                            data-testid="settings-agents-section"
-                        >
-                            <h3 style={{ fontSize: '1.1rem', marginBottom: '0.35rem', color: 'var(--text-primary)' }}>
-                                AI-agenter
-                            </h3>
-                            <p style={{ margin: '0 0 1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                                Hantera autonoma bokföringsagenter, task-kö och testagenter.
-                            </p>
-                            <AgentDashboard />
-                        </section>
-
-                        <section style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '1.5rem' }}>
-                            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Konto</h3>
+                        <section style={SETTINGS_TOP_BORDER_SECTION_STYLE}>
+                            <h3 style={SETTINGS_SECTION_TITLE_STYLE}>Konto</h3>
                             <button
                                 onClick={onLogout}
-                                style={{
-                                    width: '100%',
-                                    padding: '0.8rem',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--surface-border)',
-                                    background: 'var(--surface-2)',
-                                    color: 'var(--text-primary)',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '0.5rem',
-                                    transition: 'background 0.2s',
-                                    boxShadow: 'inset 0 1px 0 var(--glass-highlight)'
-                                }}
+                                style={SETTINGS_LOGOUT_BUTTON_STYLE}
                                 onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-1)')}
                                 onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
                             >

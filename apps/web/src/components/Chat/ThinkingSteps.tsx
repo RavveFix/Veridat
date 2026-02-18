@@ -15,6 +15,12 @@ interface ThinkingStepsProps {
     onStepClick?: (step: ThinkingStep) => void;
 }
 
+function getConfidenceFillStyle(confidence: number) {
+    return {
+        width: `${confidence}%`
+    };
+}
+
 /**
  * ThinkingSteps - Claude.ai-inspired expandable thinking process display
  *
@@ -311,7 +317,7 @@ export const ConfidenceIndicator: FunctionComponent<ConfidenceIndicatorProps> = 
             <div class="confidence-bar">
                 <div
                     class="confidence-fill"
-                    style={{ width: `${confidence}%` }}
+                    style={getConfidenceFillStyle(confidence)}
                 />
             </div>
             {showLabel && (

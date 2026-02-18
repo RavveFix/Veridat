@@ -15,6 +15,19 @@ import { FortnoxApiError } from "../../services/FortnoxErrors.ts";
 import { AuditService, type FortnoxOperation } from "../../services/AuditService.ts";
 import { CompanyMemoryService, mergeCompanyMemory } from "../../services/CompanyMemoryService.ts";
 import { getUserPlan } from "../../services/PlanService.ts";
+import {
+    getFortnoxStatusCode,
+    shouldPropagatePostingTraceError,
+} from "./posting-trace-fallback.ts";
+import {
+    buildExplicitSingleVoucherCandidate,
+    buildSupplierExplicitVoucherCandidates,
+    resolveExplicitVoucherMatch,
+    resolveReferenceVoucherMatch as resolveReferenceVoucherMatchV2,
+    resolveHeuristicVoucherMatch as resolveHeuristicVoucherMatchV2,
+    type PostingMatchPath,
+} from "./posting-trace-matcher.ts";
+import { buildPostingIssues } from "./posting-trace-issues.ts";
 
 const logger = createLogger('fortnox');
 
@@ -37,6 +50,32 @@ const FAIL_CLOSED_RATE_LIMIT_ACTIONS = new Set<string>([
     ...Object.keys(WRITE_ACTIONS_TO_OPERATION),
     'findOrCreateSupplier',
     'sync_profile',
+]);
+
+const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
+    'createInvoice',
+    'getCustomers',
+    'getArticles',
+    'getInvoices',
+    'getInvoice',
+    'registerInvoicePayment',
+    'getVouchers',
+    'getVoucher',
+    'exportVoucher',
+    'getSupplierInvoices',
+    'getSupplierInvoice',
+    'getInvoicePostingTrace',
+    'registerSupplierInvoicePayment',
+    'exportSupplierInvoice',
+    'bookSupplierInvoice',
+    'approveSupplierInvoiceBookkeep',
+    'approveSupplierInvoicePayment',
+    'getSuppliers',
+    'getSupplier',
+    'createSupplier',
+    'findOrCreateSupplier',
+    'sync_profile',
+    'getVATReport',
 ]);
 
 function shouldFailClosedOnRateLimiterError(action: string): boolean {
@@ -118,6 +157,798 @@ function parsePagination(payload: Record<string, unknown> | undefined): {
     return { page, limit, allPages };
 }
 
+type InvoiceType = 'supplier' | 'customer';
+type PostingSource = 'explicit' | 'heuristic' | 'none';
+type PostingStatus = 'booked' | 'unbooked' | 'unknown';
+type PostingIssueSeverity = 'info' | 'warning' | 'critical';
+
+interface PostingRow {
+    account: number;
+    debit: number;
+    credit: number;
+    description: string;
+}
+
+interface PostingTotals {
+    debit: number;
+    credit: number;
+    balanced: boolean;
+}
+
+interface PostingCheckResult {
+    balanced: boolean;
+    total_match: boolean;
+    vat_match: boolean;
+    control_account_present: boolean;
+    row_account_consistency: boolean;
+}
+
+interface PostingIssue {
+    code: string;
+    severity: PostingIssueSeverity;
+    message: string;
+    suggestion: string;
+}
+
+interface VoucherRef {
+    series: string;
+    number: number;
+    year?: number;
+}
+
+interface ReferenceEvidence {
+    referenceType?: string;
+    referenceNumber?: string;
+}
+
+interface NormalizedInvoiceTrace {
+    type: InvoiceType;
+    id: string;
+    invoiceNumber: string;
+    counterpartyNumber: string;
+    counterpartyName: string;
+    invoiceDate: string;
+    dueDate: string;
+    total: number;
+    vat: number;
+    balance: number;
+    currency: string;
+    booked: boolean | null;
+}
+
+interface InvoicePostingTraceResponse {
+    invoice: NormalizedInvoiceTrace;
+    expectedPosting: {
+        rows: PostingRow[];
+        totals: PostingTotals;
+    };
+    posting: {
+        status: PostingStatus;
+        source: PostingSource;
+        confidence: number;
+        voucherRef: VoucherRef | null;
+        matchPath?: PostingMatchPath;
+        referenceEvidence?: ReferenceEvidence;
+        rows: PostingRow[];
+        totals: PostingTotals;
+    };
+    checks: PostingCheckResult;
+    issues: PostingIssue[];
+}
+
+interface VoucherMatchResult {
+    score: number;
+    voucherRef: VoucherRef;
+    rows: PostingRow[];
+    totals: PostingTotals;
+    transactionDate: string;
+    referenceEvidence?: ReferenceEvidence;
+    referenceScore?: number;
+    acceptedByReference?: boolean;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return null;
+    }
+    return value as Record<string, unknown>;
+}
+
+function asArray(value: unknown): unknown[] {
+    return Array.isArray(value) ? value : [];
+}
+
+function toText(value: unknown): string {
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    return '';
+}
+
+function toNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const normalized = value.replace(/\s+/g, '').replace(',', '.');
+        if (!normalized) return null;
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+}
+
+function toInteger(value: unknown): number | null {
+    const parsed = toNumber(value);
+    if (parsed === null) return null;
+    const rounded = Math.round(parsed);
+    return Number.isFinite(rounded) ? rounded : null;
+}
+
+function roundMoney(value: number): number {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function moneyEquals(a: number, b: number, tolerance = 0.5): boolean {
+    return Math.abs(roundMoney(a - b)) <= tolerance;
+}
+
+function parseDate(value: string): number | null {
+    if (!value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clamp01(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
+}
+
+function normalizePostingRows(rows: unknown[]): PostingRow[] {
+    const normalized: PostingRow[] = [];
+    for (const row of rows) {
+        const record = asRecord(row);
+        if (!record) continue;
+        const accountRaw = record.Account ?? record.account;
+        const account = toInteger(accountRaw);
+        if (account === null) continue;
+        const debit = roundMoney(toNumber(record.Debit ?? record.debit) ?? 0);
+        const credit = roundMoney(toNumber(record.Credit ?? record.credit) ?? 0);
+        if (debit === 0 && credit === 0) continue;
+        const description = toText(
+            record.TransactionInformation
+                ?? record.Description
+                ?? record.description
+                ?? ''
+        );
+        normalized.push({
+            account,
+            debit,
+            credit,
+            description,
+        });
+    }
+    return normalized;
+}
+
+function buildPostingTotals(rows: PostingRow[]): PostingTotals {
+    const debit = roundMoney(rows.reduce((sum, row) => sum + row.debit, 0));
+    const credit = roundMoney(rows.reduce((sum, row) => sum + row.credit, 0));
+    return {
+        debit,
+        credit,
+        balanced: moneyEquals(debit, credit, 0.01),
+    };
+}
+
+function getValueFromKeys(record: Record<string, unknown>, keys: string[]): unknown {
+    for (const key of keys) {
+        if (key in record) {
+            return record[key];
+        }
+    }
+    return undefined;
+}
+
+function normalizeInvoiceType(value: unknown): InvoiceType {
+    const normalized = toText(value).toLowerCase();
+    if (normalized === 'supplier' || normalized === 'customer') {
+        return normalized;
+    }
+    throw new RequestValidationError(
+        'INVALID_PAYLOAD',
+        'payload.invoiceType måste vara supplier eller customer',
+        { field: 'payload.invoiceType' }
+    );
+}
+
+function normalizeInvoiceId(invoiceId: unknown): number {
+    const parsed = toInteger(invoiceId);
+    if (parsed === null || parsed < 1) {
+        throw new RequestValidationError(
+            'INVALID_PAYLOAD',
+            'payload.invoiceId måste vara ett positivt nummer',
+            { field: 'payload.invoiceId' }
+        );
+    }
+    return parsed;
+}
+
+function inferVatRate(vat: number, net: number): number {
+    if (vat <= 0 || net <= 0) return 25;
+    const ratio = Math.round((vat / net) * 100);
+    if (Math.abs(ratio - 25) <= 2) return 25;
+    if (Math.abs(ratio - 12) <= 2) return 12;
+    if (Math.abs(ratio - 6) <= 2) return 6;
+    return 25;
+}
+
+function getVatAccountByRate(rate: number): number {
+    if (rate <= 7) return 2631;
+    if (rate <= 13) return 2621;
+    return 2611;
+}
+
+function extractNumeric(
+    record: Record<string, unknown>,
+    keys: string[],
+    fallback = 0
+): number {
+    const value = getValueFromKeys(record, keys);
+    return roundMoney(toNumber(value) ?? fallback);
+}
+
+function buildExpectedSupplierPosting(invoiceRecord: Record<string, unknown>, normalized: NormalizedInvoiceTrace): PostingRow[] {
+    const rowsRaw = asArray(invoiceRecord.SupplierInvoiceRows);
+    const rows = normalizePostingRows(rowsRaw.map((row) => {
+        const rec = asRecord(row);
+        if (!rec) return row;
+        return {
+            Account: rec.Account,
+            Debit: rec.Debit,
+            Credit: rec.Credit,
+            Description: rec.TransactionInformation ?? rec.Description ?? normalized.counterpartyName,
+        };
+    }));
+
+    const expectedRows: PostingRow[] = [...rows];
+    const total = normalized.total;
+    const vat = normalized.vat > 0 ? normalized.vat : 0;
+    const net = roundMoney(Math.max(total - vat, 0));
+
+    if (expectedRows.length === 0) {
+        const firstAccount = toInteger(getValueFromKeys(invoiceRecord, ['Account', 'CostAccount'])) ?? 6540;
+        if (net > 0) {
+            expectedRows.push({
+                account: firstAccount,
+                debit: net,
+                credit: 0,
+                description: normalized.counterpartyName || 'Kostnad',
+            });
+        }
+        if (vat > 0) {
+            expectedRows.push({
+                account: 2641,
+                debit: vat,
+                credit: 0,
+                description: 'Ingaende moms',
+            });
+        }
+    }
+
+    const hasControlAccount = expectedRows.some((row) => row.account === 2440);
+    const totalsBeforeControl = buildPostingTotals(expectedRows);
+    if (!hasControlAccount || !totalsBeforeControl.balanced) {
+        const diff = roundMoney(totalsBeforeControl.debit - totalsBeforeControl.credit);
+        if (Math.abs(diff) > 0.01) {
+            expectedRows.push({
+                account: 2440,
+                debit: diff < 0 ? Math.abs(diff) : 0,
+                credit: diff > 0 ? diff : 0,
+                description: normalized.counterpartyName || 'Leverantorsskuld',
+            });
+        } else if (!hasControlAccount && total > 0) {
+            expectedRows.push({
+                account: 2440,
+                debit: 0,
+                credit: total,
+                description: normalized.counterpartyName || 'Leverantorsskuld',
+            });
+        }
+    }
+
+    return expectedRows;
+}
+
+function buildExpectedCustomerPosting(invoiceRecord: Record<string, unknown>, normalized: NormalizedInvoiceTrace): PostingRow[] {
+    const invoiceRows = asArray(invoiceRecord.InvoiceRows);
+    const revenueByAccount = new Map<number, number>();
+    const total = normalized.total;
+    const vat = normalized.vat > 0 ? normalized.vat : 0;
+    const net = roundMoney(Math.max(total - vat, 0));
+
+    for (const row of invoiceRows) {
+        const rec = asRecord(row);
+        if (!rec) continue;
+        const account = toInteger(rec.AccountNumber ?? rec.Account);
+        if (account === null) continue;
+        const explicitTotal = toNumber(rec.Total);
+        const price = toNumber(rec.Price) ?? 0;
+        const quantity = toNumber(rec.DeliveredQuantity) ?? 1;
+        const rowTotal = roundMoney(explicitTotal ?? (price * quantity));
+        if (rowTotal <= 0) continue;
+        revenueByAccount.set(account, roundMoney((revenueByAccount.get(account) ?? 0) + rowTotal));
+    }
+
+    if (revenueByAccount.size === 0 && net > 0) {
+        revenueByAccount.set(3001, net);
+    }
+
+    const assignedNet = roundMoney(Array.from(revenueByAccount.values()).reduce((sum, value) => sum + value, 0));
+    if (Math.abs(net - assignedNet) > 0.5) {
+        const fallbackAccount = revenueByAccount.keys().next().value as number | undefined;
+        const targetAccount = fallbackAccount ?? 3001;
+        revenueByAccount.set(targetAccount, roundMoney((revenueByAccount.get(targetAccount) ?? 0) + (net - assignedNet)));
+    }
+
+    const rows: PostingRow[] = [];
+    for (const [account, amount] of revenueByAccount.entries()) {
+        if (amount <= 0) continue;
+        rows.push({
+            account,
+            debit: 0,
+            credit: roundMoney(amount),
+            description: normalized.counterpartyName || 'Forsaljning',
+        });
+    }
+
+    if (vat > 0) {
+        const vatRate = inferVatRate(vat, net);
+        rows.push({
+            account: getVatAccountByRate(vatRate),
+            debit: 0,
+            credit: vat,
+            description: `Utgaende moms ${vatRate}%`,
+        });
+    }
+
+    const controlAccount = normalized.balance <= 0 ? 1930 : 1510;
+    rows.unshift({
+        account: controlAccount,
+        debit: total,
+        credit: 0,
+        description: controlAccount === 1930 ? 'Bank' : 'Kundfordran',
+    });
+
+    return rows;
+}
+
+function extractVatAmountFromPostingRows(rows: PostingRow[]): number {
+    let vatTotal = 0;
+    for (const row of rows) {
+        const accountCode = String(row.account);
+        if (!/^26(1|2|3|4)/.test(accountCode)) continue;
+        const rowAmount = Math.abs(row.credit > 0 ? row.credit : row.debit);
+        vatTotal += rowAmount;
+    }
+    return roundMoney(vatTotal);
+}
+
+function calculateOverlapScore(expectedRows: PostingRow[], candidateRows: PostingRow[]): number {
+    const expectedAccounts = new Set(
+        expectedRows
+            .map((row) => row.account)
+            .filter((account) => account !== 2440 && account !== 1510 && account !== 1930)
+    );
+    if (expectedAccounts.size === 0) return 0.5;
+    const candidateAccounts = new Set(candidateRows.map((row) => row.account));
+    let overlap = 0;
+    for (const account of expectedAccounts) {
+        if (candidateAccounts.has(account)) {
+            overlap += 1;
+        }
+    }
+    return overlap / expectedAccounts.size;
+}
+
+function hasControlAccount(rows: PostingRow[], invoiceType: InvoiceType): boolean {
+    const accountSet = new Set(rows.map((row) => row.account));
+    if (invoiceType === 'supplier') {
+        return accountSet.has(2440);
+    }
+    return accountSet.has(1510) || accountSet.has(1930);
+}
+
+function normalizeInvoiceTrace(
+    invoiceType: InvoiceType,
+    invoiceId: number,
+    invoiceRecord: Record<string, unknown>
+): NormalizedInvoiceTrace {
+    const total = extractNumeric(invoiceRecord, ['Total', 'TotalAmount', 'Gross']);
+    const vat = extractNumeric(invoiceRecord, ['VAT', 'TotalVAT', 'VatAmount']);
+    const balance = extractNumeric(invoiceRecord, ['Balance'], 0);
+    const bookedValue = getValueFromKeys(invoiceRecord, ['Booked']);
+    const booked = typeof bookedValue === 'boolean' ? bookedValue : null;
+
+    const invoiceNumberRaw = getValueFromKeys(invoiceRecord, ['InvoiceNumber', 'DocumentNumber', 'GivenNumber']);
+    const counterpartyNumber = toText(getValueFromKeys(invoiceRecord, [
+        invoiceType === 'supplier' ? 'SupplierNumber' : 'CustomerNumber',
+    ]));
+    const counterpartyName = toText(getValueFromKeys(invoiceRecord, [
+        invoiceType === 'supplier' ? 'SupplierName' : 'CustomerName',
+    ]));
+
+    return {
+        type: invoiceType,
+        id: String(invoiceId),
+        invoiceNumber: toText(invoiceNumberRaw) || String(invoiceId),
+        counterpartyNumber,
+        counterpartyName,
+        invoiceDate: toText(getValueFromKeys(invoiceRecord, ['InvoiceDate', 'TransactionDate'])),
+        dueDate: toText(getValueFromKeys(invoiceRecord, ['DueDate', 'FinalPayDate'])),
+        total,
+        vat,
+        balance,
+        currency: toText(getValueFromKeys(invoiceRecord, ['Currency'])) || 'SEK',
+        booked,
+    };
+}
+
+function buildPostingChecks(
+    invoiceType: InvoiceType,
+    invoice: NormalizedInvoiceTrace,
+    expectedRows: PostingRow[],
+    actualRows: PostingRow[]
+): PostingCheckResult {
+    const baselineRows = actualRows.length > 0 ? actualRows : expectedRows;
+    const totals = buildPostingTotals(baselineRows);
+    const vatInPosting = extractVatAmountFromPostingRows(baselineRows);
+    const totalForComparison = Math.max(totals.debit, totals.credit);
+
+    const rowConsistency = actualRows.length === 0
+        ? true
+        : calculateOverlapScore(expectedRows, actualRows) >= 0.5;
+
+    return {
+        balanced: totals.balanced,
+        total_match: invoice.total > 0 ? moneyEquals(totalForComparison, invoice.total, 0.5) : true,
+        vat_match: invoice.vat > 0 ? moneyEquals(vatInPosting, invoice.vat, 0.5) : true,
+        control_account_present: hasControlAccount(baselineRows, invoiceType),
+        row_account_consistency: rowConsistency,
+    };
+}
+
+async function resolveHeuristicVoucherMatch(
+    fortnoxService: FortnoxService,
+    invoiceType: InvoiceType,
+    invoice: NormalizedInvoiceTrace,
+    expectedRows: PostingRow[],
+    invoiceRecord: Record<string, unknown>
+): Promise<{ match: VoucherMatchResult | null; diagnostics: Record<string, unknown> }> {
+    const result = await resolveHeuristicVoucherMatchV2({
+        fortnoxService,
+        invoiceType,
+        invoice: {
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            invoiceDate: invoice.invoiceDate,
+            dueDate: invoice.dueDate,
+            total: invoice.total,
+            booked: invoice.booked,
+        },
+        expectedRows,
+        invoiceRecord,
+        logger,
+        runtimeBudgetMs: 5000,
+        detailConcurrency: 6,
+        maxDetailFetches: 80,
+        dateWindowDaysForBooked: 180,
+    });
+
+    return {
+        match: result.match,
+        diagnostics: {
+            candidateCount: result.diagnostics.candidateCount,
+            referenceCandidateCount: result.diagnostics.referenceCandidateCount,
+            filteredCandidateCount: result.diagnostics.filteredCandidateCount,
+            detailFetchCount: result.diagnostics.detailFetchCount,
+            bestScore: result.diagnostics.bestScore,
+            bestReferenceScore: result.diagnostics.bestReferenceScore,
+            elapsedMs: result.diagnostics.elapsedMs,
+            timedOut: result.diagnostics.timedOut,
+            usedListFallback: result.diagnostics.usedListFallback,
+            usedDetailFallback: result.diagnostics.usedDetailFallback,
+            yearsSearched: result.diagnostics.yearsSearched,
+        },
+    };
+}
+
+async function resolveReferenceVoucherMatch(
+    fortnoxService: FortnoxService,
+    invoiceType: InvoiceType,
+    invoice: NormalizedInvoiceTrace,
+    expectedRows: PostingRow[],
+    invoiceRecord: Record<string, unknown>
+): Promise<{ match: VoucherMatchResult | null; diagnostics: Record<string, unknown> }> {
+    const result = await resolveReferenceVoucherMatchV2({
+        fortnoxService,
+        invoiceType,
+        invoice: {
+            id: invoice.id,
+            invoiceNumber: invoice.invoiceNumber,
+            invoiceDate: invoice.invoiceDate,
+            dueDate: invoice.dueDate,
+            total: invoice.total,
+            booked: invoice.booked,
+        },
+        expectedRows,
+        invoiceRecord,
+        logger,
+        runtimeBudgetMs: 5000,
+        detailConcurrency: 6,
+        maxDetailFetches: 80,
+        dateWindowDaysForBooked: 180,
+    });
+
+    return {
+        match: result.match,
+        diagnostics: {
+            candidateCount: result.diagnostics.candidateCount,
+            referenceCandidateCount: result.diagnostics.referenceCandidateCount,
+            filteredCandidateCount: result.diagnostics.filteredCandidateCount,
+            detailFetchCount: result.diagnostics.detailFetchCount,
+            bestScore: result.diagnostics.bestScore,
+            bestReferenceScore: result.diagnostics.bestReferenceScore,
+            elapsedMs: result.diagnostics.elapsedMs,
+            timedOut: result.diagnostics.timedOut,
+            usedListFallback: result.diagnostics.usedListFallback,
+            usedDetailFallback: result.diagnostics.usedDetailFallback,
+            yearsSearched: result.diagnostics.yearsSearched,
+        },
+    };
+}
+
+async function buildInvoicePostingTrace(
+    fortnoxService: FortnoxService,
+    invoiceType: InvoiceType,
+    invoiceId: number
+): Promise<InvoicePostingTraceResponse> {
+    const traceStartedAt = Date.now();
+    const invoiceRecord = invoiceType === 'supplier'
+        ? asRecord((await fortnoxService.getSupplierInvoice(invoiceId)).SupplierInvoice) ?? {}
+        : asRecord((await fortnoxService.getInvoice(invoiceId)).Invoice) ?? {};
+
+    const normalizedInvoice = normalizeInvoiceTrace(invoiceType, invoiceId, invoiceRecord);
+    const expectedRows = invoiceType === 'supplier'
+        ? buildExpectedSupplierPosting(invoiceRecord, normalizedInvoice)
+        : buildExpectedCustomerPosting(invoiceRecord, normalizedInvoice);
+    const expectedTotals = buildPostingTotals(expectedRows);
+
+    let postingRows: PostingRow[] = [];
+    let postingTotals: PostingTotals = { debit: 0, credit: 0, balanced: true };
+    let postingStatus: PostingStatus = normalizedInvoice.booked === true
+        ? 'booked'
+        : normalizedInvoice.booked === false
+            ? 'unbooked'
+            : 'unknown';
+    let postingSource: PostingSource = 'none';
+    let confidence = 0;
+    let voucherRef: VoucherRef | null = null;
+    let matchPath: PostingMatchPath = 'none';
+    let referenceEvidence: ReferenceEvidence | undefined;
+    let searchDiagnostics: Record<string, unknown> | null = null;
+
+    const applyMatch = (
+        match: VoucherMatchResult,
+        source: PostingSource,
+        selectedPath: PostingMatchPath,
+        confidenceFloor = 0
+    ) => {
+        postingRows = match.rows;
+        postingTotals = match.totals;
+        postingSource = source;
+        confidence = Math.max(match.score, confidenceFloor);
+        voucherRef = match.voucherRef;
+        matchPath = selectedPath;
+        referenceEvidence = match.referenceEvidence;
+    };
+
+    const supplierExplicitCandidates = invoiceType === 'supplier'
+        ? buildSupplierExplicitVoucherCandidates(invoiceRecord)
+        : [];
+    const explicitSingleCandidate = buildExplicitSingleVoucherCandidate(invoiceRecord);
+    const explicitRefFound = supplierExplicitCandidates.length > 0 || explicitSingleCandidate !== null;
+
+    if (postingRows.length === 0 && supplierExplicitCandidates.length > 0) {
+        try {
+            const explicitVouchersMatch = await resolveExplicitVoucherMatch({
+                fortnoxService,
+                invoiceType,
+                invoice: {
+                    id: normalizedInvoice.id,
+                    invoiceNumber: normalizedInvoice.invoiceNumber,
+                    invoiceDate: normalizedInvoice.invoiceDate,
+                    dueDate: normalizedInvoice.dueDate,
+                    total: normalizedInvoice.total,
+                    booked: normalizedInvoice.booked,
+                },
+                expectedRows,
+                invoiceRecord,
+                candidates: supplierExplicitCandidates,
+                logger,
+            });
+            if (explicitVouchersMatch && explicitVouchersMatch.rows.length > 0) {
+                applyMatch(explicitVouchersMatch, 'explicit', 'explicit_vouchers', 0.98);
+            }
+        } catch (error) {
+            logger.warn('Explicit supplier vouchers lookup failed for posting trace', {
+                invoiceType,
+                invoiceId,
+                candidateCount: supplierExplicitCandidates.length,
+                fortnoxStatusCode: getFortnoxStatusCode(error),
+            });
+            if (shouldPropagatePostingTraceError(error)) {
+                throw error;
+            }
+        }
+    }
+
+    if (postingRows.length === 0 && explicitSingleCandidate) {
+        try {
+            const explicitSingleMatch = await resolveExplicitVoucherMatch({
+                fortnoxService,
+                invoiceType,
+                invoice: {
+                    id: normalizedInvoice.id,
+                    invoiceNumber: normalizedInvoice.invoiceNumber,
+                    invoiceDate: normalizedInvoice.invoiceDate,
+                    dueDate: normalizedInvoice.dueDate,
+                    total: normalizedInvoice.total,
+                    booked: normalizedInvoice.booked,
+                },
+                expectedRows,
+                invoiceRecord,
+                candidates: [explicitSingleCandidate],
+                logger,
+            });
+            if (explicitSingleMatch && explicitSingleMatch.rows.length > 0) {
+                applyMatch(explicitSingleMatch, 'explicit', 'explicit_single', 0.98);
+            }
+        } catch (error) {
+            logger.warn('Explicit single voucher lookup failed for posting trace', {
+                invoiceType,
+                invoiceId,
+                voucherSeries: explicitSingleCandidate.series,
+                voucherNumber: explicitSingleCandidate.number,
+                voucherYear: explicitSingleCandidate.year,
+                fortnoxStatusCode: getFortnoxStatusCode(error),
+            });
+            if (shouldPropagatePostingTraceError(error)) {
+                throw error;
+            }
+        }
+    }
+
+    if (postingRows.length === 0 && normalizedInvoice.booked === true) {
+        try {
+            const referenceResult = await resolveReferenceVoucherMatch(
+                fortnoxService,
+                invoiceType,
+                normalizedInvoice,
+                expectedRows,
+                invoiceRecord
+            );
+            searchDiagnostics = referenceResult.diagnostics;
+            const referenceMatch = referenceResult.match;
+            if (referenceMatch && (referenceMatch.score >= 0.45 || referenceMatch.acceptedByReference === true)) {
+                const floor = referenceMatch.acceptedByReference === true ? 0.9 : 0;
+                applyMatch(referenceMatch, 'explicit', 'reference', floor);
+            } else {
+                postingSource = 'none';
+                confidence = referenceMatch?.score
+                    ?? (typeof referenceResult.diagnostics.bestScore === 'number'
+                        ? referenceResult.diagnostics.bestScore
+                        : 0);
+            }
+        } catch (error) {
+            logger.warn('Reference voucher lookup failed for posting trace', {
+                invoiceType,
+                invoiceId,
+                fortnoxStatusCode: getFortnoxStatusCode(error),
+            });
+            if (shouldPropagatePostingTraceError(error)) {
+                throw error;
+            }
+        }
+    }
+
+    if (postingRows.length === 0 && normalizedInvoice.booked === true) {
+        try {
+            const heuristicResult = await resolveHeuristicVoucherMatch(
+                fortnoxService,
+                invoiceType,
+                normalizedInvoice,
+                expectedRows,
+                invoiceRecord
+            );
+            searchDiagnostics = heuristicResult.diagnostics;
+            const heuristicMatch = heuristicResult.match;
+            if (heuristicMatch && (heuristicMatch.score >= 0.6 || heuristicMatch.acceptedByReference === true)) {
+                const confidenceFloor = heuristicMatch.acceptedByReference === true ? 0.82 : 0;
+                applyMatch(heuristicMatch, 'heuristic', 'heuristic', confidenceFloor);
+            } else {
+                postingSource = 'none';
+                confidence = heuristicMatch?.score
+                    ?? (typeof heuristicResult.diagnostics.bestScore === 'number'
+                        ? heuristicResult.diagnostics.bestScore
+                        : 0);
+                if (heuristicMatch && heuristicMatch.score >= 0.45 && heuristicMatch.score < 0.6) {
+                    logger.warn('Heuristic voucher match below acceptance threshold', {
+                        invoiceType,
+                        invoiceId,
+                        bestScore: heuristicMatch.score,
+                        acceptanceThreshold: 0.6,
+                    });
+                }
+            }
+        } catch (error) {
+            logger.warn('Heuristic voucher lookup failed for posting trace', {
+                invoiceType,
+                invoiceId,
+                fortnoxStatusCode: getFortnoxStatusCode(error),
+            });
+            if (shouldPropagatePostingTraceError(error)) {
+                throw error;
+            }
+            postingSource = 'none';
+            confidence = 0;
+        }
+    }
+
+    const checks = buildPostingChecks(invoiceType, normalizedInvoice, expectedRows, postingRows);
+    const issues = buildPostingIssues(invoiceType, normalizedInvoice, checks, postingStatus, postingSource, confidence);
+    const elapsedMs = Date.now() - traceStartedAt;
+
+    logger.info('Invoice posting trace resolved', {
+        invoiceType,
+        invoiceId,
+        booked: normalizedInvoice.booked,
+        explicitRefFound,
+        matchPath,
+        referenceType: referenceEvidence?.referenceType ?? null,
+        candidateCount: searchDiagnostics?.candidateCount ?? 0,
+        referenceCandidateCount: searchDiagnostics?.referenceCandidateCount ?? 0,
+        filteredCandidateCount: searchDiagnostics?.filteredCandidateCount ?? 0,
+        detailFetchCount: searchDiagnostics?.detailFetchCount ?? 0,
+        bestScore: searchDiagnostics?.bestScore ?? confidence,
+        bestReferenceScore: searchDiagnostics?.bestReferenceScore ?? (typeof confidence === 'number' ? confidence : 0),
+        selectedSource: postingSource,
+        usedListFallback: searchDiagnostics?.usedListFallback ?? false,
+        usedDetailFallback: searchDiagnostics?.usedDetailFallback ?? false,
+        timedOut: searchDiagnostics?.timedOut ?? false,
+        elapsedMs,
+    });
+
+    return {
+        invoice: normalizedInvoice,
+        expectedPosting: {
+            rows: expectedRows,
+            totals: expectedTotals,
+        },
+        posting: {
+            status: postingStatus,
+            source: postingSource,
+            confidence: roundMoney(confidence),
+            voucherRef,
+            matchPath,
+            referenceEvidence,
+            rows: postingRows,
+            totals: postingTotals,
+        },
+        checks,
+        issues,
+    };
+}
+
 function getClientMetadata(req: Request): { ipAddress?: string; userAgent?: string } {
     const forwardedFor = req.headers.get('x-forwarded-for') || req.headers.get('X-Forwarded-For');
     const realIp = req.headers.get('x-real-ip') || req.headers.get('X-Real-IP');
@@ -150,19 +981,19 @@ function getWriteRequestMetadata(
     return { idempotencyKey, sourceContext, aiDecisionId };
 }
 
-function requireCompanyIdForWrite(action: string, companyId: string | undefined): string {
-    const operation = WRITE_ACTIONS_TO_OPERATION[action];
-    if (!operation) {
-        return companyId && companyId.trim().length > 0 ? companyId : 'default';
-    }
+function requireCompanyId(action: string, companyId: string | undefined): string {
     if (companyId && companyId.trim().length > 0) {
-        return companyId;
+        return companyId.trim();
     }
     throw new RequestValidationError(
         'MISSING_COMPANY_ID',
         'Missing required field: companyId',
         { action, field: 'companyId' }
     );
+}
+
+function requireCompanyIdForWrite(action: string, companyId: string | undefined): string {
+    return requireCompanyId(action, companyId);
 }
 
 function validationResponse(
@@ -251,7 +1082,29 @@ Deno.serve(async (req: Request) => {
         const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
         const action = typeof body['action'] === 'string' ? body['action'] : '';
         const payload = isRecord(body['payload']) ? body['payload'] : undefined;
-        const companyId = typeof body['companyId'] === 'string' ? body['companyId'] : undefined;
+        const companyId = typeof body['companyId'] === 'string' && body['companyId'].trim().length > 0
+            ? body['companyId'].trim()
+            : undefined;
+        const resolvedCompanyId = ACTIONS_REQUIRING_COMPANY_ID.has(action)
+            ? requireCompanyId(action, companyId)
+            : undefined;
+
+        if (resolvedCompanyId) {
+            const { data: companyRow, error: companyError } = await supabaseAdmin
+                .from('companies')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('id', resolvedCompanyId)
+                .maybeSingle();
+
+            if (companyError || !companyRow) {
+                throw new RequestValidationError(
+                    'INVALID_COMPANY_ID',
+                    'Invalid companyId for current user',
+                    { action, field: 'companyId' }
+                );
+            }
+        }
 
         const isLocal = supabaseUrl.includes('127.0.0.1') || supabaseUrl.includes('localhost');
         const rateLimiter = new RateLimiterService(
@@ -319,7 +1172,19 @@ Deno.serve(async (req: Request) => {
             redirectUri: '', // Not needed for refresh flow
         };
 
-        const fortnoxService = new FortnoxService(fortnoxConfig, supabaseClient, userId);
+        const fortnoxService = resolvedCompanyId
+            ? new FortnoxService(fortnoxConfig, supabaseClient, userId, resolvedCompanyId)
+            : null;
+        const requireFortnoxService = (): FortnoxService => {
+            if (!fortnoxService) {
+                throw new RequestValidationError(
+                    'MISSING_COMPANY_ID',
+                    'Missing required field: companyId',
+                    { action, field: 'companyId' }
+                );
+            }
+            return fortnoxService;
+        };
         const auditService = new AuditService(supabaseClient);
 
         const requestMeta = getClientMetadata(req);
@@ -436,7 +1301,7 @@ Deno.serve(async (req: Request) => {
 
                 syncId = write.syncId;
                 try {
-                    result = await fortnoxService.createInvoiceDraft(invoiceData as unknown as FortnoxInvoice);
+                    result = await requireFortnoxService().createInvoiceDraft(invoiceData as unknown as FortnoxInvoice);
                     await auditService.completeFortnoxSync(syncId!, {
                         fortnoxDocumentNumber: String((result as { Invoice?: { InvoiceNumber?: number } }).Invoice?.InvoiceNumber ?? ''),
                         responsePayload: result as unknown as Record<string, unknown>,
@@ -452,11 +1317,11 @@ Deno.serve(async (req: Request) => {
             }
 
             case 'getCustomers':
-                result = await fortnoxService.getCustomers();
+                result = await requireFortnoxService().getCustomers();
                 break;
 
             case 'getArticles':
-                result = await fortnoxService.getArticles();
+                result = await requireFortnoxService().getArticles();
                 break;
 
             case 'getInvoices': {
@@ -464,12 +1329,18 @@ Deno.serve(async (req: Request) => {
                 const toDate = payload?.toDate as string | undefined;
                 const customerNumber = payload?.customerNumber as string | undefined;
                 const pagination = parsePagination(payload);
-                result = await fortnoxService.getInvoices({
+                result = await requireFortnoxService().getInvoices({
                     fromDate,
                     toDate,
                     customerNumber,
                     ...pagination,
                 });
+                break;
+            }
+
+            case 'getInvoice': {
+                const invoiceNumber = requireNumber(payload?.invoiceNumber, 'payload.invoiceNumber');
+                result = await requireFortnoxService().getInvoice(invoiceNumber);
                 break;
             }
 
@@ -499,10 +1370,10 @@ Deno.serve(async (req: Request) => {
                 syncId = write.syncId;
 
                 try {
-                    const created = await fortnoxService.createInvoicePayment(payment);
+                    const created = await requireFortnoxService().createInvoicePayment(payment);
                     const number = created?.InvoicePayment?.Number;
                     if (number) {
-                        const bookkept = await fortnoxService.bookkeepInvoicePayment(number);
+                        const bookkept = await requireFortnoxService().bookkeepInvoicePayment(number);
                         result = { payment: created, bookkeep: bookkept };
                     } else {
                         result = created;
@@ -579,7 +1450,7 @@ Deno.serve(async (req: Request) => {
                 const financialYear = payload?.financialYear as number | undefined;
                 const voucherSeries = payload?.voucherSeries as string | undefined;
                 const pagination = parsePagination(payload);
-                result = await fortnoxService.getVouchers(financialYear, voucherSeries, pagination);
+                result = await requireFortnoxService().getVouchers(financialYear, voucherSeries, pagination);
                 break;
             }
 
@@ -587,7 +1458,7 @@ Deno.serve(async (req: Request) => {
                 const series = requireString(payload?.voucherSeries, 'payload.voucherSeries');
                 const number = requireNumber(payload?.voucherNumber, 'payload.voucherNumber');
                 const year = payload?.financialYear as number | undefined;
-                result = await fortnoxService.getVoucher(series, number, year);
+                result = await requireFortnoxService().getVoucher(series, number, year);
                 break;
             }
 
@@ -621,7 +1492,7 @@ Deno.serve(async (req: Request) => {
                 syncId = write.syncId;
 
                 try {
-                    result = await fortnoxService.createVoucher(voucherData);
+                    result = await requireFortnoxService().createVoucher(voucherData);
 
                     // Complete sync with success
                     await auditService.completeFortnoxSync(syncId!, {
@@ -654,7 +1525,7 @@ Deno.serve(async (req: Request) => {
                 const supplierNumber = payload?.supplierNumber as string | undefined;
                 const filter = payload?.filter as string | undefined;
                 const pagination = parsePagination(payload);
-                result = await fortnoxService.getSupplierInvoices({
+                result = await requireFortnoxService().getSupplierInvoices({
                     fromDate,
                     toDate,
                     supplierNumber,
@@ -666,7 +1537,18 @@ Deno.serve(async (req: Request) => {
 
             case 'getSupplierInvoice': {
                 const givenNumber = requireNumber(payload?.givenNumber, 'payload.givenNumber');
-                result = await fortnoxService.getSupplierInvoice(givenNumber);
+                result = await requireFortnoxService().getSupplierInvoice(givenNumber);
+                break;
+            }
+
+            case 'getInvoicePostingTrace': {
+                const invoiceType = normalizeInvoiceType(payload?.invoiceType);
+                const invoiceId = normalizeInvoiceId(payload?.invoiceId);
+                result = await buildInvoicePostingTrace(
+                    requireFortnoxService(),
+                    invoiceType,
+                    invoiceId
+                );
                 break;
             }
 
@@ -696,10 +1578,10 @@ Deno.serve(async (req: Request) => {
                 syncId = write.syncId;
 
                 try {
-                    const created = await fortnoxService.createSupplierInvoicePayment(payment);
+                    const created = await requireFortnoxService().createSupplierInvoicePayment(payment);
                     const number = created?.SupplierInvoicePayment?.Number;
                     if (number !== undefined) {
-                        const bookkept = await fortnoxService.bookkeepSupplierInvoicePayment(number);
+                        const bookkept = await requireFortnoxService().bookkeepSupplierInvoicePayment(number);
                         result = { payment: created, bookkeep: bookkept };
                     } else {
                         result = created;
@@ -795,7 +1677,7 @@ Deno.serve(async (req: Request) => {
                 syncId = write.syncId;
 
                 try {
-                    result = await fortnoxService.createSupplierInvoice(invoiceData);
+                    result = await requireFortnoxService().createSupplierInvoice(invoiceData);
 
                     // Complete sync with success
                     await auditService.completeFortnoxSync(syncId!, {
@@ -835,7 +1717,7 @@ Deno.serve(async (req: Request) => {
 
                 syncId = write.syncId;
                 try {
-                    result = await fortnoxService.bookSupplierInvoice(givenNumber);
+                    result = await requireFortnoxService().bookSupplierInvoice(givenNumber);
                     await auditService.completeFortnoxSync(syncId!, {
                         fortnoxDocumentNumber: String(givenNumber),
                         responsePayload: result as unknown as Record<string, unknown>,
@@ -865,7 +1747,7 @@ Deno.serve(async (req: Request) => {
 
                 syncId = write.syncId;
                 try {
-                    result = await fortnoxService.approveSupplierInvoiceBookkeep(givenNumber);
+                    result = await requireFortnoxService().approveSupplierInvoiceBookkeep(givenNumber);
                     await auditService.completeFortnoxSync(syncId!, {
                         fortnoxDocumentNumber: String(givenNumber),
                         responsePayload: result as unknown as Record<string, unknown>,
@@ -895,7 +1777,7 @@ Deno.serve(async (req: Request) => {
 
                 syncId = write.syncId;
                 try {
-                    result = await fortnoxService.approveSupplierInvoicePayment(givenNumber);
+                    result = await requireFortnoxService().approveSupplierInvoicePayment(givenNumber);
                     await auditService.completeFortnoxSync(syncId!, {
                         fortnoxDocumentNumber: String(givenNumber),
                         responsePayload: result as unknown as Record<string, unknown>,
@@ -914,12 +1796,12 @@ Deno.serve(async (req: Request) => {
             // SUPPLIER ACTIONS (Leverantörer)
             // ================================================================
             case 'getSuppliers':
-                result = await fortnoxService.getSuppliers();
+                result = await requireFortnoxService().getSuppliers();
                 break;
 
             case 'getSupplier': {
                 const supplierNumber = requireString(payload?.supplierNumber, 'payload.supplierNumber');
-                result = await fortnoxService.getSupplier(supplierNumber);
+                result = await requireFortnoxService().getSupplier(supplierNumber);
                 break;
             }
 
@@ -941,7 +1823,7 @@ Deno.serve(async (req: Request) => {
                 syncId = write.syncId;
 
                 try {
-                    result = await fortnoxService.createSupplier(supplierData);
+                    result = await requireFortnoxService().createSupplier(supplierData);
 
                     // Complete sync with success
                     await auditService.completeFortnoxSync(syncId!, {
@@ -980,7 +1862,7 @@ Deno.serve(async (req: Request) => {
 
                 syncId = write.syncId;
                 try {
-                    result = await fortnoxService.findOrCreateSupplier(supplierData);
+                    result = await requireFortnoxService().findOrCreateSupplier(supplierData);
                     await auditService.completeFortnoxSync(syncId!, {
                         fortnoxSupplierNumber: (result as { Supplier?: { SupplierNumber?: string } })?.Supplier?.SupplierNumber,
                         responsePayload: result as unknown as Record<string, unknown>,
@@ -1017,15 +1899,15 @@ Deno.serve(async (req: Request) => {
                 }
 
                 // 1. Fetch company info from Fortnox
-                const companyInfo = await fortnoxService.getCompanyInfo();
+                const companyInfo = await requireFortnoxService().getCompanyInfo();
                 const info = companyInfo.CompanyInformation;
 
                 // 2. Fetch financial years
-                const years = await fortnoxService.getFinancialYears();
+                const years = await requireFortnoxService().getFinancialYears();
                 const latestYear = years.FinancialYears?.[0];
 
                 // 3. Fetch suppliers
-                const suppliers = await fortnoxService.getSuppliers();
+                const suppliers = await requireFortnoxService().getSuppliers();
 
                 // 4. Build accounting_memories records
                 const accountingMemories: Record<string, unknown>[] = [];
@@ -1130,8 +2012,8 @@ Deno.serve(async (req: Request) => {
                 type SuppInvList = { SupplierInvoices: Array<{ GivenNumber: number; SupplierNumber: string; InvoiceDate: string; Total: number; VAT?: number; Booked: boolean }> };
 
                 const [vatCompanyResp, vatYearsResp] = await Promise.all([
-                    fortnoxService.getCompanyInfo(),
-                    fortnoxService.getFinancialYears(),
+                    requireFortnoxService().getCompanyInfo(),
+                    requireFortnoxService().getFinancialYears(),
                 ]);
                 const vatCompany = vatCompanyResp.CompanyInformation;
                 const currentFY = vatYearsResp.FinancialYears?.[0];
@@ -1140,13 +2022,13 @@ Deno.serve(async (req: Request) => {
 
                 // 2. Fetch invoice lists + supplier invoices with full pagination
                 const [invoicesResp, suppInvResp] = await Promise.all([
-                    fortnoxService.getInvoices({
+                    requireFortnoxService().getInvoices({
                         fromDate: fyFrom,
                         toDate: fyTo,
                         allPages: true,
                         limit: 100,
                     }).catch(() => ({ Invoices: [] as InvList['Invoices'] })),
-                    fortnoxService.getSupplierInvoices({
+                    requireFortnoxService().getSupplierInvoices({
                         fromDate: fyFrom,
                         toDate: fyTo,
                         allPages: true,
@@ -1168,7 +2050,7 @@ Deno.serve(async (req: Request) => {
                         batch.map(inv => {
                             const invRecord = inv as Record<string, unknown>;
                             const invoiceNo = Number(invRecord.DocumentNumber ?? invRecord.InvoiceNumber ?? 0);
-                            return fortnoxService.request<InvDetail>(`/invoices/${invoiceNo}`).catch(() => null);
+                            return requireFortnoxService().request<InvDetail>(`/invoices/${invoiceNo}`).catch(() => null);
                         })
                     );
                     for (const r of results) {
@@ -1193,7 +2075,7 @@ Deno.serve(async (req: Request) => {
                     const batch = suppInvoices.slice(i, i + 4);
                     const results = await Promise.all(
                         batch.map(inv =>
-                            fortnoxService.request<SuppInvDetail>(`/supplierinvoices/${inv.GivenNumber}`).catch(() => null)
+                            requireFortnoxService().request<SuppInvDetail>(`/supplierinvoices/${inv.GivenNumber}`).catch(() => null)
                         )
                     );
                     for (const r of results) {

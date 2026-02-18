@@ -25,6 +25,12 @@ type RateLimitInfo = {
     message?: string | null;
 };
 
+function getSkeletonMessageStyle(index: number) {
+    return {
+        alignSelf: index % 2 === 0 ? 'flex-end' : 'flex-start'
+    };
+}
+
 export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationId }) => {
     // All hooks must be at the top, before any conditional returns
     const [messages, setMessages] = useState<Message[]>([]);
@@ -420,7 +426,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             <div class="chat-loading-skeleton">
                 {/* Skeleton messages */}
                 {[1, 2, 3].map((i) => (
-                    <div key={i} class="skeleton-message" style={{ alignSelf: i % 2 === 0 ? 'flex-end' : 'flex-start' }}>
+                    <div key={i} class="skeleton-message" style={getSkeletonMessageStyle(i)}>
                         <div class="skeleton skeleton-avatar"></div>
                         <div class="skeleton-content">
                             <div class={`skeleton skeleton-line ${i === 1 ? 'long' : i === 2 ? 'medium' : 'short'}`}></div>
@@ -571,7 +577,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                 <div class="message ai-message thinking-message">
 
                     {streamingMessage ? (
-                        <div class="bubble thinking-bubble">
+                        <div class="bubble thinking-bubble streaming-bubble">
                             <StreamingText content={streamingMessage} />
                         </div>
                     ) : thinkingTimeout ? (

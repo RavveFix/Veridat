@@ -698,6 +698,7 @@ export type Database = {
       fortnox_tokens: {
         Row: {
           access_token: string
+          company_id: string
           created_at: string | null
           expires_at: string | null
           id: string
@@ -707,6 +708,7 @@ export type Database = {
         }
         Insert: {
           access_token: string
+          company_id: string
           created_at?: string | null
           expires_at?: string | null
           id?: string
@@ -716,6 +718,7 @@ export type Database = {
         }
         Update: {
           access_token?: string
+          company_id?: string
           created_at?: string | null
           expires_at?: string | null
           id?: string
@@ -730,6 +733,7 @@ export type Database = {
           accepted_at: string
           accepted_from: string
           company_id: string | null
+          company_org_number: string | null
           created_at: string
           doc_type: string
           dpa_authorized: boolean
@@ -742,6 +746,7 @@ export type Database = {
           accepted_at?: string
           accepted_from?: string
           company_id?: string | null
+          company_org_number?: string | null
           created_at?: string
           doc_type: string
           dpa_authorized?: boolean
@@ -754,6 +759,7 @@ export type Database = {
           accepted_at?: string
           accepted_from?: string
           company_id?: string | null
+          company_org_number?: string | null
           created_at?: string
           doc_type?: string
           dpa_authorized?: boolean

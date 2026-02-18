@@ -14,6 +14,8 @@ import { financeAgentService } from '../services/FinanceAgentService';
 import { logger } from '../services/LoggerService';
 import type { InvoiceInboxRecord } from '../types/finance';
 import { getFortnoxList, getFortnoxObject } from '../utils/fortnoxResponse';
+import { InvoicePostingReviewDrawer } from './InvoicePostingReviewDrawer';
+import { getInvoicePostingReviewEnabled, invoicePostingReviewService, type InvoicePostingTrace } from '../services/InvoicePostingReviewService';
 
 // =============================================================================
 // TYPES
@@ -23,6 +25,7 @@ type InvoiceStatus = 'ny' | 'granskad' | 'bokford' | 'betald';
 type FortnoxSyncStatus = 'not_exported' | 'exported' | 'booked' | 'attested';
 
 type InvoiceSource = 'upload' | 'fortnox';
+type InvoiceStatusFilter = InvoiceStatus | 'alla';
 
 interface InvoiceInboxItem {
     id: string;
@@ -62,6 +65,21 @@ interface InvoiceInboxPanelProps {
     onBack: () => void;
 }
 
+interface InvoiceSummary {
+    total: number;
+    ny: number;
+    granskad: number;
+    bokford: number;
+    betald: number;
+    totalAmount: number;
+}
+
+interface SummaryCard {
+    label: string;
+    value: string | number;
+    color: string;
+}
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -82,6 +100,277 @@ const FORTNOX_SYNC_STATUS_LABELS: Record<FortnoxSyncStatus, string> = {
 };
 const FORTNOX_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`;
 const GEMINI_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gemini-chat`;
+
+const INVOICE_CARD_TOP_ROW_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
+    marginBottom: '0.6rem',
+} as const;
+
+const INVOICE_CARD_SUPPLIER_WRAP_STYLE = {
+    flex: 1,
+    minWidth: '120px',
+} as const;
+
+const INVOICE_CARD_SUPPLIER_NAME_STYLE = {
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+    fontSize: '0.9rem',
+} as const;
+
+const INVOICE_CARD_FILE_NAME_STYLE = {
+    fontSize: '0.75rem',
+    color: 'var(--text-secondary)',
+} as const;
+
+const INVOICE_CARD_AMOUNT_WRAP_STYLE = {
+    textAlign: 'right',
+} as const;
+
+const INVOICE_CARD_AMOUNT_VALUE_STYLE = {
+    fontWeight: 700,
+    color: 'var(--text-primary)',
+    fontSize: '1rem',
+} as const;
+
+const INVOICE_CARD_AMOUNT_META_STYLE = {
+    fontSize: '0.72rem',
+    color: 'var(--text-secondary)',
+} as const;
+
+const INVOICE_CARD_DETAILS_ROW_STYLE = {
+    display: 'flex',
+    gap: '1.5rem',
+    flexWrap: 'wrap',
+    fontSize: '0.8rem',
+    marginBottom: '0.6rem',
+} as const;
+
+const INVOICE_CARD_DETAIL_LABEL_STYLE = {
+    color: 'var(--text-secondary)',
+} as const;
+
+const INVOICE_CARD_DETAIL_VALUE_STYLE = {
+    color: 'var(--text-primary)',
+} as const;
+
+const INVOICE_CARD_DETAIL_STRONG_VALUE_STYLE = {
+    color: 'var(--text-primary)',
+    fontWeight: 600,
+} as const;
+
+const INVOICE_CARD_DETAIL_FORTNOX_VALUE_STYLE = {
+    color: '#10b981',
+    fontWeight: 600,
+} as const;
+
+const INVOICE_CARD_AI_REVIEW_STYLE = {
+    padding: '0.5rem 0.75rem',
+    borderRadius: '8px',
+    background: 'rgba(139, 92, 246, 0.08)',
+    border: '1px solid rgba(139, 92, 246, 0.2)',
+    fontSize: '0.8rem',
+    color: 'var(--text-primary)',
+    lineHeight: 1.4,
+    marginBottom: '0.6rem',
+} as const;
+
+const INVOICE_CARD_AI_REVIEW_LABEL_STYLE = {
+    fontWeight: 600,
+    color: '#8b5cf6',
+    fontSize: '0.72rem',
+} as const;
+
+const INVOICE_INBOX_ROOT_STYLE = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem',
+} as const;
+
+const INVOICE_INBOX_HEADER_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+} as const;
+
+const INVOICE_INBOX_BACK_BUTTON_STYLE = {
+    background: 'transparent',
+    border: '1px solid var(--glass-border)',
+    borderRadius: '8px',
+    color: 'var(--text-secondary)',
+    padding: '0.4rem 0.75rem',
+    fontSize: '0.8rem',
+    cursor: 'pointer',
+} as const;
+
+const INVOICE_INBOX_HEADER_HINT_STYLE = {
+    fontSize: '0.85rem',
+    color: 'var(--text-secondary)',
+} as const;
+
+const INVOICE_INBOX_ERROR_MESSAGE_STYLE = {
+    padding: '0.6rem 0.8rem',
+    borderRadius: '8px',
+    background: 'rgba(239, 68, 68, 0.12)',
+    color: '#ef4444',
+    fontSize: '0.8rem',
+} as const;
+
+const INVOICE_INBOX_SUCCESS_MESSAGE_STYLE = {
+    padding: '0.6rem 0.8rem',
+    borderRadius: '8px',
+    background: 'rgba(16, 185, 129, 0.12)',
+    color: '#10b981',
+    fontSize: '0.8rem',
+} as const;
+
+const INVOICE_UPLOAD_ZONE_BASE_STYLE = {
+    padding: '1.5rem',
+    textAlign: 'center',
+} as const;
+
+const INVOICE_FILE_INPUT_HIDDEN_STYLE = { display: 'none' } as const;
+
+const INVOICE_UPLOAD_TEXT_STYLE = {
+    color: 'var(--text-secondary)',
+    fontSize: '0.85rem',
+} as const;
+
+const INVOICE_UPLOAD_ICON_STYLE = {
+    fontSize: '1.5rem',
+    marginBottom: '0.4rem',
+} as const;
+
+const INVOICE_UPLOAD_TITLE_STYLE = {
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+    fontSize: '0.9rem',
+} as const;
+
+const INVOICE_UPLOAD_HINT_STYLE = {
+    color: 'var(--text-secondary)',
+    fontSize: '0.8rem',
+    marginTop: '0.25rem',
+} as const;
+
+const INVOICE_SYNC_BUTTON_BASE_STYLE = {
+    width: '100%',
+    height: '42px',
+    borderRadius: '10px',
+    border: '1px solid rgba(16, 185, 129, 0.3)',
+    background: 'rgba(16, 185, 129, 0.08)',
+    color: '#10b981',
+    fontSize: '0.85rem',
+    fontWeight: 600,
+} as const;
+
+const INVOICE_SUMMARY_GRID_STYLE = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+    gap: '0.75rem',
+} as const;
+
+const INVOICE_STATUS_FILTER_ROW_STYLE = {
+    display: 'flex',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+} as const;
+
+const INVOICE_EMPTY_STATE_STYLE = {
+    textAlign: 'center',
+    color: 'var(--text-secondary)',
+    fontSize: '0.85rem',
+    border: '1px dashed var(--surface-border)',
+} as const;
+
+const INVOICE_LIST_GRID_STYLE = {
+    display: 'grid',
+    gap: '0.75rem',
+} as const;
+
+const INVOICE_HELP_CARD_STYLE = {
+    fontSize: '0.8rem',
+    color: 'var(--text-secondary)',
+    lineHeight: 1.5,
+} as const;
+
+const INVOICE_HELP_TITLE_STYLE = { color: 'var(--text-primary)' } as const;
+
+const FILTER_BUTTON_BASE_STYLE = {
+    height: '34px',
+    padding: '0 0.8rem',
+    borderRadius: '10px',
+    border: '1px solid var(--glass-border)',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+} as const;
+
+const FILTER_BUTTON_COUNT_STYLE = {
+    fontSize: '0.7rem',
+    opacity: 0.7,
+    fontWeight: 400,
+} as const;
+
+const INVOICE_PILL_BASE_STYLE = {
+    padding: '0.15rem 0.5rem',
+    borderRadius: '999px',
+    fontSize: '0.7rem',
+    fontWeight: 600,
+} as const;
+
+const INVOICE_CARD_ACTIONS_ROW_STYLE = {
+    display: 'flex',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+} as const;
+
+const EDIT_FORM_GRID_STYLE = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+    gap: '0.5rem',
+    padding: '0.75rem',
+    marginBottom: '0.6rem',
+    borderRadius: '10px',
+    border: '1px solid rgba(255, 255, 255, 0.06)',
+    background: 'rgba(255, 255, 255, 0.02)',
+} as const;
+
+const EDIT_FORM_LABEL_STYLE = {
+    fontSize: '0.72rem',
+    color: 'var(--text-secondary)',
+    display: 'block',
+    marginBottom: '0.15rem',
+} as const;
+
+const EDIT_FORM_INPUT_STYLE = {
+    width: '100%',
+    height: '30px',
+    padding: '0 0.5rem',
+    borderRadius: '8px',
+    border: '1px solid var(--glass-border)',
+    background: 'rgba(255, 255, 255, 0.04)',
+    color: 'var(--text-primary)',
+    fontSize: '0.8rem',
+    outline: 'none',
+    boxSizing: 'border-box',
+} as const;
+
+const ACTION_BUTTON_BASE_STYLE = {
+    height: '30px',
+    padding: '0 0.7rem',
+    borderRadius: '8px',
+    border: '1px solid var(--glass-border)',
+    background: 'transparent',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+} as const;
 
 // =============================================================================
 // HELPERS
@@ -218,6 +507,112 @@ function isOverdue(dueDate: string): boolean {
     return due < new Date();
 }
 
+function getInvoiceDisplayName(item: InvoiceInboxItem): string {
+    return item.supplierName || item.fortnoxSupplierNumber || item.fileName || `Fortnox #${item.fortnoxGivenNumber}`;
+}
+
+function getInvoiceCardContainerStyle(overdue: boolean) {
+    return {
+        border: `1px solid ${overdue ? 'rgba(239, 68, 68, 0.4)' : 'var(--surface-border)'}`,
+        background: overdue ? 'rgba(239, 68, 68, 0.04)' : undefined,
+    };
+}
+
+function getInvoiceDueDateStyle(overdue: boolean) {
+    return {
+        color: overdue ? '#ef4444' : 'var(--text-primary)',
+        fontWeight: overdue ? 600 : 400,
+    };
+}
+
+function getInvoiceBalanceStyle(balance: number) {
+    return {
+        color: balance > 0 ? '#f59e0b' : '#10b981',
+        fontWeight: 600,
+    };
+}
+
+function getUploadZoneStyle(dragOver: boolean) {
+    return {
+        ...INVOICE_UPLOAD_ZONE_BASE_STYLE,
+        border: `2px dashed ${dragOver ? '#3b82f6' : 'var(--surface-border)'}`,
+        background: dragOver ? 'rgba(59, 130, 246, 0.08)' : 'var(--surface-1)',
+    } as const;
+}
+
+function getFortnoxSyncButtonStyle(syncing: boolean) {
+    return {
+        ...INVOICE_SYNC_BUTTON_BASE_STYLE,
+        cursor: syncing ? 'wait' : 'pointer',
+        opacity: syncing ? 0.6 : 1,
+    } as const;
+}
+
+function getSummaryStatStyle(color: string) {
+    return { color };
+}
+
+function getFilterButtonStyle(active: boolean, color?: string) {
+    return {
+        ...FILTER_BUTTON_BASE_STYLE,
+        background: active ? (color ? `${color}20` : 'rgba(255, 255, 255, 0.1)') : 'transparent',
+        color: active ? (color || 'var(--text-primary)') : 'var(--text-secondary)',
+    } as const;
+}
+
+function getInvoicePillStyle(background: string, color: string) {
+    return {
+        ...INVOICE_PILL_BASE_STYLE,
+        background,
+        color,
+    } as const;
+}
+
+function getActionButtonStyle(color: string, disabled = false) {
+    return {
+        ...ACTION_BUTTON_BASE_STYLE,
+        color,
+        cursor: disabled ? 'wait' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+    } as const;
+}
+
+function filterItemsByStatus(items: InvoiceInboxItem[], statusFilter: InvoiceStatusFilter): InvoiceInboxItem[] {
+    if (statusFilter === 'alla') {
+        return items;
+    }
+    return items.filter((item) => item.status === statusFilter);
+}
+
+function buildInvoiceSummary(items: InvoiceInboxItem[]): InvoiceSummary {
+    const summary: InvoiceSummary = {
+        total: items.length,
+        ny: 0,
+        granskad: 0,
+        bokford: 0,
+        betald: 0,
+        totalAmount: 0,
+    };
+
+    for (const item of items) {
+        summary[item.status] += 1;
+        summary.totalAmount += item.totalAmount || 0;
+    }
+
+    return summary;
+}
+
+function buildSummaryCards(summary: InvoiceSummary): SummaryCard[] {
+    return [
+        { label: 'Totalt', value: summary.total, color: 'var(--text-primary)' },
+        { label: 'Nya', value: summary.ny, color: STATUS_CONFIG.ny.color },
+        { label: 'Granskade', value: summary.granskad, color: STATUS_CONFIG.granskad.color },
+        { label: 'Bokförda', value: summary.bokford, color: STATUS_CONFIG.bokford.color },
+        { label: 'Betalda', value: summary.betald, color: STATUS_CONFIG.betald.color },
+        { label: 'Summa', value: `${formatAmount(summary.totalAmount)} kr`, color: 'var(--text-primary)' },
+    ];
+}
+
 // =============================================================================
 // AI EXTRACTION PROMPT
 // =============================================================================
@@ -253,7 +648,7 @@ VIKTIGT:
 
 export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
     const [items, setItems] = useState<InvoiceInboxItem[]>([]);
-    const [statusFilter, setStatusFilter] = useState<InvoiceStatus | 'alla'>('alla');
+    const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('alla');
     const [uploading, setUploading] = useState(false);
     const [extractingId, setExtractingId] = useState<string | null>(null);
     const [exportingId, setExportingId] = useState<string | null>(null);
@@ -264,8 +659,13 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
     const [error, setError] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [dragOver, setDragOver] = useState(false);
+    const [postingDrawerOpen, setPostingDrawerOpen] = useState(false);
+    const [postingTraceLoading, setPostingTraceLoading] = useState(false);
+    const [postingTraceError, setPostingTraceError] = useState<string | null>(null);
+    const [postingTrace, setPostingTrace] = useState<InvoicePostingTrace | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const companyId = companyService.getCurrentId();
+    const invoicePostingReviewEnabled = getInvoicePostingReviewEnabled();
 
     const getSessionAccessToken = useCallback(async (): Promise<string | null> => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -796,6 +1196,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
             }
 
             updateItemById(item.id, (current) => withFortnoxBookedState(current, 'booked'));
+            invoicePostingReviewService.invalidateInvoice(companyId, 'supplier', item.fortnoxGivenNumber);
             setSuccessMsg(`Faktura ${item.invoiceNumber || item.fortnoxGivenNumber} bokförd i Fortnox.`);
         } catch (err) {
             logger.error('Fortnox booking failed:', err);
@@ -823,6 +1224,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
             }
 
             updateItemById(item.id, (current) => withFortnoxBookedState(current, 'attested'));
+            invoicePostingReviewService.invalidateInvoice(companyId, 'supplier', item.fortnoxGivenNumber);
             setSuccessMsg(`Faktura ${item.invoiceNumber || item.fortnoxGivenNumber} attesterad.`);
         } catch (err) {
             logger.error('Fortnox approval failed:', err);
@@ -831,6 +1233,34 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
             setBookingId(null);
         }
     }, [callFortnox, companyId, updateItemById]);
+
+    const openPostingTrace = useCallback(async (item: InvoiceInboxItem) => {
+        if (!invoicePostingReviewEnabled) return;
+        if (!item.fortnoxGivenNumber) {
+            setPostingTraceError('Konteringskontroll finns efter export till Fortnox.');
+            setPostingDrawerOpen(true);
+            return;
+        }
+
+        setPostingDrawerOpen(true);
+        setPostingTraceLoading(true);
+        setPostingTraceError(null);
+        setPostingTrace(null);
+
+        try {
+            const trace = await invoicePostingReviewService.fetchPostingTrace({
+                companyId,
+                invoiceType: 'supplier',
+                invoiceId: item.fortnoxGivenNumber,
+            });
+            setPostingTrace(trace);
+        } catch (error) {
+            setPostingTraceError(error instanceof Error ? error.message : 'Kunde inte hämta kontering.');
+            setPostingTrace(null);
+        } finally {
+            setPostingTraceLoading(false);
+        }
+    }, [companyId, invoicePostingReviewEnabled]);
 
     // =========================================================================
     // AI REVIEW
@@ -929,68 +1359,40 @@ Föreslå korrekt kontering med debet/kredit.`;
     // FILTERING & SUMMARY
     // =========================================================================
 
-    const filtered = useMemo(() => {
-        if (statusFilter === 'alla') return items;
-        return items.filter(i => i.status === statusFilter);
-    }, [items, statusFilter]);
+    const filtered = useMemo(() => filterItemsByStatus(items, statusFilter), [items, statusFilter]);
 
-    const summary = useMemo(() => ({
-        total: items.length,
-        ny: items.filter(i => i.status === 'ny').length,
-        granskad: items.filter(i => i.status === 'granskad').length,
-        bokford: items.filter(i => i.status === 'bokford').length,
-        betald: items.filter(i => i.status === 'betald').length,
-        totalAmount: items.reduce((sum, i) => sum + (i.totalAmount || 0), 0),
-    }), [items]);
+    const summary = useMemo(() => buildInvoiceSummary(items), [items]);
+
+    const summaryCards = useMemo(() => buildSummaryCards(summary), [summary]);
 
     // =========================================================================
     // RENDER
     // =========================================================================
 
     return (
-        <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="panel-stagger" style={INVOICE_INBOX_ROOT_STYLE}>
             {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={INVOICE_INBOX_HEADER_STYLE}>
                 <button
                     type="button"
                     onClick={onBack}
-                    style={{
-                        background: 'transparent',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: '8px',
-                        color: 'var(--text-secondary)',
-                        padding: '0.4rem 0.75rem',
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                    }}
+                    style={INVOICE_INBOX_BACK_BUTTON_STYLE}
                 >
                     Tillbaka
                 </button>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <span style={INVOICE_INBOX_HEADER_HINT_STYLE}>
                     Ladda upp leverantörsfakturor. AI extraherar data automatiskt.
                 </span>
             </div>
 
             {/* Messages */}
             {error && (
-                <div style={{
-                    padding: '0.6rem 0.8rem',
-                    borderRadius: '8px',
-                    background: 'rgba(239, 68, 68, 0.12)',
-                    color: '#ef4444',
-                    fontSize: '0.8rem',
-                }}>
+                <div style={INVOICE_INBOX_ERROR_MESSAGE_STYLE}>
                     {error}
                 </div>
             )}
             {successMsg && (
-                <div style={{
-                    padding: '0.6rem 0.8rem',
-                    borderRadius: '8px',
-                    background: 'rgba(16, 185, 129, 0.12)',
-                    color: '#10b981',
-                    fontSize: '0.8rem',
-                }}>
+                <div style={INVOICE_INBOX_SUCCESS_MESSAGE_STYLE}>
                     {successMsg}
                 </div>
             )}
@@ -1002,37 +1404,32 @@ Föreslå korrekt kontering med debet/kredit.`;
                 onDrop={onDrop}
                 onClick={() => fileInputRef.current?.click()}
                 className="panel-card panel-card--interactive"
-                style={{
-                    padding: '1.5rem',
-                    border: `2px dashed ${dragOver ? '#3b82f6' : 'var(--surface-border)'}`,
-                    background: dragOver ? 'rgba(59, 130, 246, 0.08)' : 'var(--surface-1)',
-                    textAlign: 'center',
-                }}
+                style={getUploadZoneStyle(dragOver)}
             >
                 <input
                     ref={fileInputRef}
                     type="file"
                     accept=".pdf,.png,.jpg,.jpeg,.webp"
                     multiple
-                    style={{ display: 'none' }}
+                    style={INVOICE_FILE_INPUT_HIDDEN_STYLE}
                     onChange={e => {
                         if (e.currentTarget.files) void handleFiles(e.currentTarget.files);
                         e.currentTarget.value = '';
                     }}
                 />
                 {uploading ? (
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    <div style={INVOICE_UPLOAD_TEXT_STYLE}>
                         Laddar upp...
                     </div>
                 ) : (
                     <>
-                        <div style={{ fontSize: '1.5rem', marginBottom: '0.4rem' }}>
+                        <div style={INVOICE_UPLOAD_ICON_STYLE}>
                             {dragOver ? '+' : ''}
                         </div>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+                        <div style={INVOICE_UPLOAD_TITLE_STYLE}>
                             {dragOver ? 'Släpp filerna här' : 'Dra och släpp fakturor här'}
                         </div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                        <div style={INVOICE_UPLOAD_HINT_STYLE}>
                             eller klicka för att välja filer (PDF, PNG, JPG)
                         </div>
                     </>
@@ -1044,45 +1441,23 @@ Föreslå korrekt kontering med debet/kredit.`;
                 type="button"
                 onClick={() => void syncFromFortnox()}
                 disabled={syncing}
-                style={{
-                    width: '100%',
-                    height: '42px',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                    background: 'rgba(16, 185, 129, 0.08)',
-                    color: '#10b981',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    cursor: syncing ? 'wait' : 'pointer',
-                    opacity: syncing ? 0.6 : 1,
-                }}
+                style={getFortnoxSyncButtonStyle(syncing)}
             >
                 {syncing ? 'Hämtar...' : 'Hämta leverantörsfakturor från Fortnox'}
             </button>
 
             {/* Summary cards */}
-            <div className="panel-stagger" style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                gap: '0.75rem',
-            }}>
-                {[
-                    { label: 'Totalt', value: summary.total, color: 'var(--text-primary)' },
-                    { label: 'Nya', value: summary.ny, color: STATUS_CONFIG.ny.color },
-                    { label: 'Granskade', value: summary.granskad, color: STATUS_CONFIG.granskad.color },
-                    { label: 'Bokförda', value: summary.bokford, color: STATUS_CONFIG.bokford.color },
-                    { label: 'Betalda', value: summary.betald, color: STATUS_CONFIG.betald.color },
-                    { label: 'Summa', value: `${formatAmount(summary.totalAmount)} kr`, color: 'var(--text-primary)' },
-                ].map(card => (
+            <div className="panel-stagger" style={INVOICE_SUMMARY_GRID_STYLE}>
+                {summaryCards.map(card => (
                     <div key={card.label} className="panel-card panel-card--no-hover">
                         <div className="panel-label">{card.label}</div>
-                        <div className="panel-stat" style={{ color: card.color }}>{card.value}</div>
+                        <div className="panel-stat" style={getSummaryStatStyle(card.color)}>{card.value}</div>
                     </div>
                 ))}
             </div>
 
             {/* Status filter tabs */}
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div style={INVOICE_STATUS_FILTER_ROW_STYLE}>
                 <FilterButton
                     label="Alla"
                     count={summary.total}
@@ -1103,18 +1478,13 @@ Föreslå korrekt kontering med debet/kredit.`;
 
             {/* Invoice list */}
             {filtered.length === 0 ? (
-                <div className="panel-card panel-card--no-hover" style={{
-                    textAlign: 'center',
-                    color: 'var(--text-secondary)',
-                    fontSize: '0.85rem',
-                    border: '1px dashed var(--surface-border)',
-                }}>
+                <div className="panel-card panel-card--no-hover" style={INVOICE_EMPTY_STATE_STYLE}>
                     {items.length === 0
                         ? 'Inga fakturor än. Dra och släpp en PDF eller hämta från Fortnox.'
                         : 'Inga fakturor matchar filtret.'}
                 </div>
             ) : (
-                <div className="panel-stagger" style={{ display: 'grid', gap: '0.75rem' }}>
+                <div className="panel-stagger" style={INVOICE_LIST_GRID_STYLE}>
                     {filtered.map(item => (
                         <InvoiceCard
                             key={item.id}
@@ -1129,22 +1499,20 @@ Föreslå korrekt kontering med debet/kredit.`;
                             onBook={() => void bookInFortnox(item)}
                             onApprove={() => void approveInFortnox(item)}
                             onReview={() => void reviewAccounting(item)}
+                            onViewPosting={() => void openPostingTrace(item)}
                             onEdit={() => setEditingId(editingId === item.id ? null : item.id)}
                             onUpdateField={(field, value) => updateField(item.id, field, value)}
                             onSetStatus={(status) => setStatus(item.id, status)}
                             onRemove={() => removeItem(item.id)}
+                            invoicePostingReviewEnabled={invoicePostingReviewEnabled}
                         />
                     ))}
                 </div>
             )}
 
             {/* Help text */}
-            <div className="panel-card panel-card--no-hover" style={{
-                fontSize: '0.8rem',
-                color: 'var(--text-secondary)',
-                lineHeight: 1.5,
-            }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Arbetsflöde</strong>
+            <div className="panel-card panel-card--no-hover" style={INVOICE_HELP_CARD_STYLE}>
+                <strong style={INVOICE_HELP_TITLE_STYLE}>Arbetsflöde</strong>
                 <br />
                 1. <strong>Ladda upp</strong> - Dra och släpp PDF/bild. AI extraherar fakturadata automatiskt.
                 <br />
@@ -1154,6 +1522,14 @@ Föreslå korrekt kontering med debet/kredit.`;
                 <br />
                 4. <strong>Betald</strong> - Markera när fakturan är betald.
             </div>
+
+            <InvoicePostingReviewDrawer
+                open={postingDrawerOpen}
+                loading={postingTraceLoading}
+                error={postingTraceError}
+                trace={postingTrace}
+                onClose={() => setPostingDrawerOpen(false)}
+            />
         </div>
     );
 }
@@ -1175,36 +1551,227 @@ function FilterButton({
         <button
             type="button"
             onClick={onClick}
-            style={{
-                height: '34px',
-                padding: '0 0.8rem',
-                borderRadius: '10px',
-                border: '1px solid var(--glass-border)',
-                background: active ? (color ? `${color}20` : 'rgba(255, 255, 255, 0.1)') : 'transparent',
-                color: active ? (color || 'var(--text-primary)') : 'var(--text-secondary)',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-            }}
+            style={getFilterButtonStyle(active, color)}
         >
             {label}
-            <span style={{
-                fontSize: '0.7rem',
-                opacity: 0.7,
-                fontWeight: 400,
-            }}>
+            <span style={FILTER_BUTTON_COUNT_STYLE}>
                 {count}
             </span>
         </button>
     );
 }
 
+function InvoicePill({
+    label,
+    background,
+    color,
+}: {
+    label: string;
+    background: string;
+    color: string;
+}) {
+    return (
+        <span style={getInvoicePillStyle(background, color)}>
+            {label}
+        </span>
+    );
+}
+
+function InvoiceCardActions({
+    item,
+    isExtracting,
+    isExporting,
+    isEditing,
+    isBooking,
+    isReviewing,
+    canBookInFortnox,
+    canApproveInFortnox,
+    onExtract,
+    onExport,
+    onBook,
+    onApprove,
+    onReview,
+    onViewPosting,
+    onEdit,
+    onSetStatus,
+    onRemove,
+    invoicePostingReviewEnabled,
+}: {
+    item: InvoiceInboxItem;
+    isExtracting: boolean;
+    isExporting: boolean;
+    isEditing: boolean;
+    isBooking: boolean;
+    isReviewing: boolean;
+    canBookInFortnox: boolean;
+    canApproveInFortnox: boolean;
+    onExtract: () => void;
+    onExport: () => void;
+    onBook: () => void;
+    onApprove: () => void;
+    onReview: () => void;
+    onViewPosting: () => void;
+    onEdit: () => void;
+    onSetStatus: (status: InvoiceStatus) => void;
+    onRemove: () => void;
+    invoicePostingReviewEnabled: boolean;
+}) {
+    return (
+        <div style={INVOICE_CARD_ACTIONS_ROW_STYLE}>
+            {item.source === 'upload' && !item.aiExtracted && item.status === 'ny' && (
+                <ActionButton
+                    label={isExtracting ? 'Extraherar...' : 'AI-extrahera'}
+                    color="#8b5cf6"
+                    disabled={isExtracting}
+                    onClick={onExtract}
+                />
+            )}
+
+            <ActionButton
+                label={isReviewing ? 'Granskar...' : 'AI-granska'}
+                color="#8b5cf6"
+                disabled={isReviewing}
+                onClick={onReview}
+            />
+
+            {invoicePostingReviewEnabled && item.fortnoxGivenNumber && (
+                <ActionButton
+                    label="Visa kontering"
+                    color="#38bdf8"
+                    onClick={onViewPosting}
+                    testId={`invoice-view-posting-${item.id}`}
+                />
+            )}
+
+            <ActionButton
+                label={isEditing ? 'Stäng' : 'Redigera'}
+                color="var(--text-secondary)"
+                onClick={onEdit}
+            />
+
+            {item.status === 'ny' && (
+                <ActionButton
+                    label="Markera som granskad"
+                    color={STATUS_CONFIG.granskad.color}
+                    testId={`invoice-status-review-${item.id}`}
+                    onClick={() => onSetStatus('granskad')}
+                />
+            )}
+
+            {canBookInFortnox && (
+                <ActionButton
+                    label={isBooking ? 'Bokför...' : 'Bokför i Fortnox'}
+                    color="#10b981"
+                    disabled={isBooking}
+                    onClick={onBook}
+                />
+            )}
+            {canApproveInFortnox && (
+                <ActionButton
+                    label={isBooking ? 'Attesterar...' : 'Attestera'}
+                    color="#10b981"
+                    disabled={isBooking}
+                    onClick={onApprove}
+                />
+            )}
+
+            {item.source === 'upload' && item.status === 'granskad' && !item.fortnoxGivenNumber && (
+                <ActionButton
+                    label={isExporting ? 'Exporterar...' : 'Exportera till Fortnox'}
+                    color={STATUS_CONFIG.bokford.color}
+                    disabled={isExporting}
+                    onClick={onExport}
+                />
+            )}
+
+            {(item.status === 'granskad' || item.status === 'bokford') && (
+                <ActionButton
+                    label="Markera som betald"
+                    color={STATUS_CONFIG.betald.color}
+                    testId={`invoice-status-paid-${item.id}`}
+                    onClick={() => onSetStatus('betald')}
+                />
+            )}
+
+            {item.source !== 'fortnox' && (
+                <ActionButton
+                    label="Ta bort"
+                    color="#ef4444"
+                    onClick={() => {
+                        if (window.confirm(`Ta bort faktura "${item.supplierName || item.fileName}"?`)) {
+                            onRemove();
+                        }
+                    }}
+                />
+            )}
+        </div>
+    );
+}
+
+function InvoiceCardDetails({
+    item,
+    overdue,
+}: {
+    item: InvoiceInboxItem;
+    overdue: boolean;
+}) {
+    return (
+        <div style={INVOICE_CARD_DETAILS_ROW_STYLE}>
+            {item.invoiceNumber && (
+                <div>
+                    <span style={INVOICE_CARD_DETAIL_LABEL_STYLE}>Faktura: </span>
+                    <span style={INVOICE_CARD_DETAIL_STRONG_VALUE_STYLE}>{item.invoiceNumber}</span>
+                </div>
+            )}
+            {item.invoiceDate && (
+                <div>
+                    <span style={INVOICE_CARD_DETAIL_LABEL_STYLE}>Datum: </span>
+                    <span style={INVOICE_CARD_DETAIL_VALUE_STYLE}>{formatDate(item.invoiceDate)}</span>
+                </div>
+            )}
+            {item.dueDate && (
+                <div>
+                    <span style={INVOICE_CARD_DETAIL_LABEL_STYLE}>Förfaller: </span>
+                    <span style={getInvoiceDueDateStyle(overdue)}>
+                        {formatDate(item.dueDate)}
+                    </span>
+                </div>
+            )}
+            {item.ocrNumber && (
+                <div>
+                    <span style={INVOICE_CARD_DETAIL_LABEL_STYLE}>OCR: </span>
+                    <span style={INVOICE_CARD_DETAIL_VALUE_STYLE}>{item.ocrNumber}</span>
+                </div>
+            )}
+            {item.basAccount && (
+                <div>
+                    <span style={INVOICE_CARD_DETAIL_LABEL_STYLE}>Konto: </span>
+                    <span style={INVOICE_CARD_DETAIL_STRONG_VALUE_STYLE}>
+                        {item.basAccount} {item.basAccountName}
+                    </span>
+                </div>
+            )}
+            {item.fortnoxGivenNumber && (
+                <div>
+                    <span style={INVOICE_CARD_DETAIL_LABEL_STYLE}>Fortnox nr: </span>
+                    <span style={INVOICE_CARD_DETAIL_FORTNOX_VALUE_STYLE}>{item.fortnoxGivenNumber}</span>
+                </div>
+            )}
+            {item.fortnoxBalance !== null && item.fortnoxBalance !== undefined && (
+                <div>
+                    <span style={INVOICE_CARD_DETAIL_LABEL_STYLE}>Restsaldo: </span>
+                    <span style={getInvoiceBalanceStyle(item.fortnoxBalance)}>
+                        {formatAmount(item.fortnoxBalance)} kr
+                    </span>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function InvoiceCard({
     item, isExtracting, isExporting, isEditing, isBooking, isReviewing,
-    onExtract, onExport, onBook, onApprove, onReview, onEdit, onUpdateField, onSetStatus, onRemove,
+    onExtract, onExport, onBook, onApprove, onReview, onViewPosting, onEdit, onUpdateField, onSetStatus, onRemove, invoicePostingReviewEnabled,
 }: {
     item: InvoiceInboxItem;
     isExtracting: boolean;
@@ -1217,10 +1784,12 @@ function InvoiceCard({
     onBook: () => void;
     onApprove: () => void;
     onReview: () => void;
+    onViewPosting: () => void;
     onEdit: () => void;
     onUpdateField: (field: keyof InvoiceInboxItem, value: string | number | null) => void;
     onSetStatus: (status: InvoiceStatus) => void;
     onRemove: () => void;
+    invoicePostingReviewEnabled: boolean;
 }) {
     const statusCfg = STATUS_CONFIG[item.status];
     const overdue = item.status !== 'betald' && isOverdue(item.dueDate);
@@ -1230,60 +1799,36 @@ function InvoiceCard({
     const canApproveInFortnox = hasFortnoxInvoice && item.fortnoxSyncStatus !== 'attested';
 
     return (
-        <div className="panel-card panel-card--no-hover" style={{
-            border: `1px solid ${overdue ? 'rgba(239, 68, 68, 0.4)' : 'var(--surface-border)'}`,
-            background: overdue ? 'rgba(239, 68, 68, 0.04)' : undefined,
-        }}
-        data-testid={`invoice-card-${item.id}`}
+        <div
+            className="panel-card panel-card--no-hover"
+            style={getInvoiceCardContainerStyle(overdue)}
+            data-testid={`invoice-card-${item.id}`}
         >
             {/* Top row: status + supplier + actions */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+            <div style={INVOICE_CARD_TOP_ROW_STYLE}>
                 {/* Status badge */}
-                <span style={{
-                    padding: '0.15rem 0.5rem',
-                    borderRadius: '999px',
-                    fontSize: '0.7rem',
-                    fontWeight: 600,
-                    background: statusCfg.bg,
-                    color: statusCfg.color,
-                }}>
-                    {statusCfg.label}
-                </span>
+                <InvoicePill label={statusCfg.label} background={statusCfg.bg} color={statusCfg.color} />
 
                 {hasFortnoxInvoice && (
-                    <span style={{
-                        padding: '0.15rem 0.5rem',
-                        borderRadius: '999px',
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        background: 'rgba(59, 130, 246, 0.15)',
-                        color: '#3b82f6',
-                    }}>
-                        {FORTNOX_SYNC_STATUS_LABELS[item.fortnoxSyncStatus]}
-                    </span>
+                    <InvoicePill
+                        label={FORTNOX_SYNC_STATUS_LABELS[item.fortnoxSyncStatus]}
+                        background="rgba(59, 130, 246, 0.15)"
+                        color="#3b82f6"
+                    />
                 )}
 
                 {/* Source badge */}
                 {item.source === 'fortnox' && (
-                    <span style={{
-                        padding: '0.15rem 0.5rem',
-                        borderRadius: '999px',
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        background: 'rgba(16, 185, 129, 0.15)',
-                        color: '#10b981',
-                    }}>
-                        Fortnox
-                    </span>
+                    <InvoicePill label="Fortnox" background="rgba(16, 185, 129, 0.15)" color="#10b981" />
                 )}
 
                 {/* Supplier name or filename */}
-                <div style={{ flex: 1, minWidth: '120px' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>
-                        {item.supplierName || item.fortnoxSupplierNumber || item.fileName || `Fortnox #${item.fortnoxGivenNumber}`}
+                <div style={INVOICE_CARD_SUPPLIER_WRAP_STYLE}>
+                    <div style={INVOICE_CARD_SUPPLIER_NAME_STYLE}>
+                        {getInvoiceDisplayName(item)}
                     </div>
                     {item.supplierName && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        <div style={INVOICE_CARD_FILE_NAME_STYLE}>
                             {item.fileName}
                         </div>
                     )}
@@ -1291,12 +1836,12 @@ function InvoiceCard({
 
                 {/* Amount */}
                 {item.totalAmount !== null && (
-                    <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem' }}>
+                    <div style={INVOICE_CARD_AMOUNT_WRAP_STYLE}>
+                        <div style={INVOICE_CARD_AMOUNT_VALUE_STYLE}>
                             {formatAmount(item.totalAmount)} kr
                         </div>
                         {item.vatAmount !== null && (
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                            <div style={INVOICE_CARD_AMOUNT_META_STYLE}>
                                 varav moms {formatAmount(item.vatAmount)} kr ({item.vatRate || '?'}%)
                             </div>
                         )}
@@ -1305,82 +1850,14 @@ function InvoiceCard({
 
                 {/* Overdue warning */}
                 {overdue && (
-                    <span style={{
-                        padding: '0.15rem 0.5rem',
-                        borderRadius: '999px',
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        background: 'rgba(239, 68, 68, 0.15)',
-                        color: '#ef4444',
-                    }}>
-                        Förfallen
-                    </span>
+                    <InvoicePill label="Förfallen" background="rgba(239, 68, 68, 0.15)" color="#ef4444" />
                 )}
                 {dueSoon && (
-                    <span style={{
-                        padding: '0.15rem 0.5rem',
-                        borderRadius: '999px',
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        background: 'rgba(245, 158, 11, 0.15)',
-                        color: '#f59e0b',
-                    }}>
-                        Förfaller snart
-                    </span>
+                    <InvoicePill label="Förfaller snart" background="rgba(245, 158, 11, 0.15)" color="#f59e0b" />
                 )}
             </div>
 
-            {/* Data row */}
-            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', fontSize: '0.8rem', marginBottom: '0.6rem' }}>
-                {item.invoiceNumber && (
-                    <div>
-                        <span style={{ color: 'var(--text-secondary)' }}>Faktura: </span>
-                        <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{item.invoiceNumber}</span>
-                    </div>
-                )}
-                {item.invoiceDate && (
-                    <div>
-                        <span style={{ color: 'var(--text-secondary)' }}>Datum: </span>
-                        <span style={{ color: 'var(--text-primary)' }}>{formatDate(item.invoiceDate)}</span>
-                    </div>
-                )}
-                {item.dueDate && (
-                    <div>
-                        <span style={{ color: 'var(--text-secondary)' }}>Förfaller: </span>
-                        <span style={{ color: overdue ? '#ef4444' : 'var(--text-primary)', fontWeight: overdue ? 600 : 400 }}>
-                            {formatDate(item.dueDate)}
-                        </span>
-                    </div>
-                )}
-                {item.ocrNumber && (
-                    <div>
-                        <span style={{ color: 'var(--text-secondary)' }}>OCR: </span>
-                        <span style={{ color: 'var(--text-primary)' }}>{item.ocrNumber}</span>
-                    </div>
-                )}
-                {item.basAccount && (
-                    <div>
-                        <span style={{ color: 'var(--text-secondary)' }}>Konto: </span>
-                        <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                            {item.basAccount} {item.basAccountName}
-                        </span>
-                    </div>
-                )}
-                {item.fortnoxGivenNumber && (
-                    <div>
-                        <span style={{ color: 'var(--text-secondary)' }}>Fortnox nr: </span>
-                        <span style={{ color: '#10b981', fontWeight: 600 }}>{item.fortnoxGivenNumber}</span>
-                    </div>
-                )}
-                {item.fortnoxBalance !== null && item.fortnoxBalance !== undefined && (
-                    <div>
-                        <span style={{ color: 'var(--text-secondary)' }}>Restsaldo: </span>
-                        <span style={{ color: item.fortnoxBalance > 0 ? '#f59e0b' : '#10b981', fontWeight: 600 }}>
-                            {formatAmount(item.fortnoxBalance)} kr
-                        </span>
-                    </div>
-                )}
-            </div>
+            <InvoiceCardDetails item={item} overdue={overdue} />
 
             {/* Edit form (shown when editing) */}
             {isEditing && (
@@ -1389,108 +1866,32 @@ function InvoiceCard({
 
             {/* AI review note */}
             {item.aiReviewNote && (
-                <div style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '8px',
-                    background: 'rgba(139, 92, 246, 0.08)',
-                    border: '1px solid rgba(139, 92, 246, 0.2)',
-                    fontSize: '0.8rem',
-                    color: 'var(--text-primary)',
-                    lineHeight: 1.4,
-                    marginBottom: '0.6rem',
-                }}>
-                    <span style={{ fontWeight: 600, color: '#8b5cf6', fontSize: '0.72rem' }}>AI-granskning: </span>
+                <div style={INVOICE_CARD_AI_REVIEW_STYLE}>
+                    <span style={INVOICE_CARD_AI_REVIEW_LABEL_STYLE}>AI-granskning: </span>
                     {item.aiReviewNote}
                 </div>
             )}
 
-            {/* Action buttons */}
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                {/* AI extract (upload source, not yet extracted) */}
-                {item.source === 'upload' && !item.aiExtracted && item.status === 'ny' && (
-                    <ActionButton
-                        label={isExtracting ? 'Extraherar...' : 'AI-extrahera'}
-                        color="#8b5cf6"
-                        disabled={isExtracting}
-                        onClick={onExtract}
-                    />
-                )}
-
-                {/* AI review accounting */}
-                <ActionButton
-                    label={isReviewing ? 'Granskar...' : 'AI-granska'}
-                    color="#8b5cf6"
-                    disabled={isReviewing}
-                    onClick={onReview}
-                />
-
-                {/* Edit toggle */}
-                <ActionButton
-                    label={isEditing ? 'Stäng' : 'Redigera'}
-                    color="var(--text-secondary)"
-                    onClick={onEdit}
-                />
-
-                {/* Status progression */}
-                {item.status === 'ny' && (
-                    <ActionButton
-                        label="Markera som granskad"
-                        color={STATUS_CONFIG.granskad.color}
-                        testId={`invoice-status-review-${item.id}`}
-                        onClick={() => onSetStatus('granskad')}
-                    />
-                )}
-
-                {/* Fortnox actions for synced invoices */}
-                {canBookInFortnox && (
-                    <ActionButton
-                        label={isBooking ? 'Bokför...' : 'Bokför i Fortnox'}
-                        color="#10b981"
-                        disabled={isBooking}
-                        onClick={onBook}
-                    />
-                )}
-                {canApproveInFortnox && (
-                    <ActionButton
-                        label={isBooking ? 'Attesterar...' : 'Attestera'}
-                        color="#10b981"
-                        disabled={isBooking}
-                        onClick={onApprove}
-                    />
-                )}
-
-                {/* Export to Fortnox (upload source only) */}
-                {item.source === 'upload' && item.status === 'granskad' && !item.fortnoxGivenNumber && (
-                    <ActionButton
-                        label={isExporting ? 'Exporterar...' : 'Exportera till Fortnox'}
-                        color={STATUS_CONFIG.bokford.color}
-                        disabled={isExporting}
-                        onClick={onExport}
-                    />
-                )}
-
-                {(item.status === 'granskad' || item.status === 'bokford') && (
-                    <ActionButton
-                        label="Markera som betald"
-                        color={STATUS_CONFIG.betald.color}
-                        testId={`invoice-status-paid-${item.id}`}
-                        onClick={() => onSetStatus('betald')}
-                    />
-                )}
-
-                {/* Delete (only for upload source) */}
-                {item.source !== 'fortnox' && (
-                    <ActionButton
-                        label="Ta bort"
-                        color="#ef4444"
-                        onClick={() => {
-                            if (window.confirm(`Ta bort faktura "${item.supplierName || item.fileName}"?`)) {
-                                onRemove();
-                            }
-                        }}
-                    />
-                )}
-            </div>
+            <InvoiceCardActions
+                item={item}
+                isExtracting={isExtracting}
+                isExporting={isExporting}
+                isEditing={isEditing}
+                isBooking={isBooking}
+                isReviewing={isReviewing}
+                canBookInFortnox={canBookInFortnox}
+                canApproveInFortnox={canApproveInFortnox}
+                onExtract={onExtract}
+                onExport={onExport}
+                onBook={onBook}
+                onApprove={onApprove}
+                onReview={onReview}
+                onViewPosting={onViewPosting}
+                onEdit={onEdit}
+                onSetStatus={onSetStatus}
+                onRemove={onRemove}
+                invoicePostingReviewEnabled={invoicePostingReviewEnabled}
+            />
         </div>
     );
 }
@@ -1522,23 +1923,14 @@ function EditForm({
     ];
 
     return (
-        <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-            gap: '0.5rem',
-            padding: '0.75rem',
-            marginBottom: '0.6rem',
-            borderRadius: '10px',
-            border: '1px solid rgba(255, 255, 255, 0.06)',
-            background: 'rgba(255, 255, 255, 0.02)',
-        }}>
+        <div style={EDIT_FORM_GRID_STYLE}>
             {fields.map(({ field, label, type, placeholder }) => {
                 const value = item[field];
                 const strValue = value === null || value === undefined ? '' : String(value);
 
                 return (
                     <div key={field}>
-                        <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.15rem' }}>
+                        <label style={EDIT_FORM_LABEL_STYLE}>
                             {label}
                         </label>
                         <input
@@ -1553,18 +1945,7 @@ function EditForm({
                                     onUpdateField(field, raw);
                                 }
                             }}
-                            style={{
-                                width: '100%',
-                                height: '30px',
-                                padding: '0 0.5rem',
-                                borderRadius: '8px',
-                                border: '1px solid var(--glass-border)',
-                                background: 'rgba(255, 255, 255, 0.04)',
-                                color: 'var(--text-primary)',
-                                fontSize: '0.8rem',
-                                outline: 'none',
-                                boxSizing: 'border-box',
-                            }}
+                            style={EDIT_FORM_INPUT_STYLE}
                         />
                     </div>
                 );
@@ -1588,19 +1969,7 @@ function ActionButton({
             onClick={onClick}
             disabled={disabled}
             data-testid={testId}
-            style={{
-                height: '30px',
-                padding: '0 0.7rem',
-                borderRadius: '8px',
-                border: '1px solid var(--glass-border)',
-                background: 'transparent',
-                color,
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                cursor: disabled ? 'wait' : 'pointer',
-                opacity: disabled ? 0.6 : 1,
-                whiteSpace: 'nowrap',
-            }}
+            style={getActionButtonStyle(color, disabled)}
         >
             {label}
         </button>

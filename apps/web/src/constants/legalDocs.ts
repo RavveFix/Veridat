@@ -26,8 +26,7 @@ export const LEGAL_DOCS: Record<LegalDocType, {
     dpa: {
         label: "DPA",
         url: "/dpa",
-        version: CURRENT_TERMS_VERSION,
-        requiresSigner: true
+        version: CURRENT_TERMS_VERSION
     },
     systemdoc: {
         label: "Systemdokumentation",
@@ -36,5 +35,6 @@ export const LEGAL_DOCS: Record<LegalDocType, {
     }
 };
 
+// Legacy baseline. Use consentPolicy.getRequiredDocsForUser(...) for runtime requirements.
 export const REQUIRED_LEGAL_DOCS: LegalDocType[] = ["terms", "privacy"];
 export const OPTIONAL_LEGAL_DOCS: LegalDocType[] = ["security", "dpa"];

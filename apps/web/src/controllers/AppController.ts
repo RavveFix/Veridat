@@ -11,6 +11,7 @@ import { mountModal } from '../utils/modalHelpers';
 import { LegalConsentModal } from '../components/LegalConsentModal';
 import { SettingsModal } from '../components/SettingsModal';
 import { IntegrationsModal } from '../components/IntegrationsModal';
+import { AgentDashboardModal } from '../components/AgentDashboardModal';
 import { ConversationList } from '../components/Chat/ConversationList';
 import { ExcelWorkspace } from '../components/ExcelWorkspace';
 import { MemoryIndicator } from '../components/MemoryIndicator';
@@ -22,10 +23,11 @@ import { FortnoxSidebar } from '../components/FortnoxSidebar';
 import { logger } from '../services/LoggerService';
 import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
 import { copilotService } from '../services/CopilotService';
-import { authService } from '../services/AuthService';
+import { authService, type ConsentSyncContext } from '../services/AuthService';
 import { companyManager } from '../services/CompanyService';
 import { uiController } from '../services/UIService';
 import { voiceInputController } from '../services/VoiceInputService';
+import { getRequiredDocsForUser } from '../constants/consentPolicy';
 
 // Controllers
 import { themeController } from './ThemeController';
@@ -40,8 +42,10 @@ export class AppController {
     private fortnoxSidebar: FortnoxSidebar | null = null;
     private settingsCleanup: (() => void) | null = null;
     private integrationsCleanup: (() => void) | null = null;
+    private agentDashboardCleanup: (() => void) | null = null;
     private settingsListenerAttached = false;
     private integrationsListenerAttached = false;
+    private agentDashboardListenerAttached = false;
     private boundCopilotToolListener: EventListener | null = null;
     private lastActiveAt = Date.now();
     private resumeInProgress = false;
@@ -68,14 +72,10 @@ export class AppController {
             return;
         }
 
-        // Check Legal Consent and Version
-        if (session) {
-            const hasAccepted = await this.handleLegalConsent();
-            if (!hasAccepted) return;
-        }
-
         if (session) {
             await companyManager.syncWithDatabase(session.user.id);
+            const hasAccepted = await this.handleLegalConsent(session.user.created_at ?? null);
+            if (!hasAccepted) return;
         }
 
         // Setup auth state change listener
@@ -92,6 +92,9 @@ export class AppController {
 
         // Setup integrations button
         this.setupIntegrationsButton();
+
+        // Setup agent dashboard button
+        this.setupAgentDashboardButton();
 
         // Setup copilot tool event listener
         this.setupCopilotToolListener();
@@ -172,6 +175,9 @@ export class AppController {
                 'state_secret_missing': 'Serverkonfigurationsfel',
                 'token_exchange_failed': 'Kunde inte hämta token från Fortnox',
                 'storage_failed': 'Kunde inte spara token i databasen',
+                'company_not_found': 'Aktivt bolag hittades inte. Välj bolag och försök igen.',
+                'company_org_required': 'Bolaget måste ha organisationsnummer innan Fortnox kan anslutas.',
+                'org_number_mismatch': 'Fortnox-bolaget matchar inte organisationsnumret för aktivt bolag.',
                 'callback_failed': 'OAuth-anslutning misslyckades',
             };
             const message = errorMessages[error] || decodeURIComponent(error);
@@ -193,8 +199,20 @@ export class AppController {
         setTimeout(() => toast.remove(), 4000);
     }
 
-    private async handleLegalConsent(): Promise<boolean> {
+    private getConsentSyncContext(): ConsentSyncContext | undefined {
+        const currentCompany = companyManager.getCurrent();
+        if (!currentCompany?.id) return undefined;
+
+        return {
+            companyId: currentCompany.id,
+            companyOrgNumber: currentCompany.orgNumber?.trim() ? currentCompany.orgNumber.trim() : null
+        };
+    }
+
+    private async handleLegalConsent(userCreatedAt: string | null): Promise<boolean> {
+        const requiredDocs = getRequiredDocsForUser(userCreatedAt);
         const hasAccepted = await authService.hasAcceptedTerms();
+        logger.debug('Evaluating legal consent requirements', { requiredDocs });
 
         if (!hasAccepted) {
             // First, check if this is a re-consent scenario (existing user with outdated version)
@@ -209,9 +227,9 @@ export class AppController {
             }
 
             // Not a re-consent scenario - check for local consent (new user from login page)
-            if (authService.hasLocalConsent()) {
+            if (authService.hasLocalConsent(userCreatedAt)) {
                 logger.info('Found local consent from login (new user), syncing to DB...');
-                const synced = await authService.syncLocalConsentToDatabase();
+                const synced = await authService.syncLocalConsentToDatabase(this.getConsentSyncContext());
 
                 if (synced) {
                     return true;
@@ -515,6 +533,33 @@ export class AppController {
             });
             this.integrationsListenerAttached = true;
             logger.debug('Integrations button listener attached');
+        }
+    }
+
+    private setupAgentDashboardButton(): void {
+        const btn = document.getElementById('agent-dashboard-btn');
+
+        if (btn && !this.agentDashboardListenerAttached) {
+            btn.addEventListener('click', () => {
+                if (this.agentDashboardCleanup) {
+                    this.agentDashboardCleanup();
+                    this.agentDashboardCleanup = null;
+                }
+
+                this.agentDashboardCleanup = mountModal({
+                    containerId: 'agent-dashboard-modal-container',
+                    Component: AgentDashboardModal,
+                    props: {
+                        onClose: () => {
+                            if (this.agentDashboardCleanup) {
+                                this.agentDashboardCleanup();
+                                this.agentDashboardCleanup = null;
+                            }
+                        }
+                    }
+                });
+            });
+            this.agentDashboardListenerAttached = true;
         }
     }
 

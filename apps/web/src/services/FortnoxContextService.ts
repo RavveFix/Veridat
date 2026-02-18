@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { logger } from './LoggerService';
 import { getFortnoxList } from '../utils/fortnoxResponse';
 import { isFortnoxEligible, normalizeUserPlan } from './PlanGateService';
+import { companyService } from './CompanyService';
 
 // --- Types ---
 
@@ -49,6 +50,7 @@ export interface FortnoxArticle {
 interface CacheEntry<T> {
     data: T;
     expires: number;
+    companyId: string;
 }
 
 export type FortnoxConnectionStatus = 'connected' | 'disconnected' | 'checking' | 'error';
@@ -88,6 +90,38 @@ class FortnoxContextServiceClass extends EventTarget {
     constructor() {
         super();
         this.supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (typeof window !== 'undefined') {
+            window.addEventListener('company-changed', ((event: Event) => {
+                const companyId = (event as CustomEvent<{ companyId?: string }>).detail?.companyId;
+                this.handleCompanyChanged(companyId || null);
+            }) as EventListener);
+        }
+    }
+
+    private getCurrentCompanyId(): string | null {
+        try {
+            return companyService.getCurrentId();
+        } catch {
+            return null;
+        }
+    }
+
+    private handleCompanyChanged(companyId: string | null): void {
+        this.clearCache();
+        if (!companyId) {
+            this.setConnectionStatus('disconnected');
+            return;
+        }
+
+        this.setConnectionStatus('checking');
+        void this.checkConnection().then((status) => {
+            if (status === 'connected') {
+                return this.preloadData(true);
+            }
+            return undefined;
+        }).catch((err) => {
+            logger.warn('Fortnox company switch refresh failed', err);
+        });
     }
 
     // --- Connection ---
@@ -99,6 +133,11 @@ class FortnoxContextServiceClass extends EventTarget {
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
+                this.setConnectionStatus('disconnected');
+                return 'disconnected';
+            }
+            const companyId = this.getCurrentCompanyId();
+            if (!companyId) {
                 this.setConnectionStatus('disconnected');
                 return 'disconnected';
             }
@@ -125,6 +164,7 @@ class FortnoxContextServiceClass extends EventTarget {
                 .from('fortnox_tokens')
                 .select('id')
                 .eq('user_id', session.user.id)
+                .eq('company_id', companyId)
                 .maybeSingle();
 
             if (error || !data) {
@@ -157,7 +197,10 @@ class FortnoxContextServiceClass extends EventTarget {
     // --- Data Fetching ---
 
     async fetchCustomers(force = false): Promise<FortnoxCustomer[]> {
-        if (!force && this.customers && this.customers.expires > Date.now()) {
+        const companyId = this.getCurrentCompanyId();
+        if (!companyId) return [];
+
+        if (!force && this.customers && this.customers.companyId === companyId && this.customers.expires > Date.now()) {
             return this.customers.data;
         }
 
@@ -173,25 +216,30 @@ class FortnoxContextServiceClass extends EventTarget {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session.access_token}`
                 },
-                body: JSON.stringify({ action: 'getCustomers' })
+                body: JSON.stringify({ action: 'getCustomers', companyId })
             });
 
-            if (!response.ok) return this.customers?.data || [];
+            if (!response.ok) {
+                return this.customers?.companyId === companyId ? this.customers.data : [];
+            }
 
             const result = await response.json();
             const customers = getFortnoxList<FortnoxCustomer>(result, 'Customers');
 
-            this.customers = { data: customers, expires: Date.now() + CACHE_TTL_MS };
+            this.customers = { data: customers, expires: Date.now() + CACHE_TTL_MS, companyId };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('customers'));
             return customers;
         } catch (err) {
             logger.error('Failed to fetch customers', err);
-            return this.customers?.data || [];
+            return this.customers?.companyId === companyId ? this.customers.data : [];
         }
     }
 
     async fetchSuppliers(force = false): Promise<FortnoxSupplier[]> {
-        if (!force && this.suppliers && this.suppliers.expires > Date.now()) {
+        const companyId = this.getCurrentCompanyId();
+        if (!companyId) return [];
+
+        if (!force && this.suppliers && this.suppliers.companyId === companyId && this.suppliers.expires > Date.now()) {
             return this.suppliers.data;
         }
 
@@ -207,25 +255,30 @@ class FortnoxContextServiceClass extends EventTarget {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session.access_token}`
                 },
-                body: JSON.stringify({ action: 'getSuppliers' })
+                body: JSON.stringify({ action: 'getSuppliers', companyId })
             });
 
-            if (!response.ok) return this.suppliers?.data || [];
+            if (!response.ok) {
+                return this.suppliers?.companyId === companyId ? this.suppliers.data : [];
+            }
 
             const result = await response.json();
             const suppliers = getFortnoxList<FortnoxSupplier>(result, 'Suppliers');
 
-            this.suppliers = { data: suppliers, expires: Date.now() + CACHE_TTL_MS };
+            this.suppliers = { data: suppliers, expires: Date.now() + CACHE_TTL_MS, companyId };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('suppliers'));
             return suppliers;
         } catch (err) {
             logger.error('Failed to fetch suppliers', err);
-            return this.suppliers?.data || [];
+            return this.suppliers?.companyId === companyId ? this.suppliers.data : [];
         }
     }
 
     async fetchArticles(force = false): Promise<FortnoxArticle[]> {
-        if (!force && this.articles && this.articles.expires > Date.now()) {
+        const companyId = this.getCurrentCompanyId();
+        if (!companyId) return [];
+
+        if (!force && this.articles && this.articles.companyId === companyId && this.articles.expires > Date.now()) {
             return this.articles.data;
         }
 
@@ -241,47 +294,57 @@ class FortnoxContextServiceClass extends EventTarget {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session.access_token}`
                 },
-                body: JSON.stringify({ action: 'getArticles' })
+                body: JSON.stringify({ action: 'getArticles', companyId })
             });
 
-            if (!response.ok) return this.articles?.data || [];
+            if (!response.ok) {
+                return this.articles?.companyId === companyId ? this.articles.data : [];
+            }
 
             const result = await response.json();
             const articles = getFortnoxList<FortnoxArticle>(result, 'Articles');
 
-            this.articles = { data: articles, expires: Date.now() + CACHE_TTL_MS };
+            this.articles = { data: articles, expires: Date.now() + CACHE_TTL_MS, companyId };
             this.dispatchEvent(new FortnoxDataRefreshedEvent('articles'));
             return articles;
         } catch (err) {
             logger.error('Failed to fetch articles', err);
-            return this.articles?.data || [];
+            return this.articles?.companyId === companyId ? this.articles.data : [];
         }
     }
 
     // --- Entity Lookup ---
 
     findCustomerByName(name: string): FortnoxCustomer | null {
-        if (!this.customers?.data) return null;
+        const companyId = this.getCurrentCompanyId();
+        if (!companyId || !this.customers?.data || this.customers.companyId !== companyId) return null;
         const lower = name.toLowerCase();
         return this.customers.data.find(c => c.Name.toLowerCase().includes(lower)) || null;
     }
 
     findSupplierByName(name: string): FortnoxSupplier | null {
-        if (!this.suppliers?.data) return null;
+        const companyId = this.getCurrentCompanyId();
+        if (!companyId || !this.suppliers?.data || this.suppliers.companyId !== companyId) return null;
         const lower = name.toLowerCase();
         return this.suppliers.data.find(s => s.Name.toLowerCase().includes(lower)) || null;
     }
 
     getCachedCustomers(): FortnoxCustomer[] {
-        return this.customers?.data || [];
+        const companyId = this.getCurrentCompanyId();
+        if (!companyId || this.customers?.companyId !== companyId) return [];
+        return this.customers.data;
     }
 
     getCachedSuppliers(): FortnoxSupplier[] {
-        return this.suppliers?.data || [];
+        const companyId = this.getCurrentCompanyId();
+        if (!companyId || this.suppliers?.companyId !== companyId) return [];
+        return this.suppliers.data;
     }
 
     getCachedArticles(): FortnoxArticle[] {
-        return this.articles?.data || [];
+        const companyId = this.getCurrentCompanyId();
+        if (!companyId || this.articles?.companyId !== companyId) return [];
+        return this.articles.data;
     }
 
     // --- Active Entity ---
@@ -301,12 +364,12 @@ class FortnoxContextServiceClass extends EventTarget {
 
     // --- Preload ---
 
-    async preloadData(): Promise<void> {
+    async preloadData(force = false): Promise<void> {
         if (!this.isConnected()) return;
         await Promise.allSettled([
-            this.fetchCustomers(),
-            this.fetchSuppliers(),
-            this.fetchArticles()
+            this.fetchCustomers(force),
+            this.fetchSuppliers(force),
+            this.fetchArticles(force)
         ]);
     }
 

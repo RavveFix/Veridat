@@ -84,6 +84,286 @@ const OPTIONAL_FIELDS = {
     account: ['konto', 'kontonummer']
 };
 
+const BANK_IMPORT_ROOT_STYLE = { display: 'flex', flexDirection: 'column', gap: '1rem' } as const;
+const BANK_IMPORT_HEADER_STYLE = { display: 'flex', alignItems: 'center', gap: '0.75rem' } as const;
+const BANK_IMPORT_BACK_BUTTON_STYLE = {
+    background: 'transparent',
+    border: '1px solid var(--glass-border)',
+    borderRadius: '8px',
+    color: 'var(--text-secondary)',
+    padding: '0.4rem 0.75rem',
+    fontSize: '0.8rem',
+    cursor: 'pointer'
+} as const;
+const BANK_IMPORT_HEADER_HINT_STYLE = { fontSize: '0.85rem', color: 'var(--text-secondary)' } as const;
+const BANK_SELECTOR_CARD_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.75rem' } as const;
+const BANK_SELECTOR_TOP_ROW_STYLE = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' } as const;
+const BANK_SELECTOR_HINT_STYLE = { fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' } as const;
+const BANK_SELECTOR_BUTTONS_WRAP_STYLE = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } as const;
+const BANK_SELECTOR_BUTTON_BASE_STYLE = {
+    height: '34px',
+    padding: '0 0.8rem',
+    borderRadius: '10px',
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    boxShadow: 'none'
+} as const;
+const BANK_SAMPLE_LINK_STYLE = {
+    padding: '0.45rem 0.9rem',
+    borderRadius: '8px',
+    background: '#2563eb',
+    color: '#fff',
+    textDecoration: 'none',
+    fontSize: '0.85rem',
+    fontWeight: 700,
+    boxShadow: 'none'
+} as const;
+const BANK_FILE_PICKER_CARD_STYLE = { border: '1px dashed var(--surface-border)' } as const;
+const BANK_FILE_PICKER_ROW_STYLE = { display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' } as const;
+const BANK_FILE_INPUT_STYLE = { color: 'var(--text-secondary)' } as const;
+const BANK_FILE_PICKER_HINT_STYLE = { fontSize: '0.85rem', color: 'var(--text-secondary)' } as const;
+const BANK_FILE_NAME_STYLE = { marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
+const BANK_IMPORT_ERROR_STYLE = {
+    padding: '0.8rem',
+    borderRadius: '8px',
+    background: 'var(--status-danger-bg)',
+    color: 'var(--status-danger)',
+    border: '1px solid var(--status-danger-border)',
+    fontSize: '0.85rem'
+} as const;
+const BANK_PREVIEW_CARD_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.75rem' } as const;
+const BANK_SECTION_ROW_STYLE = { display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' } as const;
+const BANK_SECTION_TITLE_RESET_STYLE = { margin: 0 } as const;
+const BANK_MUTED_TEXT_STYLE = { fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
+const BANK_MAPPING_WRAP_STYLE = {
+    padding: '0.75rem',
+    borderRadius: '10px',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    background: 'rgba(255, 255, 255, 0.02)',
+    display: 'grid',
+    gap: '0.75rem'
+} as const;
+const BANK_MAPPING_GRID_STYLE = { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' } as const;
+const BANK_MAPPING_LABEL_STYLE = { display: 'grid', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
+const BANK_MAPPING_WARNING_STYLE = {
+    padding: '0.5rem 0.75rem',
+    borderRadius: '8px',
+    background: 'rgba(245, 158, 11, 0.15)',
+    color: '#f59e0b',
+    fontSize: '0.8rem'
+} as const;
+const BANK_TABLE_SCROLL_STYLE = { overflowX: 'auto' } as const;
+const BANK_TABLE_STYLE = { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' } as const;
+const BANK_TABLE_HEADER_BASE_STYLE = {
+    padding: '0.4rem 0.5rem',
+    color: 'var(--text-secondary)'
+} as const;
+const BANK_PREVIEW_HEADER_CELL_STYLE = {
+    ...BANK_TABLE_HEADER_BASE_STYLE,
+    textAlign: 'left',
+    borderBottom: '1px solid var(--glass-border)',
+    fontWeight: 600,
+    whiteSpace: 'nowrap'
+} as const;
+const BANK_PREVIEW_BODY_CELL_STYLE = {
+    padding: '0.35rem 0.5rem',
+    borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+    color: 'var(--text-primary)',
+    whiteSpace: 'nowrap'
+} as const;
+const BANK_SUCCESS_MESSAGE_STYLE = {
+    padding: '0.6rem 0.8rem',
+    borderRadius: '8px',
+    background: 'rgba(16, 185, 129, 0.12)',
+    color: '#10b981',
+    fontSize: '0.8rem'
+} as const;
+const BANK_DANGER_MESSAGE_STYLE = {
+    padding: '0.6rem 0.8rem',
+    borderRadius: '8px',
+    background: 'rgba(239, 68, 68, 0.12)',
+    color: '#ef4444',
+    fontSize: '0.8rem'
+} as const;
+const BANK_SAVE_BUTTON_BASE_STYLE = {
+    padding: '0.5rem 1rem',
+    borderRadius: '8px',
+    border: 'none',
+    fontSize: '0.85rem',
+    fontWeight: 700,
+    boxShadow: 'none'
+} as const;
+const BANK_SECONDARY_BUTTON_BASE_STYLE = {
+    padding: '0.45rem 0.9rem',
+    borderRadius: '8px',
+    border: '1px solid var(--surface-border)',
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    boxShadow: 'none'
+} as const;
+const BANK_MATCH_INFO_STACK_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.2rem' } as const;
+const BANK_MATCH_MUTED_TEXT_STYLE = { fontSize: '0.75rem', color: 'var(--text-secondary)' } as const;
+const BANK_MATCH_NOTE_STYLE = { color: 'var(--text-secondary)', fontSize: '0.8rem' } as const;
+const BANK_MATCH_NOTE_SUBTLE_STYLE = { fontSize: '0.72rem', color: 'var(--text-secondary)' } as const;
+const BANK_MATCH_CELL_STYLE = { padding: '0.35rem 0.5rem' } as const;
+const BANK_MATCH_CELL_NOWRAP_STYLE = { padding: '0.35rem 0.5rem', whiteSpace: 'nowrap' } as const;
+const BANK_MATCH_CELL_RIGHT_NOWRAP_STYLE = { padding: '0.35rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap' } as const;
+const BANK_MATCH_CONFIDENCE_STYLE = {
+    alignSelf: 'flex-start',
+    padding: '0.1rem 0.5rem',
+    borderRadius: '999px',
+    background: 'rgba(59, 130, 246, 0.15)',
+    color: '#3b82f6',
+    fontSize: '0.7rem',
+    fontWeight: 600
+} as const;
+const BANK_AI_SUGGESTION_WRAP_STYLE = {
+    padding: '0.4rem 0.6rem',
+    borderRadius: '8px',
+    background: 'rgba(168, 85, 247, 0.1)',
+    border: '1px solid rgba(168, 85, 247, 0.2)',
+    fontSize: '0.75rem',
+    color: 'var(--text-primary)',
+    lineHeight: 1.4,
+    maxWidth: '300px'
+} as const;
+const BANK_AI_SUGGESTION_LABEL_STYLE = { fontWeight: 600, color: '#a855f7', fontSize: '0.7rem' } as const;
+const BANK_ACTION_BUTTON_ROW_STYLE = { display: 'inline-flex', gap: '0.4rem', alignItems: 'center' } as const;
+const BANK_ACTION_BUTTON_BASE_STYLE = {
+    height: '30px',
+    borderRadius: '8px'
+} as const;
+const BANK_DISMISS_BUTTON_STYLE = {
+    ...BANK_ACTION_BUTTON_BASE_STYLE,
+    padding: '0 0.7rem',
+    border: '1px solid var(--surface-border)',
+    background: 'var(--surface-2)',
+    color: 'var(--text-secondary)',
+    fontSize: '0.72rem',
+    boxShadow: 'none'
+} as const;
+const BANK_AI_BUTTON_BASE_STYLE = {
+    ...BANK_ACTION_BUTTON_BASE_STYLE,
+    padding: '0 0.75rem',
+    border: '1px solid var(--surface-border)',
+    color: '#a855f7',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    boxShadow: 'none'
+} as const;
+
+function setSurfaceButtonHoverStyle(button: HTMLButtonElement, isHovering: boolean, enabled: boolean): void {
+    if (!enabled) return;
+    button.style.background = isHovering ? 'var(--surface-3)' : 'var(--surface-2)';
+}
+
+function setPrimaryButtonHoverStyle(button: HTMLButtonElement, isHovering: boolean, enabled: boolean): void {
+    if (!enabled) return;
+    button.style.background = isHovering ? '#1d4ed8' : '#2563eb';
+}
+
+function getSaveImportButtonStyle(disabled: boolean) {
+    return {
+        ...BANK_SAVE_BUTTON_BASE_STYLE,
+        background: disabled ? 'var(--surface-3)' : '#2563eb',
+        color: disabled ? 'var(--text-secondary)' : '#fff',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+    } as const;
+}
+
+function getFetchMatchesButtonStyle(disabled: boolean, loading: boolean) {
+    return {
+        ...BANK_SECONDARY_BUTTON_BASE_STYLE,
+        background: 'var(--surface-2)',
+        color: 'var(--text-primary)',
+        cursor: disabled ? 'not-allowed' : loading ? 'wait' : 'pointer',
+    } as const;
+}
+
+function getTableHeaderCellStyle(align: 'left' | 'right' = 'left') {
+    return {
+        ...BANK_TABLE_HEADER_BASE_STYLE,
+        textAlign: align,
+    } as const;
+}
+
+function getApproveMatchButtonStyle(isApproved: boolean, disabled: boolean) {
+    return {
+        ...BANK_ACTION_BUTTON_BASE_STYLE,
+        padding: '0 0.75rem',
+        border: '1px solid var(--glass-border)',
+        background: isApproved ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.12)',
+        color: '#10b981',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+    } as const;
+}
+
+function getAiSuggestionButtonStyle(hasSuggestion: boolean, disabled: boolean) {
+    return {
+        ...BANK_AI_BUTTON_BASE_STYLE,
+        background: hasSuggestion ? 'rgba(168, 85, 247, 0.12)' : 'var(--surface-2)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+    } as const;
+}
+
+function getDismissMatchButtonStyle(disabled: boolean) {
+    return {
+        ...BANK_DISMISS_BUTTON_STYLE,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+    } as const;
+}
+
+function getBankSelectorButtonStyle(isActive: boolean) {
+    return {
+        ...BANK_SELECTOR_BUTTON_BASE_STYLE,
+        border: isActive ? 'none' : '1px solid var(--surface-border)',
+        background: isActive ? '#2563eb' : 'var(--surface-2)',
+        color: isActive ? '#fff' : 'var(--text-primary)',
+    } as const;
+}
+
+function setBankSelectorHoverStyle(button: HTMLButtonElement, isActive: boolean): void {
+    button.style.background = isActive ? '#1d4ed8' : 'var(--surface-3)';
+}
+
+function resetBankSelectorHoverStyle(button: HTMLButtonElement, isActive: boolean): void {
+    button.style.background = isActive ? '#2563eb' : 'var(--surface-2)';
+}
+
+function setSampleLinkHoverStyle(anchor: HTMLAnchorElement, isHovering: boolean): void {
+    anchor.style.background = isHovering ? '#1d4ed8' : '#2563eb';
+}
+
+interface MappingSelectFieldProps {
+    label: string;
+    value?: string;
+    optionKeyPrefix: string;
+    options: string[];
+    onChange: (value: string | undefined) => void;
+}
+
+function MappingSelectField({ label, value, optionKeyPrefix, options, onChange }: MappingSelectFieldProps) {
+    return (
+        <label style={BANK_MAPPING_LABEL_STYLE}>
+            {label}
+            <select
+                value={value || ''}
+                onChange={(event) => onChange(event.currentTarget.value || undefined)}
+            >
+                <option value="">Välj kolumn</option>
+                {options.map((option) => (
+                    <option key={`${optionKeyPrefix}-${option}`} value={option}>{option}</option>
+                ))}
+            </select>
+        </label>
+    );
+}
+
 function stripBom(value: string): string {
     return value.replace(/^\uFEFF/, '');
 }
@@ -727,10 +1007,11 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 setMatchError('Du måste vara inloggad för att hämta Fortnox-data.');
                 return;
             }
+            const companyId = companyService.getCurrentId();
 
             const [supplierResponse, customerResponse] = await Promise.all([
-                postAuthedFunction('fortnox', accessToken, { action: 'getSupplierInvoices' }),
-                postAuthedFunction('fortnox', accessToken, { action: 'getInvoices' })
+                postAuthedFunction('fortnox', accessToken, { action: 'getSupplierInvoices', companyId }),
+                postAuthedFunction('fortnox', accessToken, { action: 'getInvoices', companyId })
             ]);
 
             const errors: string[] = [];
@@ -889,40 +1170,31 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
         if (!matches) return null;
         return matches.filter((result) => !dismissedIds.has(result.transaction.id));
     }, [matches, dismissedIds]);
+    const isAutoSelected = !selectedBank || selectedBank === 'auto';
+    const isSaveDisabled = saving || missingMapping.length > 0 || normalizedTransactions.length === 0;
+    const isMatchFetchDisabled = matching || normalizedTransactions.length === 0;
 
     return (
-        <div className="panel-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div className="panel-stagger" style={BANK_IMPORT_ROOT_STYLE}>
+            <div style={BANK_IMPORT_HEADER_STYLE}>
                 <button
                     type="button"
                     onClick={onBack}
-                    style={{
-                        background: 'transparent',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: '8px',
-                        color: 'var(--text-secondary)',
-                        padding: '0.4rem 0.75rem',
-                        fontSize: '0.8rem',
-                        cursor: 'pointer'
-                    }}
+                    style={BANK_IMPORT_BACK_BUTTON_STYLE}
                 >
                     Tillbaka
                 </button>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <span style={BANK_IMPORT_HEADER_HINT_STYLE}>
                     Importera kontoutdrag (CSV) och matcha mot Fortnox.
                 </span>
             </div>
 
             {/* Bank selector */}
-            <div className="panel-card panel-card--no-hover" style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.75rem'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+            <div className="panel-card panel-card--no-hover" style={BANK_SELECTOR_CARD_STYLE}>
+                <div style={BANK_SELECTOR_TOP_ROW_STYLE}>
                     <div>
-                        <div className="panel-section-title" style={{ margin: 0 }}>Välj bank</div>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                        <div className="panel-section-title" style={BANK_SECTION_TITLE_RESET_STYLE}>Välj bank</div>
+                        <div style={BANK_SELECTOR_HINT_STYLE}>
                             {activeProfile
                                 ? `${activeProfile.name}: ${activeProfile.description}`
                                 : 'Välj bank eller låt oss auto-detektera från filen.'}
@@ -931,23 +1203,14 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                     <a
                         href={SAMPLE_CSV_URL}
                         download
-                        style={{
-                            padding: '0.45rem 0.9rem',
-                            borderRadius: '8px',
-                            background: '#2563eb',
-                            color: '#fff',
-                            textDecoration: 'none',
-                            fontSize: '0.85rem',
-                            fontWeight: 700,
-                            boxShadow: 'none'
-                        }}
-                        onMouseOver={(e) => (e.currentTarget.style.background = '#1d4ed8')}
-                        onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
+                        style={BANK_SAMPLE_LINK_STYLE}
+                        onMouseOver={(e) => setSampleLinkHoverStyle(e.currentTarget, true)}
+                        onMouseOut={(e) => setSampleLinkHoverStyle(e.currentTarget, false)}
                     >
                         Ladda ner mall
                     </a>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <div style={BANK_SELECTOR_BUTTONS_WRAP_STYLE}>
                     <button
                         type="button"
                         onClick={() => {
@@ -958,70 +1221,20 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                 setMapping(guessMapping(preview.headers, detected));
                             }
                         }}
-                        style={{
-                            height: '34px',
-                            padding: '0 0.8rem',
-                            borderRadius: '10px',
-                            border: (!selectedBank || selectedBank === 'auto') ? 'none' : '1px solid var(--surface-border)',
-                            background: (!selectedBank || selectedBank === 'auto') ? '#2563eb' : 'var(--surface-2)',
-                            color: (!selectedBank || selectedBank === 'auto') ? '#fff' : 'var(--text-primary)',
-                            fontSize: '0.78rem',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            boxShadow: 'none'
-                        }}
-                        onMouseOver={(e) => {
-                            if (!selectedBank || selectedBank === 'auto') {
-                                e.currentTarget.style.background = '#1d4ed8';
-                            } else {
-                                e.currentTarget.style.background = 'var(--surface-3)';
-                            }
-                        }}
-                        onMouseOut={(e) => {
-                            if (!selectedBank || selectedBank === 'auto') {
-                                e.currentTarget.style.background = '#2563eb';
-                            } else {
-                                e.currentTarget.style.background = 'var(--surface-2)';
-                            }
-                        }}
+                        style={getBankSelectorButtonStyle(isAutoSelected)}
+                        onMouseOver={(e) => setBankSelectorHoverStyle(e.currentTarget, isAutoSelected)}
+                        onMouseOut={(e) => resetBankSelectorHoverStyle(e.currentTarget, isAutoSelected)}
                     >
-                        Auto-detektera{detectedBank && selectedBank === 'auto' ? ` (${detectedBank.name})` : ''}
+                        Auto-detektera{detectedBank && isAutoSelected ? ` (${detectedBank.name})` : ''}
                     </button>
                     {BANK_PROFILES.map(profile => (
                         <button
                             key={profile.id}
                             type="button"
                             onClick={() => setSelectedBank(profile.id)}
-                            style={{
-                                height: '34px',
-                                padding: '0 0.8rem',
-                                borderRadius: '10px',
-                                border: selectedBank === profile.id ? 'none' : '1px solid var(--surface-border)',
-                                background: selectedBank === profile.id ? '#2563eb' : 'var(--surface-2)',
-                                color: selectedBank === profile.id ? '#fff' : 'var(--text-primary)',
-                                fontSize: '0.78rem',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                boxShadow: 'none'
-                            }}
-                            onMouseOver={(e) => {
-                                if (selectedBank === profile.id) {
-                                    e.currentTarget.style.background = '#1d4ed8';
-                                } else {
-                                    e.currentTarget.style.background = 'var(--surface-3)';
-                                }
-                            }}
-                            onMouseOut={(e) => {
-                                if (selectedBank === profile.id) {
-                                    e.currentTarget.style.background = '#2563eb';
-                                } else {
-                                    e.currentTarget.style.background = 'var(--surface-2)';
-                                }
-                            }}
+                            style={getBankSelectorButtonStyle(selectedBank === profile.id)}
+                            onMouseOver={(e) => setBankSelectorHoverStyle(e.currentTarget, selectedBank === profile.id)}
+                            onMouseOut={(e) => resetBankSelectorHoverStyle(e.currentTarget, selectedBank === profile.id)}
                         >
                             {profile.name}
                         </button>
@@ -1029,10 +1242,8 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 </div>
             </div>
 
-            <div className="panel-card panel-card--no-hover" style={{
-                border: '1px dashed var(--surface-border)'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <div className="panel-card panel-card--no-hover" style={BANK_FILE_PICKER_CARD_STYLE}>
+                <div style={BANK_FILE_PICKER_ROW_STYLE}>
                     <input
                         type="file"
                         accept=".csv,text/csv"
@@ -1043,153 +1254,97 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                 void handleFileSelect(file);
                             }
                         }}
-                        style={{ color: 'var(--text-secondary)' }}
+                        style={BANK_FILE_INPUT_STYLE}
                     />
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    <span style={BANK_FILE_PICKER_HINT_STYLE}>
                         Välj din bankfil for forhandsvisning.
                     </span>
                 </div>
                 {filename && (
-                    <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <div style={BANK_FILE_NAME_STYLE}>
                         Fil: {filename}
                     </div>
                 )}
             </div>
 
             {error && (
-                <div style={{
-                    padding: '0.8rem',
-                    borderRadius: '8px',
-                    background: 'var(--status-danger-bg)',
-                    color: 'var(--status-danger)',
-                    border: '1px solid var(--status-danger-border)',
-                    fontSize: '0.85rem'
-                }}>
+                <div style={BANK_IMPORT_ERROR_STYLE}>
                     {error}
                 </div>
             )}
 
             {preview && (
-                <div className="panel-card panel-card--no-hover" style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.75rem'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                        <div className="panel-section-title" style={{ margin: 0 }}>Förhandsvisning</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                <div className="panel-card panel-card--no-hover" style={BANK_PREVIEW_CARD_STYLE}>
+                    <div style={BANK_SECTION_ROW_STYLE}>
+                        <div className="panel-section-title" style={BANK_SECTION_TITLE_RESET_STYLE}>Förhandsvisning</div>
+                        <div style={BANK_MUTED_TEXT_STYLE}>
                             {preview.totalRows} transaktioner • Avgränsare: "{preview.delimiter}"
                         </div>
                     </div>
 
-                    <div style={{
-                        padding: '0.75rem',
-                        borderRadius: '10px',
-                        border: '1px solid rgba(255, 255, 255, 0.08)',
-                        background: 'rgba(255, 255, 255, 0.02)',
-                        display: 'grid',
-                        gap: '0.75rem'
-                    }}>
-                        <div className="panel-section-title" style={{ margin: 0 }}>Kolumnmappning</div>
-                        <div style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                            <label style={{ display: 'grid', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                Bokföringsdag
-                                <select
-                                    value={mapping.date || ''}
-                                    onChange={(event) => setMapping({ ...mapping, date: event.currentTarget.value || undefined })}
-                                >
-                                    <option value="">Välj kolumn</option>
-                                    {mappingOptions.map((option) => (
-                                        <option key={`date-${option}`} value={option}>{option}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label style={{ display: 'grid', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                Beskrivning
-                                <select
-                                    value={mapping.description || ''}
-                                    onChange={(event) => setMapping({ ...mapping, description: event.currentTarget.value || undefined })}
-                                >
-                                    <option value="">Välj kolumn</option>
-                                    {mappingOptions.map((option) => (
-                                        <option key={`desc-${option}`} value={option}>{option}</option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label style={{ display: 'grid', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                Belopp
-                                <select
-                                    value={mapping.amount || ''}
-                                    onChange={(event) => setMapping({
-                                        ...mapping,
-                                        amount: event.currentTarget.value || undefined,
-                                        inflow: event.currentTarget.value ? undefined : mapping.inflow,
-                                        outflow: event.currentTarget.value ? undefined : mapping.outflow
-                                    })}
-                                >
-                                    <option value="">Välj kolumn</option>
-                                    {mappingOptions.map((option) => (
-                                        <option key={`amount-${option}`} value={option}>{option}</option>
-                                    ))}
-                                </select>
-                            </label>
+                    <div style={BANK_MAPPING_WRAP_STYLE}>
+                        <div className="panel-section-title" style={BANK_SECTION_TITLE_RESET_STYLE}>Kolumnmappning</div>
+                        <div style={BANK_MAPPING_GRID_STYLE}>
+                            <MappingSelectField
+                                label="Bokföringsdag"
+                                value={mapping.date}
+                                optionKeyPrefix="date"
+                                options={mappingOptions}
+                                onChange={(value) => setMapping({ ...mapping, date: value })}
+                            />
+                            <MappingSelectField
+                                label="Beskrivning"
+                                value={mapping.description}
+                                optionKeyPrefix="desc"
+                                options={mappingOptions}
+                                onChange={(value) => setMapping({ ...mapping, description: value })}
+                            />
+                            <MappingSelectField
+                                label="Belopp"
+                                value={mapping.amount}
+                                optionKeyPrefix="amount"
+                                options={mappingOptions}
+                                onChange={(value) => setMapping({
+                                    ...mapping,
+                                    amount: value,
+                                    inflow: value ? undefined : mapping.inflow,
+                                    outflow: value ? undefined : mapping.outflow
+                                })}
+                            />
                             {!mapping.amount && (
                                 <>
-                                    <label style={{ display: 'grid', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                        Insättning
-                                        <select
-                                            value={mapping.inflow || ''}
-                                            onChange={(event) => setMapping({ ...mapping, inflow: event.currentTarget.value || undefined })}
-                                        >
-                                            <option value="">Välj kolumn</option>
-                                            {mappingOptions.map((option) => (
-                                                <option key={`in-${option}`} value={option}>{option}</option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    <label style={{ display: 'grid', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                        Uttag
-                                        <select
-                                            value={mapping.outflow || ''}
-                                            onChange={(event) => setMapping({ ...mapping, outflow: event.currentTarget.value || undefined })}
-                                        >
-                                            <option value="">Välj kolumn</option>
-                                            {mappingOptions.map((option) => (
-                                                <option key={`out-${option}`} value={option}>{option}</option>
-                                            ))}
-                                        </select>
-                                    </label>
+                                    <MappingSelectField
+                                        label="Insättning"
+                                        value={mapping.inflow}
+                                        optionKeyPrefix="in"
+                                        options={mappingOptions}
+                                        onChange={(value) => setMapping({ ...mapping, inflow: value })}
+                                    />
+                                    <MappingSelectField
+                                        label="Uttag"
+                                        value={mapping.outflow}
+                                        optionKeyPrefix="out"
+                                        options={mappingOptions}
+                                        onChange={(value) => setMapping({ ...mapping, outflow: value })}
+                                    />
                                 </>
                             )}
                         </div>
                         {missingMapping.length > 0 && (
-                            <div style={{
-                                padding: '0.5rem 0.75rem',
-                                borderRadius: '8px',
-                                background: 'rgba(245, 158, 11, 0.15)',
-                                color: '#f59e0b',
-                                fontSize: '0.8rem'
-                            }}>
+                            <div style={BANK_MAPPING_WARNING_STYLE}>
                                 Saknade fält: {missingMapping.join(', ')}
                             </div>
                         )}
                     </div>
 
-                    <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <div style={BANK_TABLE_SCROLL_STYLE}>
+                        <table style={BANK_TABLE_STYLE}>
                             <thead>
                                 <tr>
                                     {preview.headers.map((header) => (
                                         <th
                                             key={header}
-                                            style={{
-                                                textAlign: 'left',
-                                                padding: '0.4rem 0.5rem',
-                                                borderBottom: '1px solid var(--glass-border)',
-                                                color: 'var(--text-secondary)',
-                                                fontWeight: 600,
-                                                whiteSpace: 'nowrap'
-                                            }}
+                                            style={BANK_PREVIEW_HEADER_CELL_STYLE}
                                         >
                                             {header || '—'}
                                         </th>
@@ -1202,12 +1357,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                                         {preview.headers.map((_, cellIndex) => (
                                             <td
                                                 key={`${rowIndex}-${cellIndex}`}
-                                                style={{
-                                                    padding: '0.35rem 0.5rem',
-                                                    borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-                                                    color: 'var(--text-primary)',
-                                                    whiteSpace: 'nowrap'
-                                                }}
+                                                style={BANK_PREVIEW_BODY_CELL_STYLE}
                                             >
                                                 {row[cellIndex] || '—'}
                                             </td>
@@ -1218,41 +1368,21 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                         </table>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <div style={BANK_SECTION_ROW_STYLE}>
+                        <div style={BANK_MUTED_TEXT_STYLE}>
                             Tolkade {normalizedTransactions.length} transaktioner.
                         </div>
                         <button
                             type="button"
                             onClick={handleSaveImport}
-                            disabled={saving || missingMapping.length > 0 || normalizedTransactions.length === 0}
+                            disabled={isSaveDisabled}
                             data-testid="bank-import-save-button"
-                            style={{
-                                padding: '0.5rem 1rem',
-                                borderRadius: '8px',
-                                border: 'none',
-                                background: missingMapping.length > 0 || normalizedTransactions.length === 0
-                                    ? 'var(--surface-3)'
-                                    : '#2563eb',
-                                color: missingMapping.length > 0 || normalizedTransactions.length === 0
-                                    ? 'var(--text-secondary)'
-                                    : '#fff',
-                                cursor: missingMapping.length > 0 || normalizedTransactions.length === 0
-                                    ? 'not-allowed'
-                                    : 'pointer',
-                                fontSize: '0.85rem',
-                                fontWeight: 700,
-                                boxShadow: 'none'
-                            }}
+                            style={getSaveImportButtonStyle(isSaveDisabled)}
                             onMouseOver={(e) => {
-                                if (!(missingMapping.length > 0 || normalizedTransactions.length === 0)) {
-                                    e.currentTarget.style.background = '#1d4ed8';
-                                }
+                                setPrimaryButtonHoverStyle(e.currentTarget, true, !isSaveDisabled);
                             }}
                             onMouseOut={(e) => {
-                                if (!(missingMapping.length > 0 || normalizedTransactions.length === 0)) {
-                                    e.currentTarget.style.background = '#2563eb';
-                                }
+                                setPrimaryButtonHoverStyle(e.currentTarget, false, !isSaveDisabled);
                             }}
                         >
                             {saving ? 'Sparar...' : 'Spara import'}
@@ -1260,13 +1390,7 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                     </div>
 
                     {saveMessage && (
-                        <div style={{
-                            padding: '0.6rem 0.8rem',
-                            borderRadius: '8px',
-                            background: 'rgba(16, 185, 129, 0.12)',
-                            color: '#10b981',
-                            fontSize: '0.8rem'
-                        }}>
+                        <div style={BANK_SUCCESS_MESSAGE_STYLE}>
                             {saveMessage}
                         </div>
                     )}
@@ -1274,33 +1398,19 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
             )}
 
             {preview && (
-                <div className="panel-card panel-card--no-hover" style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.75rem'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                        <div className="panel-section-title" style={{ margin: 0 }}>Matchningsförslag</div>
+                <div className="panel-card panel-card--no-hover" style={BANK_PREVIEW_CARD_STYLE}>
+                    <div style={BANK_SECTION_ROW_STYLE}>
+                        <div className="panel-section-title" style={BANK_SECTION_TITLE_RESET_STYLE}>Matchningsförslag</div>
                         <button
                             type="button"
                             onClick={handleMatchSuggestions}
-                            disabled={matching || normalizedTransactions.length === 0}
-                            style={{
-                                padding: '0.45rem 0.9rem',
-                                borderRadius: '8px',
-                                border: '1px solid var(--surface-border)',
-                                background: 'var(--surface-2)',
-                                color: 'var(--text-primary)',
-                                cursor: matching ? 'wait' : 'pointer',
-                                fontSize: '0.8rem',
-                                fontWeight: 600,
-                                boxShadow: 'none'
-                            }}
+                            disabled={isMatchFetchDisabled}
+                            style={getFetchMatchesButtonStyle(isMatchFetchDisabled, matching)}
                             onMouseOver={(e) => {
-                                if (!matching) e.currentTarget.style.background = 'var(--surface-3)';
+                                setSurfaceButtonHoverStyle(e.currentTarget, true, !isMatchFetchDisabled);
                             }}
                             onMouseOut={(e) => {
-                                if (!matching) e.currentTarget.style.background = 'var(--surface-2)';
+                                setSurfaceButtonHoverStyle(e.currentTarget, false, !isMatchFetchDisabled);
                             }}
                         >
                             {matching ? 'Hämtar...' : 'Hämta från Fortnox'}
@@ -1308,205 +1418,142 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                     </div>
 
                     {matchError && (
-                        <div style={{
-                            padding: '0.6rem 0.8rem',
-                            borderRadius: '8px',
-                            background: 'rgba(239, 68, 68, 0.12)',
-                            color: '#ef4444',
-                            fontSize: '0.8rem'
-                        }}>
+                        <div style={BANK_DANGER_MESSAGE_STYLE}>
                             {matchError}
                         </div>
                     )}
 
                     {actionError && (
-                        <div style={{
-                            padding: '0.6rem 0.8rem',
-                            borderRadius: '8px',
-                            background: 'rgba(239, 68, 68, 0.12)',
-                            color: '#ef4444',
-                            fontSize: '0.8rem'
-                        }}>
+                        <div style={BANK_DANGER_MESSAGE_STYLE}>
                             {actionError}
                         </div>
                     )}
 
                     {visibleMatches && (
                         <>
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                            <div style={BANK_MUTED_TEXT_STYLE}>
                                 Visar {Math.min(visibleMatches.length, MAX_MATCH_ROWS)} av {visibleMatches.length} transaktioner.
                             </div>
-                            <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                            <div style={BANK_TABLE_SCROLL_STYLE}>
+                                <table style={BANK_TABLE_STYLE}>
                                     <thead>
                                         <tr>
-                                            <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Datum</th>
-                                            <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Beskrivning</th>
-                                            <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Belopp</th>
-                                            <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Match</th>
-                                            <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' }}>Åtgärd</th>
+                                            <th style={getTableHeaderCellStyle('left')}>Datum</th>
+                                            <th style={getTableHeaderCellStyle('left')}>Beskrivning</th>
+                                            <th style={getTableHeaderCellStyle('right')}>Belopp</th>
+                                            <th style={getTableHeaderCellStyle('left')}>Match</th>
+                                            <th style={getTableHeaderCellStyle('right')}>Åtgärd</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {visibleMatches.slice(0, MAX_MATCH_ROWS).map((result) => {
                                             const isApproved = approvedIds.has(result.transaction.id);
                                             const isLoading = actionLoadingId === result.transaction.id;
+                                            const aiSuggested = aiSuggestions.has(result.transaction.id);
+                                            const aiButtonDisabled = aiLoadingId === result.transaction.id || aiSuggested;
+                                            const approveDisabled = isLoading || isApproved;
 
                                             return (
                                                 <tr key={result.transaction.id}>
-                                                <td style={{ padding: '0.35rem 0.5rem', whiteSpace: 'nowrap' }}>{result.transaction.date}</td>
-                                                <td style={{ padding: '0.35rem 0.5rem' }}>{result.transaction.description}</td>
-                                                <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                    {formatAmount(result.transaction.amount)}
-                                                </td>
-                                                <td style={{ padding: '0.35rem 0.5rem' }}>
-                                                    {result.match ? (
-                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                                                            <span>
-                                                                {result.match.type === 'supplier' ? 'Leverantörsfaktura' : 'Kundfaktura'}{' '}
-                                                                {result.match.type === 'supplier'
-                                                                    ? `${result.match.invoice.InvoiceNumber || result.match.invoice.GivenNumber}`
-                                                                    : `${result.match.invoice.InvoiceNumber}`}{' '}
-                                                                • {result.match.type === 'supplier'
-                                                                    ? `Lev.nr ${result.match.invoice.SupplierNumber}`
-                                                                    : `Kund.nr ${result.match.invoice.CustomerNumber}`}
-                                                            </span>
-                                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                                                Förfallo: {result.match.type === 'supplier'
-                                                                    ? result.match.invoice.DueDate
-                                                                    : result.match.invoice.DueDate || '—'}{' '}
-                                                                • Belopp: {formatAmount(toNumber(result.match.type === 'supplier'
-                                                                    ? result.match.invoice.Total
-                                                                    : result.match.invoice.Total))}
-                                                            </span>
-                                                            {result.note && (
-                                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                                                                    {result.note}
+                                                    <td style={BANK_MATCH_CELL_NOWRAP_STYLE}>{result.transaction.date}</td>
+                                                    <td style={BANK_MATCH_CELL_STYLE}>{result.transaction.description}</td>
+                                                    <td style={BANK_MATCH_CELL_RIGHT_NOWRAP_STYLE}>
+                                                        {formatAmount(result.transaction.amount)}
+                                                    </td>
+                                                    <td style={BANK_MATCH_CELL_STYLE}>
+                                                        {result.match ? (
+                                                            <div style={BANK_MATCH_INFO_STACK_STYLE}>
+                                                                <span>
+                                                                    {result.match.type === 'supplier' ? 'Leverantörsfaktura' : 'Kundfaktura'}{' '}
+                                                                    {result.match.type === 'supplier'
+                                                                        ? `${result.match.invoice.InvoiceNumber || result.match.invoice.GivenNumber}`
+                                                                        : `${result.match.invoice.InvoiceNumber}`}{' '}
+                                                                    • {result.match.type === 'supplier'
+                                                                        ? `Lev.nr ${result.match.invoice.SupplierNumber}`
+                                                                        : `Kund.nr ${result.match.invoice.CustomerNumber}`}
                                                                 </span>
-                                                            )}
-                                                            <span style={{
-                                                                alignSelf: 'flex-start',
-                                                                padding: '0.1rem 0.5rem',
-                                                                borderRadius: '999px',
-                                                                background: 'rgba(59, 130, 246, 0.15)',
-                                                                color: '#3b82f6',
-                                                                fontSize: '0.7rem',
-                                                                fontWeight: 600
-                                                            }}>
-                                                                {result.confidence || 'Låg'}
-                                                            </span>
-                                                        </div>
-                                                    ) : (
-                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                                                                {result.note || 'Ingen match'}
-                                                            </span>
-                                                            {aiSuggestions.has(result.transaction.id) && (
-                                                                <div style={{
-                                                                    padding: '0.4rem 0.6rem',
-                                                                    borderRadius: '8px',
-                                                                    background: 'rgba(168, 85, 247, 0.1)',
-                                                                    border: '1px solid rgba(168, 85, 247, 0.2)',
-                                                                    fontSize: '0.75rem',
-                                                                    color: 'var(--text-primary)',
-                                                                    lineHeight: 1.4,
-                                                                    maxWidth: '300px'
-                                                                }}>
-                                                                    <span style={{ fontWeight: 600, color: '#a855f7', fontSize: '0.7rem' }}>AI-forslag: </span>
-                                                                    {aiSuggestions.get(result.transaction.id)}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </td>
-                                                <td style={{ padding: '0.35rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                    {result.match ? (
-                                                        <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => void handleApproveMatch(result)}
-                                                                disabled={isLoading || isApproved}
-                                                                style={{
-                                                                    height: '30px',
-                                                                    padding: '0 0.75rem',
-                                                                    borderRadius: '8px',
-                                                                    border: '1px solid var(--glass-border)',
-                                                                    background: isApproved ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.12)',
-                                                                    color: '#10b981',
-                                                                    fontSize: '0.75rem',
-                                                                    fontWeight: 600,
-                                                                    cursor: isLoading || isApproved ? 'not-allowed' : 'pointer'
-                                                                }}
-                                                            >
-                                                                {isApproved ? 'Skapad' : isLoading ? 'Skapar...' : 'OK'}
-                                                            </button>
-                                                            {!isApproved && (
+                                                                <span style={BANK_MATCH_MUTED_TEXT_STYLE}>
+                                                                    Förfallo: {result.match.type === 'supplier'
+                                                                        ? result.match.invoice.DueDate
+                                                                        : result.match.invoice.DueDate || '—'}{' '}
+                                                                    • Belopp: {formatAmount(toNumber(result.match.type === 'supplier'
+                                                                        ? result.match.invoice.Total
+                                                                        : result.match.invoice.Total))}
+                                                                </span>
+                                                                {result.note && (
+                                                                    <span style={BANK_MATCH_NOTE_SUBTLE_STYLE}>
+                                                                        {result.note}
+                                                                    </span>
+                                                                )}
+                                                                <span style={BANK_MATCH_CONFIDENCE_STYLE}>
+                                                                    {result.confidence || 'Låg'}
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <div style={BANK_MATCH_INFO_STACK_STYLE}>
+                                                                <span style={BANK_MATCH_NOTE_STYLE}>
+                                                                    {result.note || 'Ingen match'}
+                                                                </span>
+                                                                {aiSuggested && (
+                                                                    <div style={BANK_AI_SUGGESTION_WRAP_STYLE}>
+                                                                        <span style={BANK_AI_SUGGESTION_LABEL_STYLE}>AI-forslag: </span>
+                                                                        {aiSuggestions.get(result.transaction.id)}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td style={BANK_MATCH_CELL_RIGHT_NOWRAP_STYLE}>
+                                                        {result.match ? (
+                                                            <div style={BANK_ACTION_BUTTON_ROW_STYLE}>
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => handleDismissMatch(result)}
-                                                                    disabled={isLoading}
-                                                                    style={{
-                                                                        height: '30px',
-                                                                        padding: '0 0.7rem',
-                                                                        borderRadius: '8px',
-                                                                        border: '1px solid var(--surface-border)',
-                                                                        background: 'var(--surface-2)',
-                                                                        color: 'var(--text-secondary)',
-                                                                        fontSize: '0.72rem',
-                                                                        cursor: isLoading ? 'not-allowed' : 'pointer',
-                                                                        boxShadow: 'none'
-                                                                    }}
-                                                                    onMouseOver={(e) => {
-                                                                        if (!isLoading) e.currentTarget.style.background = 'var(--surface-3)';
-                                                                    }}
-                                                                    onMouseOut={(e) => {
-                                                                        if (!isLoading) e.currentTarget.style.background = 'var(--surface-2)';
-                                                                    }}
+                                                                    onClick={() => void handleApproveMatch(result)}
+                                                                    disabled={approveDisabled}
+                                                                    style={getApproveMatchButtonStyle(isApproved, approveDisabled)}
                                                                 >
-                                                                    Avvisa
+                                                                    {isApproved ? 'Skapad' : isLoading ? 'Skapar...' : 'OK'}
                                                                 </button>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => void handleAiSuggestion(result.transaction)}
-                                                            disabled={aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id)}
-                                                            style={{
-                                                                height: '30px',
-                                                                padding: '0 0.75rem',
-                                                                borderRadius: '8px',
-                                                                border: '1px solid var(--surface-border)',
-                                                                background: aiSuggestions.has(result.transaction.id)
-                                                                    ? 'rgba(168, 85, 247, 0.12)'
-                                                                    : 'var(--surface-2)',
-                                                                color: '#a855f7',
-                                                                fontSize: '0.72rem',
-                                                                fontWeight: 700,
-                                                                cursor: aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id) ? 'not-allowed' : 'pointer',
-                                                                boxShadow: 'none'
-                                                            }}
-                                                            onMouseOver={(e) => {
-                                                                if (!(aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id))) {
-                                                                    e.currentTarget.style.background = 'var(--surface-3)';
-                                                                }
-                                                            }}
-                                                            onMouseOut={(e) => {
-                                                                if (!(aiLoadingId === result.transaction.id || aiSuggestions.has(result.transaction.id))) {
-                                                                    e.currentTarget.style.background = 'var(--surface-2)';
-                                                                }
-                                                            }}
-                                                        >
-                                                            {aiLoadingId === result.transaction.id
-                                                                ? 'Tanker...'
-                                                                : aiSuggestions.has(result.transaction.id)
-                                                                    ? 'Foreslaget'
-                                                                    : 'AI-forslag'}
-                                                        </button>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
+                                                                {!isApproved && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleDismissMatch(result)}
+                                                                        disabled={isLoading}
+                                                                        style={getDismissMatchButtonStyle(isLoading)}
+                                                                        onMouseOver={(e) => {
+                                                                            setSurfaceButtonHoverStyle(e.currentTarget, true, !isLoading);
+                                                                        }}
+                                                                        onMouseOut={(e) => {
+                                                                            setSurfaceButtonHoverStyle(e.currentTarget, false, !isLoading);
+                                                                        }}
+                                                                    >
+                                                                        Avvisa
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => void handleAiSuggestion(result.transaction)}
+                                                                disabled={aiButtonDisabled}
+                                                                style={getAiSuggestionButtonStyle(aiSuggested, aiButtonDisabled)}
+                                                                onMouseOver={(e) => {
+                                                                    setSurfaceButtonHoverStyle(e.currentTarget, true, !aiButtonDisabled);
+                                                                }}
+                                                                onMouseOut={(e) => {
+                                                                    setSurfaceButtonHoverStyle(e.currentTarget, false, !aiButtonDisabled);
+                                                                }}
+                                                            >
+                                                                {aiLoadingId === result.transaction.id
+                                                                    ? 'Tanker...'
+                                                                    : aiSuggested
+                                                                        ? 'Foreslaget'
+                                                                        : 'AI-forslag'}
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
                                         })}
                                     </tbody>
                                 </table>

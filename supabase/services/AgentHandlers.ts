@@ -72,7 +72,8 @@ function currentPeriod(): string {
 
 async function getFortnoxService(
     supabase: SupabaseClient,
-    userId: string
+    userId: string,
+    companyId: string
 ): Promise<FortnoxService | null> {
     const clientId = Deno.env.get('FORTNOX_CLIENT_ID') ?? '';
     const clientSecret = Deno.env.get('FORTNOX_CLIENT_SECRET') ?? '';
@@ -82,6 +83,7 @@ async function getFortnoxService(
         .from('fortnox_tokens')
         .select('id')
         .eq('user_id', userId)
+        .eq('company_id', companyId)
         .maybeSingle();
 
     if (!token) return null;
@@ -89,7 +91,8 @@ async function getFortnoxService(
     return new FortnoxService(
         { clientId, clientSecret, redirectUri: '' } as FortnoxConfig,
         supabase,
-        userId
+        userId,
+        companyId
     );
 }
 
@@ -609,7 +612,7 @@ export async function reconcileBankTransactions(
                     aiModel: aiSuggestion.model || 'system',
                     aiFunction: 'suggestBASAccount',
                     inputData: { counterparty, amount, description: tx.description },
-                    outputData: aiSuggestion,
+                    outputData: aiSuggestion as unknown as Record<string, unknown>,
                     confidence: parseNumber(aiSuggestion.confidence),
                 });
 
@@ -658,7 +661,7 @@ async function suggestBASAccountForTransaction(
     plan?: UserPlan,
 ): Promise<BASAccountSuggestion | null> {
     // First: try deterministic lookup via BASAccounts.getCostAccount()
-    const deterministicAccount = getCostAccount(description || counterparty);
+    const deterministicAccount = getCostAccount(25, description || counterparty);
     if (deterministicAccount && deterministicAccount.account !== '6990') {
         // Got a specific match (not the generic fallback 6990)
         return {
@@ -785,7 +788,7 @@ export async function calculateVATReport(
 
     // Fortnox data: vouchers
     if (source === 'fortnox' || source === 'hybrid') {
-        const fortnox = await getFortnoxService(supabase, userId);
+        const fortnox = await getFortnoxService(supabase, userId, companyId);
         if (fortnox) {
             try {
                 const vouchers = await fortnox.getVouchers();
@@ -863,7 +866,7 @@ export async function exportVATToFortnox(
     }
 
     const audit = new AuditService(supabase);
-    const fortnox = await getFortnoxService(supabase, userId);
+    const fortnox = await getFortnoxService(supabase, userId, companyId);
     if (!fortnox) {
         throw new Error('Fortnox-anslutning saknas. Anslut Fortnox via Integrationer.');
     }
@@ -1038,7 +1041,7 @@ export async function createJournalEntryFromInvoice(
 
     // Try Fortnox export
     let fortnoxResult: Record<string, unknown> | null = null;
-    const fortnox = await getFortnoxService(supabase, userId);
+    const fortnox = await getFortnoxService(supabase, userId, companyId);
 
     if (fortnox && guardrailCheck.allowed) {
         const syncId = await audit.startFortnoxSync({
@@ -1192,7 +1195,7 @@ export async function autoPostTransaction(
 
     // Try Fortnox export
     let fortnoxResult: Record<string, unknown> | null = null;
-    const fortnox = await getFortnoxService(supabase, userId);
+    const fortnox = await getFortnoxService(supabase, userId, companyId);
 
     if (fortnox) {
         try {
@@ -1285,7 +1288,7 @@ export async function runAgiDraft(
     // Build totals — try Fortnox first
     let totals: Record<string, unknown> = payload.totals as Record<string, unknown> || {};
 
-    const fortnox = await getFortnoxService(supabase, userId);
+    const fortnox = await getFortnoxService(supabase, userId, companyId);
     if (fortnox && payrollEnabled) {
         try {
             // Get vouchers for payroll accounts (7xxx) in the period

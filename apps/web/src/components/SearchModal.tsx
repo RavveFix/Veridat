@@ -25,6 +25,16 @@ interface SearchModalProps {
     onClose: () => void;
 }
 
+const SEARCH_MODAL_ERROR_STYLE = {
+    padding: '0.75rem 1rem',
+    margin: '0 0.5rem',
+    borderRadius: '8px',
+    background: 'rgba(239, 68, 68, 0.1)',
+    color: '#ef4444',
+    fontSize: '0.85rem',
+    border: '1px solid rgba(239, 68, 68, 0.2)'
+};
+
 export const SearchModal: FunctionComponent<SearchModalProps> = ({ isOpen, onClose }) => {
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<SearchResult[]>([]);
@@ -194,15 +204,7 @@ export const SearchModal: FunctionComponent<SearchModalProps> = ({ isOpen, onClo
                 </div>
 
                 {searchError && (
-                    <div class="search-modal__error" style={{
-                        padding: '0.75rem 1rem',
-                        margin: '0 0.5rem',
-                        borderRadius: '8px',
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        color: '#ef4444',
-                        fontSize: '0.85rem',
-                        border: '1px solid rgba(239, 68, 68, 0.2)'
-                    }}>
+                    <div class="search-modal__error" style={SEARCH_MODAL_ERROR_STYLE}>
                         {searchError}
                     </div>
                 )}

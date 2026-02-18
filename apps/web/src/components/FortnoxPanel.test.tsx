@@ -60,6 +60,16 @@ function createJsonResponse(body: unknown, ok = true): Response {
 }
 
 let container: HTMLDivElement;
+let originalPostingFlag: string | undefined;
+const envVars = import.meta.env as Record<string, string | undefined>;
+
+function setPostingReviewFlag(value: string | undefined): void {
+    if (typeof value === 'undefined') {
+        delete envVars.VITE_INVOICE_POSTING_REVIEW_ENABLED;
+        return;
+    }
+    envVars.VITE_INVOICE_POSTING_REVIEW_ENABLED = value;
+}
 
 function getByTestId(testId: string): HTMLElement {
     const element = container.querySelector(`[data-testid="${testId}"]`);
@@ -105,6 +115,8 @@ describe('FortnoxPanel', () => {
     beforeEach(() => {
         container = document.createElement('div');
         document.body.appendChild(container);
+        originalPostingFlag = envVars.VITE_INVOICE_POSTING_REVIEW_ENABLED;
+        setPostingReviewFlag(undefined);
         getSessionMock.mockResolvedValue({
             data: { session: { access_token: 'test-token' } }
         });
@@ -121,12 +133,14 @@ describe('FortnoxPanel', () => {
         vi.restoreAllMocks();
         getSessionMock.mockReset();
         getCurrentIdMock.mockReset();
+        setPostingReviewFlag(originalPostingFlag);
     });
 
     it('switches between supplier and customer view', async () => {
         const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-            const body = JSON.parse(String(init?.body ?? '{}')) as { action?: string };
+            const body = JSON.parse(String(init?.body ?? '{}')) as { action?: string; companyId?: string };
             if (body.action === 'getSupplierInvoices') {
+                expect(body.companyId).toBe('company-test');
                 return createJsonResponse({
                     SupplierInvoices: [{
                         GivenNumber: 101,
@@ -140,6 +154,7 @@ describe('FortnoxPanel', () => {
                 });
             }
             if (body.action === 'getInvoices') {
+                expect(body.companyId).toBe('company-test');
                 return createJsonResponse({
                     Invoices: [{
                         InvoiceNumber: 201,
@@ -174,9 +189,11 @@ describe('FortnoxPanel', () => {
         const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
             const body = JSON.parse(String(init?.body ?? '{}')) as {
                 action?: string;
+                companyId?: string;
                 payload?: { filter?: string };
             };
             if (body.action === 'getSupplierInvoices') {
+                expect(body.companyId).toBe('company-test');
                 if (body.payload?.filter === 'authorizepending') {
                     return createJsonResponse({ SupplierInvoices: [] });
                 }
@@ -242,9 +259,11 @@ describe('FortnoxPanel', () => {
         const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
             const body = JSON.parse(String(init?.body ?? '{}')) as {
                 action?: string;
+                companyId?: string;
                 payload?: { filter?: string };
             };
             if (body.action === 'getSupplierInvoices') {
+                expect(body.companyId).toBe('company-test');
                 if (body.payload?.filter === 'authorizepending') {
                     return createJsonResponse({ SupplierInvoices: [pendingInvoice] });
                 }
@@ -288,12 +307,15 @@ describe('FortnoxPanel', () => {
         const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
             const body = JSON.parse(String(init?.body ?? '{}')) as {
                 action?: string;
+                companyId?: string;
                 payload?: { filter?: string };
             };
             if (body.action === 'getSupplierInvoices') {
+                expect(body.companyId).toBe('company-test');
                 return createJsonResponse({ SupplierInvoices: [pendingInvoice] });
             }
             if (body.action === 'approveSupplierInvoiceBookkeep') {
+                expect(body.companyId).toBe('company-test');
                 return approveDeferred.promise;
             }
             throw new Error(`Unexpected action: ${body.action}`);
@@ -319,6 +341,87 @@ describe('FortnoxPanel', () => {
         await waitForAssertion(() => {
             const button = getByTestId('fortnox-approve-bookkeep-131');
             expect(button.textContent).toContain('Godkänn bokföring');
+        });
+    });
+
+    it('opens posting review drawer when view posting is clicked and flag is enabled', async () => {
+        setPostingReviewFlag('true');
+
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? '{}')) as {
+                action?: string;
+                companyId?: string;
+                payload?: { invoiceType?: string; invoiceId?: number };
+            };
+            if (body.action === 'getSupplierInvoices') {
+                return createJsonResponse({
+                    SupplierInvoices: [{
+                        GivenNumber: 151,
+                        SupplierNumber: 'LEV-TRACE',
+                        InvoiceNumber: 'S-151',
+                        DueDate: '2026-01-15',
+                        Total: 1250,
+                        Balance: 1250,
+                        Booked: true
+                    }]
+                });
+            }
+            if (body.action === 'getInvoicePostingTrace') {
+                expect(body.companyId).toBe('company-test');
+                expect(body.payload?.invoiceType).toBe('supplier');
+                expect(body.payload?.invoiceId).toBe(151);
+                return createJsonResponse({
+                    invoice: {
+                        type: 'supplier',
+                        id: '151',
+                        invoiceNumber: 'S-151',
+                        counterpartyNumber: 'LEV-TRACE',
+                        counterpartyName: 'Lev Trace AB',
+                        invoiceDate: '2026-01-15',
+                        dueDate: '2026-02-14',
+                        total: 1250,
+                        vat: 250,
+                        balance: 1250,
+                        currency: 'SEK',
+                        booked: true
+                    },
+                    expectedPosting: {
+                        rows: [{ account: 6540, debit: 1000, credit: 0, description: 'IT' }],
+                        totals: { debit: 1250, credit: 1250, balanced: true }
+                    },
+                    posting: {
+                        status: 'booked',
+                        source: 'explicit',
+                        confidence: 0.99,
+                        voucherRef: { series: 'A', number: 10, year: 2026 },
+                        rows: [{ account: 2440, debit: 0, credit: 1250, description: 'Skuld' }],
+                        totals: { debit: 1250, credit: 1250, balanced: true }
+                    },
+                    checks: {
+                        balanced: true,
+                        total_match: true,
+                        vat_match: true,
+                        control_account_present: true,
+                        row_account_consistency: true
+                    },
+                    issues: []
+                });
+            }
+            throw new Error(`Unexpected action: ${body.action}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await renderPanel();
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('fortnox-view-posting-supplier-151')).not.toBeNull();
+        });
+
+        await click(getByTestId('fortnox-view-posting-supplier-151'));
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('invoice-posting-drawer')).not.toBeNull();
+            expect(container.textContent).toContain('Konteringskontroll');
         });
     });
 });

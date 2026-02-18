@@ -40,6 +40,10 @@ interface FortnoxTokenRecord {
     access_token: string;
     refresh_token: string;
     expires_at: string;
+    company_id?: string | null;
+    created_at?: string;
+    updated_at?: string;
+    refresh_count?: number;
 }
 
 type FortnoxMetaInformation = {
@@ -63,13 +67,15 @@ export class FortnoxService {
     private authUrl: string = 'https://apps.fortnox.se/oauth-v1/token';
     private supabase: SupabaseClient;
     private userId: string;
+    private companyId: string;
     private rateLimiter = new FortnoxRateLimitService();
 
-    constructor(config: FortnoxConfig, supabaseClient: SupabaseClient, userId: string) {
+    constructor(config: FortnoxConfig, supabaseClient: SupabaseClient, userId: string, companyId: string) {
         this.clientId = config.clientId;
         this.clientSecret = config.clientSecret;
         this.supabase = supabaseClient;
         this.userId = userId;
+        this.companyId = companyId;
     }
 
     private toPositiveInt(value: number | string | undefined): number | null {
@@ -159,31 +165,87 @@ export class FortnoxService {
      * If expired, it attempts to refresh it.
      */
     async getAccessToken(): Promise<string> {
-        // Fetch tokens from DB
-        const { data, error } = await this.supabase
+        // Fetch scoped token first
+        const { data: scopedToken, error: scopedError } = await this.supabase
             .from('fortnox_tokens')
             .select('*')
             .eq('user_id', this.userId)
+            .eq('company_id', this.companyId)
             .limit(1)
-            .single();
+            .maybeSingle();
 
-        if (error || !data) {
-            logger.error("Error fetching Fortnox tokens", error);
+        if (scopedError) {
+            logger.error("Error fetching scoped Fortnox tokens", scopedError);
+            throw new Error("Could not retrieve Fortnox credentials.");
+        }
+
+        let tokenRow = scopedToken as FortnoxTokenRecord | null;
+
+        // Backward compatibility: adopt legacy token rows without company scope
+        if (!tokenRow) {
+            const { data: legacyToken, error: legacyError } = await this.supabase
+                .from('fortnox_tokens')
+                .select('*')
+                .eq('user_id', this.userId)
+                .is('company_id', null)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (legacyError) {
+                logger.error("Error fetching legacy Fortnox tokens", legacyError);
+                throw new Error("Could not retrieve Fortnox credentials.");
+            }
+
+            if (legacyToken) {
+                logger.warn('Using legacy Fortnox token row without company_id, attempting migration', {
+                    userId: this.userId,
+                    companyId: this.companyId,
+                    rowId: legacyToken.id,
+                });
+
+                const { data: migratedToken, error: migrateError } = await this.supabase
+                    .from('fortnox_tokens')
+                    .update({
+                        company_id: this.companyId,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', legacyToken.id)
+                    .eq('user_id', this.userId)
+                    .is('company_id', null)
+                    .select('*')
+                    .maybeSingle();
+
+                if (migrateError) {
+                    logger.warn('Failed to migrate legacy Fortnox token row to company scope', {
+                        userId: this.userId,
+                        companyId: this.companyId,
+                        rowId: legacyToken.id,
+                        error: migrateError,
+                    });
+                    tokenRow = legacyToken as FortnoxTokenRecord;
+                } else {
+                    tokenRow = (migratedToken ?? legacyToken) as FortnoxTokenRecord;
+                }
+            }
+        }
+
+        if (!tokenRow) {
             throw new Error("Could not retrieve Fortnox credentials.");
         }
 
         // Check if token is expired (or close to expiring)
         // Assuming 'expires_at' is a timestamp in the DB
-        const expiresAt = new Date(data.expires_at).getTime();
+        const expiresAt = new Date(tokenRow.expires_at).getTime();
         const now = Date.now();
 
         // Refresh if expired or expiring in less than 5 minutes
         if (now >= expiresAt - 5 * 60 * 1000) {
             logger.info("Token expired or expiring soon, refreshing");
-            return await this.refreshAccessToken(data.refresh_token, data.id);
+            return await this.refreshAccessToken(tokenRow.refresh_token, tokenRow.id);
         }
 
-        return data.access_token;
+        return tokenRow.access_token;
     }
 
     /**
@@ -194,11 +256,36 @@ export class FortnoxService {
     async refreshAccessToken(refreshToken: string, rowId: string): Promise<string> {
         try {
             // 1. Read current updated_at for optimistic lock
-            const { data: currentRow } = await this.supabase
+            const { data: scopedCurrentRow } = await this.supabase
                 .from('fortnox_tokens')
                 .select('updated_at, refresh_count')
                 .eq('id', rowId)
-                .single();
+                .eq('user_id', this.userId)
+                .eq('company_id', this.companyId)
+                .maybeSingle();
+
+            let currentRow = scopedCurrentRow as { updated_at?: string; refresh_count?: number } | null;
+            let legacyRow = false;
+
+            if (!currentRow) {
+                const { data: legacyCurrentRow } = await this.supabase
+                    .from('fortnox_tokens')
+                    .select('updated_at, refresh_count')
+                    .eq('id', rowId)
+                    .eq('user_id', this.userId)
+                    .is('company_id', null)
+                    .maybeSingle();
+
+                if (legacyCurrentRow) {
+                    legacyRow = true;
+                    currentRow = legacyCurrentRow as { updated_at?: string; refresh_count?: number };
+                    logger.warn('Refreshing legacy Fortnox token row without company_id', {
+                        userId: this.userId,
+                        companyId: this.companyId,
+                        rowId,
+                    });
+                }
+            }
 
             const previousUpdatedAt = currentRow?.updated_at;
             const refreshCount = (currentRow?.refresh_count ?? 0) + 1;
@@ -240,11 +327,23 @@ export class FortnoxService {
                 // Re-read the DB — if a newer token exists, use it instead of failing.
                 if (response.status === 400 && errorText.includes('invalid_grant')) {
                     logger.info('invalid_grant — checking if another process already refreshed');
-                    const { data: latestRow } = await this.supabase
+                    const { data: scopedLatestRow } = await this.supabase
                         .from('fortnox_tokens')
                         .select('access_token, expires_at')
                         .eq('user_id', this.userId)
-                        .single();
+                        .eq('company_id', this.companyId)
+                        .maybeSingle();
+
+                    const latestRow = scopedLatestRow ?? (
+                        legacyRow
+                            ? (await this.supabase
+                                .from('fortnox_tokens')
+                                .select('access_token, expires_at')
+                                .eq('user_id', this.userId)
+                                .is('company_id', null)
+                                .maybeSingle()).data
+                            : null
+                    );
 
                     if (latestRow) {
                         const latestExpiry = new Date(latestRow.expires_at).getTime();
@@ -270,7 +369,7 @@ export class FortnoxService {
             const newExpiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
             // 3. Update DB with optimistic lock (only if no concurrent refresh)
-            const { data: updateResult, error: updateError } = await this.supabase
+            const primaryUpdate = await this.supabase
                 .from('fortnox_tokens')
                 .update({
                     access_token: access_token,
@@ -278,22 +377,62 @@ export class FortnoxService {
                     expires_at: newExpiresAt,
                     last_refresh_at: now,
                     refresh_count: refreshCount,
+                    company_id: this.companyId,
                     updated_at: now,
                 })
                 .eq('id', rowId)
+                .eq('user_id', this.userId)
+                .eq('company_id', this.companyId)
                 .eq('updated_at', previousUpdatedAt) // Optimistic lock
                 .select('access_token')
                 .maybeSingle();
+
+            let updateResult = primaryUpdate.data;
+            let updateError = primaryUpdate.error;
+
+            if ((!updateResult || updateError) && legacyRow) {
+                const legacyUpdate = await this.supabase
+                    .from('fortnox_tokens')
+                    .update({
+                        access_token: access_token,
+                        refresh_token: refresh_token,
+                        expires_at: newExpiresAt,
+                        last_refresh_at: now,
+                        refresh_count: refreshCount,
+                        company_id: this.companyId,
+                        updated_at: now,
+                    })
+                    .eq('id', rowId)
+                    .eq('user_id', this.userId)
+                    .is('company_id', null)
+                    .eq('updated_at', previousUpdatedAt)
+                    .select('access_token')
+                    .maybeSingle();
+                updateResult = legacyUpdate.data;
+                updateError = legacyUpdate.error;
+            }
 
             if (updateError || !updateResult) {
                 // Concurrent refresh detected — another process already updated the token.
                 // Fetch the latest token from DB and use that instead.
                 logger.info('Concurrent token refresh detected, using latest token');
-                const { data: latestToken } = await this.supabase
+                const { data: scopedLatestToken } = await this.supabase
                     .from('fortnox_tokens')
                     .select('access_token')
                     .eq('user_id', this.userId)
-                    .single();
+                    .eq('company_id', this.companyId)
+                    .maybeSingle();
+
+                const latestToken = scopedLatestToken ?? (
+                    legacyRow
+                        ? (await this.supabase
+                            .from('fortnox_tokens')
+                            .select('access_token')
+                            .eq('user_id', this.userId)
+                            .is('company_id', null)
+                            .maybeSingle()).data
+                        : null
+                );
 
                 return latestToken?.access_token ?? access_token;
             }
@@ -422,6 +561,13 @@ export class FortnoxService {
             Invoices: paged.items,
             MetaInformation: paged.meta,
         };
+    }
+
+    /**
+     * Get a specific customer invoice
+     */
+    async getInvoice(invoiceNumber: number): Promise<FortnoxInvoiceResponse> {
+        return await this.request<FortnoxInvoiceResponse>(`/invoices/${invoiceNumber}`);
     }
 
     // ========================================================================

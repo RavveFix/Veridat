@@ -17,6 +17,14 @@ interface FortnoxSyncStatusPanelProps {
 
 export type { FortnoxSyncStatus };
 
+const FORTNOX_EXPORT_HINT_STYLE = {
+    fontSize: '0.75rem',
+    color: 'var(--text-secondary, #888)',
+    marginTop: '0.5rem',
+    textAlign: 'center',
+    lineHeight: '1.4'
+};
+
 function formatDate(dateStr: string | null): string {
     if (!dateStr) return '';
     const date = new Date(dateStr);
@@ -150,7 +158,7 @@ export const FortnoxSyncStatusPanel: FunctionComponent<FortnoxSyncStatusPanelPro
                             </>
                         )}
                     </button>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary, #888)', marginTop: '0.5rem', textAlign: 'center', lineHeight: '1.4' }}>
+                    <div style={FORTNOX_EXPORT_HINT_STYLE}>
                         AI-genererat förslag — granska innan export.
                     </div>
                 </>

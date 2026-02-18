@@ -29,6 +29,17 @@ interface AIResponseRendererProps {
     fileUrl?: string | null;
 }
 
+const AI_RESPONSE_CONTAINER_STYLE = {
+    position: 'relative',
+};
+
+const AI_RESPONSE_COPY_LABEL_STYLE = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '0.75rem',
+};
+
 /**
  * AIResponseRenderer - Intelligently renders AI responses
  *
@@ -230,7 +241,7 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
     const [startCopy, setStartCopy] = useState(false); // Using strict boolean to trigger re-render if needed, but actually we need local state for feedback
 
     return (
-        <div class="ai-response-container" style={{ position: 'relative' }}>
+        <div class="ai-response-container" style={AI_RESPONSE_CONTAINER_STYLE}>
             <div
                 class="ai-response response-text"
                 dangerouslySetInnerHTML={{ __html: htmlContent || markdownToHtml(content) }}
@@ -264,7 +275,7 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
                     title="Kopiera hela svaret"
                 >
                     {startCopy ? (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem' }}>
+                        <span style={AI_RESPONSE_COPY_LABEL_STYLE}>
                             ✓ Kopierat
                         </span>
                     ) : (

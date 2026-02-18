@@ -3,7 +3,8 @@ import './styles/main.css'; // Shared styles
 import './landing/styles/landing.css'; // Landing specific styles (for animations etc)
 import { logger } from './services/LoggerService';
 import { CURRENT_TERMS_VERSION } from './constants/termsVersion';
-import { LEGAL_DOCS, REQUIRED_LEGAL_DOCS, type LegalDocType } from './constants/legalDocs';
+import { LEGAL_DOCS, type LegalDocType } from './constants/legalDocs';
+import { getRequiredDocsForUser } from './constants/consentPolicy';
 
 // Initialize Supabase client
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -26,6 +27,17 @@ function buildLoginRedirect(nextPath: string | null): string {
         url.searchParams.set('next', nextPath);
     }
     return url.toString();
+}
+
+function getRequiredDocsForSignup(): LegalDocType[] {
+    return getRequiredDocsForUser(new Date().toISOString());
+}
+
+function getMissingConsentMessage(requiredDocs: LegalDocType[]): string {
+    if (requiredDocs.includes('dpa')) {
+        return 'Du måste godkänna användarvillkor, integritetspolicy och DPA för att fortsätta.';
+    }
+    return 'Du måste godkänna användarvillkor och integritetspolicy för att fortsätta.';
 }
 
 async function initLogin() {
@@ -123,17 +135,21 @@ async function initLogin() {
             return;
         }
 
+        const requiredDocs = getRequiredDocsForSignup();
+
         if (!consentTerms?.checked) {
-            logger.warn('Missing required legal consents', { missingDocs: [LEGAL_DOCS.terms.label, LEGAL_DOCS.privacy.label] });
+            logger.warn('Missing required legal consents', {
+                missingDocs: requiredDocs.map((doc) => LEGAL_DOCS[doc].label)
+            });
             if (messageEl) {
-                messageEl.textContent = 'Du måste godkänna användarvillkor och integritetspolicy för att fortsätta.';
+                messageEl.textContent = getMissingConsentMessage(requiredDocs);
                 messageEl.classList.add('error');
             }
             return;
         }
 
         const acceptedAt = new Date().toISOString();
-        const acceptedDocs: LegalDocType[] = [...REQUIRED_LEGAL_DOCS];
+        const acceptedDocs: LegalDocType[] = [...requiredDocs];
 
         // Save pending registration to localStorage (will sync to DB after magic link callback)
         localStorage.setItem('has_accepted_terms_local', 'true');

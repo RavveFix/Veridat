@@ -1,6 +1,6 @@
 /**
  * Enhanced Markdown Parser for AI Responses
- * 
+ *
  * Supports:
  * - Headers (h1-h6)
  * - Bold, italic, strikethrough
@@ -13,11 +13,96 @@
  */
 
 import DOMPurify from 'dompurify';
+import MarkdownIt from 'markdown-it';
+import type Token from 'markdown-it/lib/token.mjs';
 
 export interface ParsedContent {
     type: 'text' | 'code' | 'table';
     content: string;
     language?: string;
+}
+
+const ALLOWED_TAGS = [
+    'strong', 'em', 'code', 'pre', 'br', 'p', 'a', 'ul', 'ol', 'li',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'del', 'hr',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td'
+];
+
+const ALLOWED_ATTR = ['href', 'target', 'rel', 'class'];
+
+const markdownRenderer = new MarkdownIt({
+    html: false,
+    linkify: true,
+    breaks: true,
+    typographer: false
+});
+
+const TABLE_ROW_REGEX = /^\s*\|.*\|\s*$/;
+const TABLE_SEPARATOR_REGEX = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+
+const addClassToToken = (tokens: Token[], idx: number, className: string): void => {
+    tokens[idx].attrSet('class', className);
+};
+
+const addClassRendererRule = (tokenType: string, className: string): void => {
+    const fallback = markdownRenderer.renderer.rules[tokenType]
+        || ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+
+    markdownRenderer.renderer.rules[tokenType] = (tokens, idx, options, env, self) => {
+        addClassToToken(tokens, idx, className);
+        return fallback(tokens, idx, options, env, self);
+    };
+};
+
+addClassRendererRule('paragraph_open', 'md-p');
+addClassRendererRule('blockquote_open', 'md-quote');
+addClassRendererRule('bullet_list_open', 'md-ul');
+addClassRendererRule('ordered_list_open', 'md-ol');
+addClassRendererRule('table_open', 'md-table');
+
+markdownRenderer.renderer.rules.heading_open = (tokens, idx, options, _env, self) => {
+    const headingTag = tokens[idx].tag;
+    addClassToToken(tokens, idx, `md-${headingTag}`);
+    return self.renderToken(tokens, idx, options);
+};
+
+markdownRenderer.renderer.rules.list_item_open = (tokens, idx, options, _env, self) => {
+    let className = 'md-li';
+    for (let i = idx - 1; i >= 0; i--) {
+        if (tokens[i].level < tokens[idx].level) {
+            if (tokens[i].type === 'ordered_list_open') {
+                className = 'md-li-ordered';
+            }
+            break;
+        }
+    }
+    addClassToToken(tokens, idx, className);
+    return self.renderToken(tokens, idx, options);
+};
+
+markdownRenderer.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
+    tokens[idx].attrSet('target', '_blank');
+    tokens[idx].attrSet('rel', 'noopener noreferrer');
+    tokens[idx].attrSet('class', 'md-link');
+    return self.renderToken(tokens, idx, options);
+};
+
+markdownRenderer.renderer.rules.code_inline = (tokens, idx) => {
+    const escaped = markdownRenderer.utils.escapeHtml(tokens[idx].content);
+    return `<code class="md-code">${escaped}</code>`;
+};
+
+markdownRenderer.renderer.rules.hr = () => '<hr class="md-hr">\n';
+
+function sanitizeHtml(html: string): string {
+    return DOMPurify.sanitize(html, {
+        ALLOWED_TAGS,
+        ALLOWED_ATTR
+    });
+}
+
+export function markdownInlineToHtml(text: string): string {
+    return sanitizeHtml(markdownRenderer.renderInline(text));
 }
 
 /**
@@ -29,7 +114,7 @@ export function parseAIResponse(text: string): ParsedContent[] {
 
     // 1. Identify all code blocks and tables with their indices
     const codeBlockRegex = /```(\w+)?\s?\n?([\s\S]*?)```/g;
-    const tableRegex = /((?:^|\n)\|.*\|(?:\n|$)(?:\|[-:| ]*\|(?:\n|$))(?:\|.*\|(?:\n|$))*)/g;
+    const tableRegex = /((?:^|\n)\s*\|.*\|(?:\n|$)\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*(?:\n|$)(?:\s*\|.*\|(?:\n|$))*)/g;
 
     interface FoundBlock {
         type: 'code' | 'table';
@@ -125,106 +210,47 @@ export function parseAIResponse(text: string): ParsedContent[] {
 export function markdownToHtml(text: string): string {
     if (!text) return '';
 
-    let html = text;
-
-    // Escape HTML first to prevent XSS
-    html = html
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-
-    // Headers (must come before other replacements)
-    html = html.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
-    html = html.replace(/^##### (.+)$/gm, '<h5>$1</h5>');
-    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-    html = html.replace(/^### (.+)$/gm, '<h3 class="md-h3">$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2 class="md-h2">$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1 class="md-h1">$1</h1>');
-
-    // Block quotes
-    html = html.replace(/^> (.+)$/gm, '<blockquote class="md-quote">$1</blockquote>');
-
-    // Unordered lists
-    html = html.replace(/^\* (.+)$/gm, '<li class="md-li">$1</li>');
-    html = html.replace(/^- (.+)$/gm, '<li class="md-li">$1</li>');
-
-    // Ordered lists
-    html = html.replace(/^\d+\. (.+)$/gm, '<li class="md-li-ordered">$1</li>');
-
-    // Wrap consecutive list items
-    html = html.replace(/(<li class="md-li">.*<\/li>\n?)+/g, (match) => `<ul class="md-ul">${match}</ul>`);
-    html = html.replace(/(<li class="md-li-ordered">.*<\/li>\n?)+/g, (match) => `<ol class="md-ol">${match}</ol>`);
-
-    // Inline code (before bold/italic to prevent conflicts)
-    html = html.replace(/`([^`]+)`/g, '<code class="md-code">$1</code>');
-
-    // Bold
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
-
-    // Italic
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
-
-    // Strikethrough
-    html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
-
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="md-link">$1</a>');
-
-    // Horizontal rules
-    html = html.replace(/^---$/gm, '<hr class="md-hr">');
-    html = html.replace(/^\*\*\*$/gm, '<hr class="md-hr">');
-
-    // Line breaks (convert double newlines to paragraphs, single to <br>)
-    html = html.replace(/\n\n/g, '</p><p class="md-p">');
-    html = html.replace(/\n/g, '<br>');
-
-    // Wrap in paragraph if not already wrapped
-    if (!html.startsWith('<')) {
-        html = `<p class="md-p">${html}</p>`;
-    }
-
-    // Sanitize to prevent XSS attacks
-    return DOMPurify.sanitize(html, {
-        ALLOWED_TAGS: [
-            'strong', 'em', 'code', 'br', 'p', 'a', 'ul', 'ol', 'li',
-            'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'del', 'hr'
-        ],
-        ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
-    });
+    return sanitizeHtml(markdownRenderer.render(text));
 }
 
 /**
  * Parse markdown table to HTML table
  */
 export function parseMarkdownTable(text: string): string | null {
-    const lines = text.trim().split('\n');
+    const lines = text
+        .trim()
+        .split('\n')
+        .map(line => line.trimEnd())
+        .filter(line => line.trim().length > 0);
     if (lines.length < 2) return null;
 
     // Check if it looks like a table (has pipes)
-    if (!lines[0].includes('|')) return null;
+    if (!TABLE_ROW_REGEX.test(lines[0])) return null;
 
     const parseRow = (line: string): string[] => {
-        const cells = line.split('|').map(cell => cell.trim());
-        // slice(1, -1) removes leading/trailing empty strings from pipe boundaries
-        // but preserves empty cells in the middle (critical for debet/kredit tables)
-        return cells.slice(1, -1);
+        const trimmed = line.trim();
+        const normalized = trimmed
+            .replace(/^\|/, '')
+            .replace(/\|$/, '');
+
+        return normalized.split('|').map(cell => cell.trim());
     };
 
     // Check for separator row (|---|---|)
-    const separatorIndex = lines.findIndex(line => /^\|?\s*[-:]+\s*\|/.test(line));
+    const separatorIndex = lines.findIndex(line => TABLE_SEPARATOR_REGEX.test(line));
     if (separatorIndex === -1) return null;
+    if (separatorIndex === 0) return null;
 
-    const headerCells = parseRow(lines[0]);
-    const bodyRows = lines.slice(separatorIndex + 1).filter(line => line.includes('|'));
+    const headerCells = parseRow(lines[separatorIndex - 1]);
+    if (headerCells.length === 0) return null;
+    const bodyRows = lines.slice(separatorIndex + 1).filter(line => TABLE_ROW_REGEX.test(line));
 
     let tableHtml = '<table class="md-table">';
 
     // Header
     tableHtml += '<thead><tr>';
     headerCells.forEach(cell => {
-        tableHtml += `<th>${markdownToHtml(cell)}</th>`;
+        tableHtml += `<th>${markdownInlineToHtml(cell)}</th>`;
     });
     tableHtml += '</tr></thead>';
 
@@ -235,7 +261,7 @@ export function parseMarkdownTable(text: string): string | null {
             const cells = parseRow(row);
             tableHtml += '<tr>';
             cells.forEach(cell => {
-                tableHtml += `<td>${markdownToHtml(cell)}</td>`;
+                tableHtml += `<td>${markdownInlineToHtml(cell)}</td>`;
             });
             tableHtml += '</tr>';
         });
@@ -244,10 +270,7 @@ export function parseMarkdownTable(text: string): string | null {
 
     tableHtml += '</table>';
 
-    return DOMPurify.sanitize(tableHtml, {
-        ALLOWED_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'strong', 'em', 'code', 'a'],
-        ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
-    });
+    return sanitizeHtml(tableHtml);
 }
 
 /**
@@ -255,7 +278,12 @@ export function parseMarkdownTable(text: string): string | null {
  */
 export function containsMarkdownTable(text: string): boolean {
     const lines = text.split('\n');
-    return lines.some(line => /^\|?\s*[-:]+\s*\|/.test(line));
+    for (let i = 0; i < lines.length - 1; i++) {
+        if (TABLE_ROW_REGEX.test(lines[i]) && TABLE_SEPARATOR_REGEX.test(lines[i + 1])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
