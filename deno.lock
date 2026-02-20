@@ -15,6 +15,7 @@
     "npm:@types/dompurify@^3.0.5": "3.2.0",
     "npm:@types/markdown-it@^14.1.2": "14.1.2",
     "npm:@types/node@^20.10.0": "20.19.25",
+    "npm:@vercel/analytics@^1.6.1": "1.6.1",
     "npm:@vitest/ui@^4.0.16": "4.0.18_vitest@4.0.18__@types+node@20.19.25__@vitest+ui@4.0.18__jsdom@27.4.0__vite@7.3.1___@types+node@20.19.25___picomatch@4.0.3_@types+node@20.19.25_jsdom@27.4.0",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:dompurify@^3.3.1": "3.3.1",
@@ -3267,6 +3268,9 @@
         "eslint-visitor-keys@4.2.1"
       ]
     },
+    "@vercel/analytics@1.6.1": {
+      "integrity": "sha512-oH9He/bEM+6oKlv3chWuOOcp8Y6fo6/PSro8hEkgCW3pu9/OiCXiUpRUogDh3Fs3LH2sosDrx8CxeOLBEE+afg=="
+    },
     "@vitest/expect@4.0.18": {
       "integrity": "sha512-8sCWUyckXXYvx4opfzVY03EOiYVxyNrHS5QxX3DAIi5dpJAAkyJezHCP77VMX4HKA2LDT/Jpfo8i2r5BE3GnQQ==",
       "dependencies": [
@@ -4936,6 +4940,7 @@
         "npm:@types/dompurify@^3.0.5",
         "npm:@types/markdown-it@^14.1.2",
         "npm:@types/node@^20.10.0",
+        "npm:@vercel/analytics@^1.6.1",
         "npm:@vitest/ui@^4.0.16",
         "npm:clsx@^2.1.1",
         "npm:dompurify@^3.3.1",

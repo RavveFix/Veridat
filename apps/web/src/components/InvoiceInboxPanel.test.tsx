@@ -223,6 +223,7 @@ describe('InvoiceInboxPanel', () => {
 
         await waitForAssertion(() => {
             expect(queryByTestId('invoice-posting-drawer')).not.toBeNull();
+            expect(queryByTestId('invoice-posting-drawer')?.getAttribute('data-presentation')).toBe('drawer');
             expect(container.textContent).toContain('Konteringskontroll');
         });
     });

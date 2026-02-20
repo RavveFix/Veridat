@@ -67,18 +67,39 @@ const MODAL_SUBTITLE_STYLE = {
 };
 
 function getModalOverlayStyle(isFullscreen: boolean) {
+    if (isFullscreen) {
+        return {
+            ...MODAL_OVERLAY_BASE_STYLE,
+            alignItems: 'stretch',
+            justifyContent: 'stretch',
+            padding: 0
+        };
+    }
+
     return {
         ...MODAL_OVERLAY_BASE_STYLE,
-        alignItems: isFullscreen ? 'flex-start' : 'center',
-        padding: isFullscreen ? '2rem 1.5rem' : '1rem'
+        alignItems: 'center',
+        padding: '1rem'
     };
 }
 
 function getModalContentStyle(isFullscreen: boolean, maxWidth: string) {
+    if (isFullscreen) {
+        return {
+            ...MODAL_CONTENT_BASE_STYLE,
+            width: '100vw',
+            maxWidth: '100vw',
+            height: '100dvh',
+            maxHeight: '100dvh',
+            borderRadius: 0,
+            padding: '1.25rem 1rem 1rem'
+        };
+    }
+
     return {
         ...MODAL_CONTENT_BASE_STYLE,
-        maxWidth: isFullscreen ? 'min(96vw, 1400px)' : `min(90vw, ${maxWidth})`,
-        maxHeight: isFullscreen ? '90vh' : '85vh'
+        maxWidth: `min(90vw, ${maxWidth})`,
+        maxHeight: '85vh'
     };
 }
 

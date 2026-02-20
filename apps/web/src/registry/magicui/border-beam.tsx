@@ -15,6 +15,28 @@ interface BorderBeamProps {
     style?: BorderBeamStyle;
 }
 
+function getBorderBeamStyle(
+    size: number,
+    duration: number,
+    anchor: number,
+    borderWidth: number,
+    delay: number,
+    colorFrom: string | undefined,
+    colorTo: string | undefined,
+    style: BorderBeamStyle | undefined
+): BorderBeamStyle {
+    return {
+        '--size': `${size}px`,
+        '--duration': `${duration}s`,
+        '--anchor': `${anchor}%`,
+        '--border-width': `${borderWidth}px`,
+        '--delay': `${delay}s`,
+        ...(colorFrom ? { '--color-from': colorFrom } : {}),
+        ...(colorTo ? { '--color-to': colorTo } : {}),
+        ...style
+    } as BorderBeamStyle;
+}
+
 /**
  * BorderBeam Component
  * Adds a moving light beam along the border of the parent container.
@@ -34,16 +56,7 @@ export const BorderBeam: FunctionComponent<BorderBeamProps> = ({
     return (
         <div 
             className={cn("border-beam", className)}
-            style={{
-                '--size': `${size}px`,
-                '--duration': `${duration}s`,
-                '--anchor': `${anchor}%`,
-                '--border-width': `${borderWidth}px`,
-                '--delay': `${delay}s`,
-                ...(colorFrom ? { '--color-from': colorFrom } : {}),
-                ...(colorTo ? { '--color-to': colorTo } : {}),
-                ...style
-            } as BorderBeamStyle}
+            style={getBorderBeamStyle(size, duration, anchor, borderWidth, delay, colorFrom, colorTo, style)}
         />
     );
 };

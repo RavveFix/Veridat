@@ -1,0 +1,52 @@
+.fortnox-workspace-panel {
+    min-height: calc(100dvh - 14rem);
+}
+
+.fortnox-workspace-main-grid {
+    grid-template-columns: minmax(0, 2.7fr) minmax(320px, 1fr);
+    min-height: min(72dvh, 860px);
+}
+
+.fortnox-workspace-table-card {
+    min-height: 0;
+}
+
+.fortnox-workspace-table-scroll {
+    min-height: 420px;
+    scrollbar-width: thin;
+}
+
+.fortnox-workspace-copilot-card {
+    overflow: auto;
+}
+
+@media (max-width: 1280px) {
+    .fortnox-workspace-main-grid {
+        grid-template-columns: minmax(0, 1fr);
+        min-height: auto;
+    }
+
+    .fortnox-workspace-copilot-card {
+        max-height: 360px;
+    }
+}
+
+@media (max-width: 900px) {
+    .fortnox-workspace-table-scroll {
+        min-height: 320px;
+    }
+}
+
+@media (max-width: 640px) {
+    .fortnox-workspace-panel {
+        min-height: auto;
+    }
+
+    .fortnox-workspace-main-grid {
+        gap: 0.75rem;
+    }
+
+    .fortnox-workspace-table-scroll {
+        min-height: 260px;
+    }
+}

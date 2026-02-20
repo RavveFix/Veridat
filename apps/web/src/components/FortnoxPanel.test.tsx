@@ -421,6 +421,7 @@ describe('FortnoxPanel', () => {
 
         await waitForAssertion(() => {
             expect(queryByTestId('invoice-posting-drawer')).not.toBeNull();
+            expect(queryByTestId('invoice-posting-drawer')?.getAttribute('data-presentation')).toBe('fullscreen');
             expect(container.textContent).toContain('Konteringskontroll');
         });
     });
@@ -506,6 +507,7 @@ describe('FortnoxPanel', () => {
 
         await waitForAssertion(() => {
             expect(queryByTestId('invoice-posting-drawer')).not.toBeNull();
+            expect(queryByTestId('invoice-posting-drawer')?.getAttribute('data-presentation')).toBe('fullscreen');
         });
     });
 

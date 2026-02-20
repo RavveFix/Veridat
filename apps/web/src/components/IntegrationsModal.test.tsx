@@ -107,8 +107,16 @@ vi.mock('../services/LoggerService', () => ({
 }));
 
 vi.mock('./ModalWrapper', () => ({
-    ModalWrapper: ({ children, title }: { children: unknown; title: string }) => (
-        <div>
+    ModalWrapper: ({
+        children,
+        title,
+        variant = 'default',
+    }: {
+        children: unknown;
+        title: string;
+        variant?: 'default' | 'fullscreen';
+    }) => (
+        <div data-testid="modal-wrapper" data-variant={variant}>
             <h2>{title}</h2>
             {children}
         </div>
@@ -356,6 +364,36 @@ describe('IntegrationsModal', () => {
         await waitForAssertion(() => {
             const heading = container.querySelector('h2');
             expect(heading?.textContent).toBe('Översikt');
+        });
+    });
+
+    it('opens Fortnox panel in fullscreen modal variant', async () => {
+        setIaV2Flag('true');
+
+        await act(async () => {
+            render(<IntegrationsModal onClose={vi.fn()} />, container);
+        });
+
+        await waitForAssertion(() => {
+            expect(getByTestId('integration-advanced-toggle')).not.toBeNull();
+        });
+
+        await act(async () => {
+            getByTestId('integration-advanced-toggle').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+
+        await waitForAssertion(() => {
+            expect(getByTestId('integration-tool-fortnox-panel')).not.toBeNull();
+        });
+
+        await act(async () => {
+            getByTestId('integration-tool-fortnox-panel').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+
+        await waitForAssertion(() => {
+            const heading = container.querySelector('h2');
+            expect(heading?.textContent).toBe('Fortnoxpanel');
+            expect(getByTestId('modal-wrapper').getAttribute('data-variant')).toBe('fullscreen');
         });
     });
 });

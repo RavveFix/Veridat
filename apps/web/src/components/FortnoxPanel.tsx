@@ -244,14 +244,15 @@ const FORTNOX_PERMISSION_TEXT_STYLE = { display: 'flex', flexDirection: 'column'
 const FORTNOX_PERMISSION_MESSAGE_STYLE = { fontSize: '0.85rem', color: 'var(--text-primary)' } as const;
 const FORTNOX_MAIN_GRID_STYLE = {
     display: 'grid',
-    gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)',
-    gap: '1rem'
+    gap: '1rem',
+    alignItems: 'stretch'
 } as const;
 const FORTNOX_TABLE_CARD_STYLE = {
     display: 'flex',
     flexDirection: 'column',
     gap: '0.75rem',
-    minHeight: '360px'
+    minHeight: 0,
+    height: '100%'
 } as const;
 const FORTNOX_TABLE_HEADER_STYLE = { display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' } as const;
 const FORTNOX_TABLE_TITLE_WRAP_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.35rem' } as const;
@@ -265,8 +266,19 @@ const FORTNOX_ERROR_BOX_STYLE = {
     color: '#ef4444',
     fontSize: '0.8rem'
 } as const;
-const FORTNOX_TABLE_SCROLL_STYLE = { overflowX: 'auto' } as const;
-const FORTNOX_COPILOT_CARD_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.75rem' } as const;
+const FORTNOX_TABLE_SCROLL_STYLE = {
+    overflowX: 'auto',
+    overflowY: 'auto',
+    flex: 1,
+    minHeight: '360px'
+} as const;
+const FORTNOX_COPILOT_CARD_STYLE = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+    minHeight: 0,
+    height: '100%'
+} as const;
 const FORTNOX_COPILOT_SUBTEXT_STYLE = { fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
 const INVOICE_VIEW_OPTIONS: OptionItem<InvoiceView>[] = [
     { id: 'supplier', label: 'Leverantörer' },
@@ -817,15 +829,22 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             sourceContext: 'invoice-posting-review',
         });
 
+        // Refresh the posting trace after successful creation.
+        // This is best-effort: if the refresh fails we still return the created voucher
+        // so the drawer can show the success state rather than a misleading error.
         invoicePostingReviewService.invalidateInvoice(companyId, payload.invoiceType, payload.invoiceId);
-        const refreshed = await invoicePostingReviewService.fetchPostingTrace({
-            companyId,
-            invoiceType: payload.invoiceType,
-            invoiceId: payload.invoiceId,
-            forceRefresh: true,
-        });
-        setPostingTrace(refreshed);
-        setPostingTraceError(null);
+        try {
+            const refreshed = await invoicePostingReviewService.fetchPostingTrace({
+                companyId,
+                invoiceType: payload.invoiceType,
+                invoiceId: payload.invoiceId,
+                forceRefresh: true,
+            });
+            setPostingTrace(refreshed);
+            setPostingTraceError(null);
+        } catch {
+            // Non-fatal: the voucher was created; the trace will refresh on next open
+        }
 
         return created;
     };
@@ -911,7 +930,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
 
     return (
         <div
-            className="panel-stagger"
+            className="panel-stagger fortnox-workspace-panel"
             data-testid="fortnox-panel-root"
             style={FORTNOX_PANEL_ROOT_STYLE}
         >
@@ -957,8 +976,8 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 />
             </div>
 
-            <div style={FORTNOX_MAIN_GRID_STYLE}>
-                <div className="panel-card panel-card--no-hover" style={FORTNOX_TABLE_CARD_STYLE}>
+            <div className="fortnox-workspace-main-grid" style={FORTNOX_MAIN_GRID_STYLE}>
+                <div className="panel-card panel-card--no-hover fortnox-workspace-table-card" style={FORTNOX_TABLE_CARD_STYLE}>
                     <div style={FORTNOX_TABLE_HEADER_STYLE}>
                         <div style={FORTNOX_TABLE_TITLE_WRAP_STYLE}>
                             <div className="panel-section-title" style={FORTNOX_SECTION_TITLE_STYLE}>
@@ -1019,7 +1038,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                         </div>
                     )}
 
-                    <div style={FORTNOX_TABLE_SCROLL_STYLE}>
+                    <div className="fortnox-workspace-table-scroll" style={FORTNOX_TABLE_SCROLL_STYLE}>
                         {isSupplierView ? (
                             <table style={INVOICE_TABLE_STYLE}>
                                 {renderTableHeader(supplierColumns)}
@@ -1126,7 +1145,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                     </div>
                 </div>
 
-                <div className="panel-card panel-card--no-hover" style={FORTNOX_COPILOT_CARD_STYLE}>
+                <div className="panel-card panel-card--no-hover fortnox-workspace-copilot-card" style={FORTNOX_COPILOT_CARD_STYLE}>
                     <div>
                         <div className="panel-section-title" style={FORTNOX_SECTION_TITLE_STYLE}>Copilot</div>
                         <div style={FORTNOX_COPILOT_SUBTEXT_STYLE}>
@@ -1142,6 +1161,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 loading={postingTraceLoading}
                 error={postingTraceError}
                 trace={postingTrace}
+                presentation="fullscreen"
                 onClose={() => setPostingDrawerOpen(false)}
                 onCreateCorrection={createPostingCorrectionVoucher}
             />

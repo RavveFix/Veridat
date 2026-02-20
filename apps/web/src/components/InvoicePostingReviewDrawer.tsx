@@ -9,11 +9,14 @@ import {
     type PostingSeverity,
 } from '../services/InvoicePostingReviewService';
 
+type InvoicePostingPresentation = 'drawer' | 'fullscreen';
+
 interface InvoicePostingReviewDrawerProps {
     open: boolean;
     loading: boolean;
     error: string | null;
     trace: InvoicePostingTrace | null;
+    presentation?: InvoicePostingPresentation;
     onClose: () => void;
     onCreateCorrection?: (payload: {
         invoiceType: 'customer';
@@ -30,7 +33,7 @@ interface InvoicePostingReviewDrawerProps {
     }) => Promise<PostingCorrectionResult>;
 }
 
-const OVERLAY_STYLE = {
+const DRAWER_OVERLAY_STYLE = {
     position: 'fixed',
     inset: 0,
     background: 'var(--overlay-bg)',
@@ -39,7 +42,13 @@ const OVERLAY_STYLE = {
     justifyContent: 'flex-end',
 } as const;
 
-const PANEL_STYLE = {
+const FULLSCREEN_OVERLAY_STYLE = {
+    ...DRAWER_OVERLAY_STYLE,
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
+} as const;
+
+const DRAWER_PANEL_STYLE = {
     width: 'min(780px, 100vw)',
     height: '100%',
     background: 'var(--main-bg)',
@@ -47,6 +56,13 @@ const PANEL_STYLE = {
     boxShadow: 'var(--surface-shadow-strong)',
     display: 'flex',
     flexDirection: 'column',
+} as const;
+
+const FULLSCREEN_PANEL_STYLE = {
+    ...DRAWER_PANEL_STYLE,
+    width: '100vw',
+    height: '100dvh',
+    borderLeft: 'none',
 } as const;
 
 const HEADER_STYLE = {
@@ -96,6 +112,26 @@ const BODY_STYLE = {
     flexDirection: 'column',
     gap: '1rem',
 } as const;
+
+const FULLSCREEN_BODY_STYLE = {
+    ...BODY_STYLE,
+    padding: '1rem 1.5rem 1.75rem',
+} as const;
+
+function getOverlayStyle(presentation: InvoicePostingPresentation) {
+    if (presentation === 'fullscreen') return FULLSCREEN_OVERLAY_STYLE;
+    return DRAWER_OVERLAY_STYLE;
+}
+
+function getPanelStyle(presentation: InvoicePostingPresentation) {
+    if (presentation === 'fullscreen') return FULLSCREEN_PANEL_STYLE;
+    return DRAWER_PANEL_STYLE;
+}
+
+function getBodyStyle(presentation: InvoicePostingPresentation) {
+    if (presentation === 'fullscreen') return FULLSCREEN_BODY_STYLE;
+    return BODY_STYLE;
+}
 
 const CARD_STYLE = {
     border: '1px solid var(--surface-border)',
@@ -223,29 +259,53 @@ const ISSUE_DEBUG_CODE_STYLE = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
 } as const;
 
-const ACTION_ROW_STYLE = {
+const ACTION_BAR_STYLE = {
+    position: 'sticky',
+    top: 0,
+    zIndex: 2,
     display: 'flex',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: '0.55rem',
     flexWrap: 'wrap',
+    padding: '0.7rem',
+    border: '1px solid var(--surface-border)',
+    borderRadius: '12px',
+    background: 'var(--main-bg)',
 } as const;
 
 const ACTION_BUTTON_STYLE = {
-    height: '34px',
-    padding: '0 0.9rem',
+    height: '36px',
+    padding: '0 1rem',
     borderRadius: '10px',
-    border: '1px solid var(--surface-border)',
-    background: 'rgba(59, 130, 246, 0.16)',
-    color: '#93c5fd',
-    fontSize: '0.76rem',
+    border: '1px solid rgba(37, 99, 235, 0.45)',
+    background: 'linear-gradient(135deg, #2563eb, #0284c7)',
+    color: '#e0f2fe',
+    fontSize: '0.78rem',
     fontWeight: 700,
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
 } as const;
 
 const ACTION_SECONDARY_BUTTON_STYLE = {
     ...ACTION_BUTTON_STYLE,
     background: 'rgba(148, 163, 184, 0.14)',
+    border: '1px solid var(--surface-border)',
     color: 'var(--text-primary)',
+} as const;
+
+const ACTION_HINT_STYLE = {
+    fontSize: '0.76rem',
+    color: 'var(--text-secondary)',
+    lineHeight: 1.4,
+} as const;
+
+const ACTION_BUTTONS_WRAP_STYLE = {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '0.55rem',
+    flexWrap: 'wrap',
+    marginLeft: 'auto',
 } as const;
 
 const CORRECTION_MODAL_OVERLAY_STYLE = {
@@ -818,6 +878,7 @@ export function InvoicePostingReviewDrawer({
     loading,
     error,
     trace,
+    presentation = 'drawer',
     onClose,
     onCreateCorrection,
 }: InvoicePostingReviewDrawerProps) {
@@ -885,14 +946,15 @@ export function InvoicePostingReviewDrawer({
 
     return (
         <div
-            style={OVERLAY_STYLE}
+            style={getOverlayStyle(presentation)}
             onClick={onClose}
             data-testid="invoice-posting-drawer"
+            data-presentation={presentation}
             role="dialog"
             aria-modal="true"
             aria-label="Konteringskontroll"
         >
-            <aside style={PANEL_STYLE} onClick={(event) => event.stopPropagation()}>
+            <aside style={getPanelStyle(presentation)} onClick={(event) => event.stopPropagation()}>
                 <div style={HEADER_STYLE}>
                     <div style={TITLE_WRAP_STYLE}>
                         <h3 style={TITLE_STYLE}>Konteringskontroll</h3>
@@ -905,7 +967,7 @@ export function InvoicePostingReviewDrawer({
                     </button>
                 </div>
 
-                <div style={BODY_STYLE}>
+                <div style={getBodyStyle(presentation)}>
                     {loading && (
                         <div style={CARD_STYLE}>Laddar kontering...</div>
                     )}
@@ -920,6 +982,35 @@ export function InvoicePostingReviewDrawer({
 
                     {!loading && !error && trace && (
                         <>
+                            <section style={ACTION_BAR_STYLE}>
+                                <span style={ACTION_HINT_STYLE}>
+                                    Ett klick skickar underlaget och öppnar chatten direkt.
+                                </span>
+                                <div style={ACTION_BUTTONS_WRAP_STYLE}>
+                                    {canShowCorrection && (
+                                        <button
+                                            type="button"
+                                            style={ACTION_SECONDARY_BUTTON_STYLE}
+                                            data-testid="invoice-posting-correct-issue-button"
+                                            onClick={openCorrectionModal}
+                                        >
+                                            Ändra avvikelse
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        style={ACTION_BUTTON_STYLE}
+                                        data-testid="invoice-posting-send-ai-button"
+                                        onClick={() => {
+                                            sendPromptToAiChat(buildAiEconomistPrompt(trace));
+                                            onClose();
+                                        }}
+                                    >
+                                        Skicka till AI och öppna chatten
+                                    </button>
+                                </div>
+                            </section>
+
                             <section style={CARD_STYLE}>
                                 <h4 style={SECTION_TITLE_STYLE}>Faktura</h4>
                                 <div style={INFO_GRID_STYLE}>
@@ -967,29 +1058,6 @@ export function InvoicePostingReviewDrawer({
                                             Verifikation {formatVoucherRef(trace.posting.voucherRef)}
                                         </span>
                                     )}
-                                </div>
-                                <div style={ACTION_ROW_STYLE}>
-                                    {canShowCorrection && (
-                                        <button
-                                            type="button"
-                                            style={ACTION_SECONDARY_BUTTON_STYLE}
-                                            data-testid="invoice-posting-correct-issue-button"
-                                            onClick={openCorrectionModal}
-                                        >
-                                            Ändra avvikelse
-                                        </button>
-                                    )}
-                                    <button
-                                        type="button"
-                                        style={ACTION_BUTTON_STYLE}
-                                        data-testid="invoice-posting-send-ai-button"
-                                        onClick={() => {
-                                            sendPromptToAiChat(buildAiEconomistPrompt(trace));
-                                            onClose();
-                                        }}
-                                    >
-                                        Skicka till AI-ekonom
-                                    </button>
                                 </div>
                             </section>
 

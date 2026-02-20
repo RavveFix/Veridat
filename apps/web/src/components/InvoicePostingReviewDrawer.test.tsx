@@ -189,6 +189,8 @@ describe('InvoicePostingReviewDrawer', () => {
 
         const status = container.querySelector('[data-testid="invoice-posting-status-value"]');
         expect(status?.textContent).toBe('Bokförd, verifikation ej hittad automatiskt');
+        const drawer = container.querySelector('[data-testid="invoice-posting-drawer"]');
+        expect(drawer?.getAttribute('data-presentation')).toBe('drawer');
 
         const actualMessage = container.querySelector('[data-testid="invoice-posting-actual-message"]');
         expect(actualMessage?.textContent).toBe('Bokförd i Fortnox men verifikation kunde inte kopplas automatiskt.');
@@ -266,6 +268,7 @@ describe('InvoicePostingReviewDrawer', () => {
 
         const sendButton = container.querySelector('[data-testid="invoice-posting-send-ai-button"]') as HTMLButtonElement | null;
         expect(sendButton).not.toBeNull();
+        expect(sendButton?.textContent).toContain('Skicka till AI och öppna chatten');
 
         await act(async () => {
             sendButton?.click();
@@ -274,6 +277,28 @@ describe('InvoicePostingReviewDrawer', () => {
         expect(submitted).toBe(true);
         expect(chatInput.value).toContain('Fakturanummer: 49173621');
         expect(chatInput.value).toContain('VOUCHER_LINK_MISSING');
+    });
+
+    it('renders fullscreen presentation when requested', async () => {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+
+        await act(async () => {
+            render(
+                <InvoicePostingReviewDrawer
+                    open
+                    loading={false}
+                    error={null}
+                    trace={TRACE_BOOKED_WITHOUT_VOUCHER as any}
+                    presentation="fullscreen"
+                    onClose={() => undefined}
+                />,
+                container
+            );
+        });
+
+        const drawer = container.querySelector('[data-testid="invoice-posting-drawer"]');
+        expect(drawer?.getAttribute('data-presentation')).toBe('fullscreen');
     });
 
     it('renders correction CTA only for customer account-mismatch scope', async () => {

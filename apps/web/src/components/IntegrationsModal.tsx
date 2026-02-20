@@ -788,7 +788,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     const [loading, setLoading] = useState(true);
     const [connecting, setConnecting] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [abortController, setAbortController] = useState<AbortController | null>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
     const [loadingTimeout, setLoadingTimeout] = useState(false);
     const [activeTool, setActiveTool] = useState<IntegrationTool | null>(
         requestedInitialTool && !isFortnoxTool(requestedInitialTool) ? requestedInitialTool : null
@@ -924,7 +924,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
 
     useEffect(() => {
         const controller = new AbortController();
-        setAbortController(controller);
+        abortControllerRef.current = controller;
 
         const companyId = refreshCompanyScope() ?? getActiveCompanyId();
         void loadIntegrationStatus(companyId);
@@ -938,7 +938,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         return () => {
             controller.abort();
             clearTimeout(feedbackTimeout);
-            setAbortController(null);
+            abortControllerRef.current = null;
         };
     }, []);
 
@@ -1106,7 +1106,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             setPlanLoaded(true);
 
             // Check if component was aborted (unmounted)
-            if (abortController?.signal.aborted) {
+            if (abortControllerRef.current?.signal.aborted) {
                 return; // Don't show error if user closed modal
             }
 
@@ -1482,6 +1482,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             title: string;
             subtitle: string;
             maxWidth: string;
+            variant?: 'default' | 'fullscreen';
             render: () => ComponentChildren;
         }> = {
             dashboard: {
@@ -1543,6 +1544,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 title: 'Fortnoxpanel',
                 subtitle: 'Leverantörsfakturor, status och Copilot på ett ställe.',
                 maxWidth: '1200px',
+                variant: 'fullscreen',
                 render: () => <FortnoxPanel onBack={onBack} />,
             },
         };
@@ -1554,6 +1556,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 title={modalConfig.title}
                 subtitle={modalConfig.subtitle}
                 maxWidth={modalConfig.maxWidth}
+                variant={modalConfig.variant}
             >
                 {modalConfig.render()}
             </ModalWrapper>
