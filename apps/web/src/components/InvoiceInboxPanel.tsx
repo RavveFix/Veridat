@@ -1388,8 +1388,15 @@ Föreslå korrekt kontering med debet/kredit.`;
 
             {/* Messages */}
             {error && (
-                <div style={INVOICE_INBOX_ERROR_MESSAGE_STYLE}>
-                    {error}
+                <div style={{ ...INVOICE_INBOX_ERROR_MESSAGE_STYLE, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ flex: 1 }}>{error}</span>
+                    <button
+                        type="button"
+                        onClick={() => void syncFromFortnox()}
+                        style={{ flexShrink: 0, padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.4)', background: 'transparent', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer' }}
+                    >
+                        Försök igen
+                    </button>
                 </div>
             )}
             {successMsg && (
@@ -1431,7 +1438,7 @@ Föreslå korrekt kontering med debet/kredit.`;
                             {dragOver ? 'Släpp filerna här' : 'Dra och släpp fakturor här'}
                         </div>
                         <div style={INVOICE_UPLOAD_HINT_STYLE}>
-                            eller klicka för att välja filer (PDF, PNG, JPG)
+                            eller klicka för att välja filer (PDF, PNG, JPG – max 50 MB)
                         </div>
                     </>
                 )}
@@ -1551,6 +1558,7 @@ function FilterButton({
     return (
         <button
             type="button"
+            aria-pressed={active}
             onClick={onClick}
             style={getFilterButtonStyle(active, color)}
         >

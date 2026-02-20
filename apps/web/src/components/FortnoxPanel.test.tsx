@@ -331,6 +331,15 @@ describe('FortnoxPanel', () => {
 
         await click(getByTestId('fortnox-approve-bookkeep-131'));
 
+        // Confirm dialog should appear — click "Bekräfta" to proceed
+        await waitForAssertion(() => {
+            const confirmBtn = Array.from(container.querySelectorAll('button')).find(
+                (b) => b.textContent?.trim() === 'Bekräfta'
+            );
+            expect(confirmBtn).not.toBeUndefined();
+            confirmBtn!.click();
+        });
+
         await waitForAssertion(() => {
             const button = getByTestId('fortnox-approve-bookkeep-131');
             expect(button.textContent).toContain('Attesterar...');

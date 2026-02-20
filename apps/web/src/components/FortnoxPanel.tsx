@@ -264,8 +264,87 @@ const FORTNOX_ERROR_BOX_STYLE = {
     borderRadius: '8px',
     background: 'rgba(239, 68, 68, 0.12)',
     color: '#ef4444',
-    fontSize: '0.8rem'
+    fontSize: '0.8rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
 } as const;
+const FORTNOX_RETRY_BUTTON_STYLE = {
+    marginLeft: 'auto',
+    flexShrink: 0,
+    padding: '0.2rem 0.6rem',
+    borderRadius: '6px',
+    border: '1px solid rgba(239,68,68,0.4)',
+    background: 'transparent',
+    color: '#ef4444',
+    fontSize: '0.75rem',
+    cursor: 'pointer',
+} as const;
+const CONFIRM_OVERLAY_STYLE = {
+    position: 'fixed' as const,
+    inset: 0,
+    zIndex: 3000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(0,0,0,0.45)',
+    backdropFilter: 'blur(4px)',
+};
+const CONFIRM_DIALOG_STYLE = {
+    background: 'var(--surface-2, #1e293b)',
+    borderRadius: '12px',
+    padding: '1.5rem',
+    maxWidth: '420px',
+    width: '90vw',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+    border: '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
+};
+const CONFIRM_MESSAGE_STYLE = {
+    margin: '0 0 1.25rem',
+    fontSize: '0.9rem',
+    color: 'var(--text-primary)',
+    lineHeight: 1.6,
+    whiteSpace: 'pre-line' as const,
+};
+const CONFIRM_ACTIONS_STYLE = {
+    display: 'flex',
+    gap: '0.75rem',
+    justifyContent: 'flex-end',
+};
+const CONFIRM_CANCEL_STYLE = {
+    padding: '0.5rem 1rem',
+    borderRadius: '8px',
+    border: '1px solid var(--border-subtle, rgba(255,255,255,0.12))',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    fontSize: '0.875rem',
+    cursor: 'pointer',
+};
+const CONFIRM_OK_STYLE = {
+    padding: '0.5rem 1rem',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'var(--accent, #3b82f6)',
+    color: '#fff',
+    fontSize: '0.875rem',
+    cursor: 'pointer',
+    fontWeight: 500,
+};
+const TOAST_STYLE = {
+    position: 'fixed' as const,
+    bottom: '1.5rem',
+    right: '1.5rem',
+    zIndex: 4000,
+    padding: '0.7rem 1.1rem',
+    borderRadius: '10px',
+    background: 'var(--surface-2, #1e293b)',
+    border: '1px solid rgba(16,185,129,0.4)',
+    color: '#10b981',
+    fontSize: '0.875rem',
+    fontWeight: 500,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+    pointerEvents: 'none' as const,
+};
 const FORTNOX_TABLE_SCROLL_STYLE = {
     overflowX: 'auto',
     overflowY: 'auto',
@@ -526,6 +605,13 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
     const [postingTraceError, setPostingTraceError] = useState<string | null>(null);
     const [postingTrace, setPostingTrace] = useState<InvoicePostingTrace | null>(null);
     const invoicePostingReviewEnabled = getInvoicePostingReviewEnabled();
+    const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
+    const [toast, setToast] = useState<string | null>(null);
+
+    const showToast = (msg: string) => {
+        setToast(msg);
+        setTimeout(() => setToast(null), 3000);
+    };
 
     const updateScopeStatus = (message?: string, ok = false) => {
         if (ok) {
@@ -722,7 +808,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         }
     };
 
-    const approveSupplierInvoice = async (givenNumberRaw: number | string, action: 'bookkeep' | 'payment') => {
+    const approveSupplierInvoice = (givenNumberRaw: number | string, action: 'bookkeep' | 'payment') => {
         const givenNumber = Number(givenNumberRaw);
         if (!Number.isFinite(givenNumber)) {
             setSupplierError('Kunde inte läsa fakturanummer för attest.');
@@ -732,45 +818,51 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         const confirmText = action === 'bookkeep'
             ? `Vill du attestera bokföring för faktura ${givenNumber}?\n\nKontrollera att uppgifterna stämmer. Du som företagare ansvarar för att bokföringen är korrekt.`
             : `Vill du attestera betalning för faktura ${givenNumber}?\n\nKontrollera att uppgifterna stämmer. Du som företagare ansvarar för att bokföringen är korrekt.`;
-        if (!window.confirm(confirmText)) return;
 
-        setActionLoadingId(String(givenNumberRaw));
-        setSupplierError(null);
-        try {
-            const result = await callFortnox(
-                action === 'bookkeep' ? 'approveSupplierInvoiceBookkeep' : 'approveSupplierInvoicePayment',
-                {
-                    payload: {
-                        givenNumber,
-                        idempotencyKey: buildIdempotencyKey(action, givenNumber),
-                        sourceContext: 'fortnox-panel',
-                    },
-                    fallbackErrorMessage: 'Kunde inte attestera fakturan.',
-                    missingAuthMessage: 'Du måste vara inloggad för att attestera.'
+        setConfirmState({
+            message: confirmText,
+            onConfirm: async () => {
+                setConfirmState(null);
+                setActionLoadingId(String(givenNumberRaw));
+                setSupplierError(null);
+                try {
+                    const result = await callFortnox(
+                        action === 'bookkeep' ? 'approveSupplierInvoiceBookkeep' : 'approveSupplierInvoicePayment',
+                        {
+                            payload: {
+                                givenNumber,
+                                idempotencyKey: buildIdempotencyKey(action, givenNumber),
+                                sourceContext: 'fortnox-panel',
+                            },
+                            fallbackErrorMessage: 'Kunde inte attestera fakturan.',
+                            missingAuthMessage: 'Du måste vara inloggad för att attestera.'
+                        }
+                    );
+
+                    if (!result.ok) {
+                        setSupplierError(result.message);
+                        if (!result.authMissing) {
+                            updateScopeStatus(result.message);
+                            updateAttestStatus(result.message);
+                        }
+                        return;
+                    }
+
+                    updateAttestStatus(undefined, true);
+                    invoicePostingReviewService.invalidateInvoice(companyService.getCurrentId(), 'supplier', givenNumber);
+                    await loadSupplierInvoices({ target: 'all' });
+                    if (supplierFilter === 'authorizepending') {
+                        await loadSupplierInvoices({ filter: 'authorizepending', target: 'pending' });
+                    }
+                    showToast(action === 'bookkeep' ? '✓ Bokföring attesterad' : '✓ Betalning attesterad');
+                } catch (err) {
+                    logger.error('Failed to approve supplier invoice', err);
+                    setSupplierError('Ett fel uppstod vid attestering.');
+                } finally {
+                    setActionLoadingId(null);
                 }
-            );
-
-            if (!result.ok) {
-                setSupplierError(result.message);
-                if (!result.authMissing) {
-                    updateScopeStatus(result.message);
-                    updateAttestStatus(result.message);
-                }
-                return;
-            }
-
-            updateAttestStatus(undefined, true);
-            invoicePostingReviewService.invalidateInvoice(companyService.getCurrentId(), 'supplier', givenNumber);
-            await loadSupplierInvoices({ target: 'all' });
-            if (supplierFilter === 'authorizepending') {
-                await loadSupplierInvoices({ filter: 'authorizepending', target: 'pending' });
-            }
-        } catch (err) {
-            logger.error('Failed to approve supplier invoice', err);
-            setSupplierError('Ett fel uppstod vid attestering.');
-        } finally {
-            setActionLoadingId(null);
-        }
+            },
+        });
     };
 
     const openPostingTrace = async (invoiceType: InvoicePostingType, invoiceId: number | string) => {
@@ -1009,6 +1101,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                                 <button
                                     key={option.id}
                                     type="button"
+                                    aria-pressed={option.id === activeFilter}
                                     onClick={() => applyActiveFilter(option.id)}
                                     data-testid={`fortnox-filter-${option.id}`}
                                     style={getSelectorButtonStyle(
@@ -1034,7 +1127,14 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
 
                     {activeError && (
                         <div style={FORTNOX_ERROR_BOX_STYLE}>
-                            {activeError}
+                            <span>{activeError}</span>
+                            <button
+                                type="button"
+                                onClick={refreshActiveView}
+                                style={FORTNOX_RETRY_BUTTON_STYLE}
+                            >
+                                Försök igen
+                            </button>
                         </div>
                     )}
 
@@ -1165,6 +1265,28 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 onClose={() => setPostingDrawerOpen(false)}
                 onCreateCorrection={createPostingCorrectionVoucher}
             />
+
+            {confirmState && (
+                <div style={CONFIRM_OVERLAY_STYLE} onClick={() => setConfirmState(null)}>
+                    <div style={CONFIRM_DIALOG_STYLE} onClick={(e) => e.stopPropagation()}>
+                        <p style={CONFIRM_MESSAGE_STYLE}>{confirmState.message}</p>
+                        <div style={CONFIRM_ACTIONS_STYLE}>
+                            <button type="button" onClick={() => setConfirmState(null)} style={CONFIRM_CANCEL_STYLE}>
+                                Avbryt
+                            </button>
+                            <button type="button" onClick={() => void confirmState.onConfirm()} style={CONFIRM_OK_STYLE}>
+                                Bekräfta
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {toast && (
+                <div role="status" aria-live="polite" style={TOAST_STYLE}>
+                    {toast}
+                </div>
+            )}
         </div>
     );
 }
