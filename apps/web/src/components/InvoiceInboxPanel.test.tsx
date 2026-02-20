@@ -137,6 +137,128 @@ describe('InvoiceInboxPanel', () => {
         setPostingReviewFlag(originalPostingFlag);
     });
 
+    function makeFortnoxItem(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+        return {
+            id: 'item-1',
+            source: 'fortnox',
+            status: 'bokford',
+            supplierName: 'Test AB',
+            invoiceNumber: 'INV-1',
+            invoiceDate: '2026-01-10',
+            dueDate: '2026-02-09',
+            totalAmount: 100,
+            vatAmount: 25,
+            currency: 'SEK',
+            fortnoxSyncStatus: 'booked',
+            fortnoxGivenNumber: 1,
+            fortnoxBooked: true,
+            fileName: '',
+            ...overrides,
+        };
+    }
+
+    it('shows empty state when no items are loaded', async () => {
+        refreshInvoiceInboxMock.mockResolvedValue([]);
+
+        await act(async () => {
+            render(<InvoiceInboxPanel onBack={vi.fn()} />, container);
+        });
+
+        await waitForAssertion(() => {
+            expect(container.textContent).toContain('Inga fakturor än');
+        });
+    });
+
+    it('shows multiple invoice cards when multiple items are loaded', async () => {
+        refreshInvoiceInboxMock.mockResolvedValue([
+            makeFortnoxItem({ id: 'item-a', supplierName: 'Alfa AB', fortnoxGivenNumber: 10 }),
+            makeFortnoxItem({ id: 'item-b', supplierName: 'Beta AB', fortnoxGivenNumber: 11 }),
+        ]);
+
+        await act(async () => {
+            render(<InvoiceInboxPanel onBack={vi.fn()} />, container);
+        });
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('invoice-card-item-a')).not.toBeNull();
+            expect(queryByTestId('invoice-card-item-b')).not.toBeNull();
+        });
+    });
+
+    it('hides posting review button for items without a fortnoxGivenNumber', async () => {
+        refreshInvoiceInboxMock.mockResolvedValue([
+            makeFortnoxItem({ id: 'item-1', fortnoxGivenNumber: null, fortnoxBooked: false, source: 'upload' }),
+        ]);
+
+        await act(async () => {
+            render(<InvoiceInboxPanel onBack={vi.fn()} />, container);
+        });
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('invoice-card-item-1')).not.toBeNull();
+            expect(queryByTestId('invoice-view-posting-item-1')).toBeNull();
+        });
+    });
+
+    it('hides posting review button when the feature flag is disabled', async () => {
+        setPostingReviewFlag('false');
+        refreshInvoiceInboxMock.mockResolvedValue([
+            makeFortnoxItem({ id: 'item-1', fortnoxGivenNumber: 42 }),
+        ]);
+
+        await act(async () => {
+            render(<InvoiceInboxPanel onBack={vi.fn()} />, container);
+        });
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('invoice-card-item-1')).not.toBeNull();
+            expect(queryByTestId('invoice-view-posting-item-1')).toBeNull();
+        });
+    });
+
+    it('falls back to cached items when refresh throws', async () => {
+        refreshInvoiceInboxMock.mockRejectedValue(new Error('network error'));
+        getCachedInvoiceInboxMock.mockReturnValue([
+            makeFortnoxItem({ id: 'cached-1', supplierName: 'Cache AB', fortnoxGivenNumber: 5 }),
+        ]);
+
+        await act(async () => {
+            render(<InvoiceInboxPanel onBack={vi.fn()} />, container);
+        });
+
+        await waitForAssertion(() => {
+            expect(queryByTestId('invoice-card-cached-1')).not.toBeNull();
+        });
+    });
+
+    it('shows filtered empty state when items exist but none match the status filter', async () => {
+        refreshInvoiceInboxMock.mockResolvedValue([
+            makeFortnoxItem({ id: 'item-1', status: 'bokford', fortnoxGivenNumber: 1 }),
+        ]);
+
+        await act(async () => {
+            render(<InvoiceInboxPanel onBack={vi.fn()} />, container);
+        });
+
+        // Wait for item to be visible first
+        await waitForAssertion(() => {
+            expect(queryByTestId('invoice-card-item-1')).not.toBeNull();
+        });
+
+        // Click the "Ny" status filter button (textContent is "Ny" + count e.g. "Ny0")
+        await act(async () => {
+            const nyBtn = Array.from(container.querySelectorAll('button')).find(b => {
+                const t = b.textContent ?? '';
+                return /^Ny\d/.test(t.trim());
+            });
+            (nyBtn as HTMLElement | null)?.click();
+        });
+
+        await waitForAssertion(() => {
+            expect(container.textContent).toContain('Inga fakturor matchar filtret');
+        });
+    });
+
     it('shows posting review action for Fortnox-linked invoice and opens drawer', async () => {
         refreshInvoiceInboxMock.mockResolvedValue([
             {
