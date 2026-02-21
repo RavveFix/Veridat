@@ -4615,6 +4615,11 @@ h1 {
 
 /* Mobile Responsive - Excel Panel Fullscreen Overlay */
 @media (max-width: 1024px) {
+    /* On mobile the topbar search button is used instead */
+    #search-btn-sidebar {
+        display: none;
+    }
+
     .excel-panel {
         position: fixed;
         top: 0;
