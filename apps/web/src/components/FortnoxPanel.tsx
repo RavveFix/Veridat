@@ -783,6 +783,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             if (!result.ok) {
                 setSupplierError(result.message);
                 updateScopeStatus(result.authMissing ? 'missing' : result.message);
+                if (target === 'pending') setPendingInvoices((prev) => prev ?? []);
                 return;
             }
 
@@ -798,6 +799,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             logger.error('Failed to load Fortnox invoices', err);
             setSupplierError('Ett fel uppstod vid hämtning av Fortnox-data.');
             updateScopeStatus('unknown');
+            if (target === 'pending') setPendingInvoices((prev) => prev ?? []);
         } finally {
             setLoadingSupplier(false);
         }
@@ -837,6 +839,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             if (!result.ok) {
                 setCustomerError(result.message);
                 updateScopeStatus(result.authMissing ? 'missing' : result.message);
+                setCustomerInvoices((prev) => prev ?? []);
                 return;
             }
 
@@ -849,6 +852,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         } catch (err) {
             logger.error('Failed to load Fortnox customer invoices', err);
             setCustomerError('Ett fel uppstod vid hämtning av Fortnox-data.');
+            setCustomerInvoices((prev) => prev ?? []);
             if (scopeStatus !== 'missing') {
                 updateScopeStatus('unknown');
             }
