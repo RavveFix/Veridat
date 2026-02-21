@@ -760,6 +760,12 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         });
 
         if (!response.ok) {
+            if (response.status === 429) {
+                return { ok: false, message: 'Fortnox-anslutningen har ett tillfälligt problem. Koppla om Fortnox under Integrationer eller försök igen om en stund.', authMissing: false };
+            }
+            if (response.status === 401 || response.status === 403) {
+                return { ok: false, message: 'Fortnox-sessionen har gått ut. Koppla om Fortnox under Integrationer.', authMissing: true };
+            }
             const errorData = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
             const message = errorData.message || errorData.error || options.fallbackErrorMessage;
             return { ok: false, message, authMissing: false };
@@ -1205,6 +1211,13 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                     {activeError && (
                         <div style={FORTNOX_ERROR_BOX_STYLE}>
                             <span>{activeError}</span>
+                            <button
+                                type="button"
+                                onClick={() => document.getElementById('integrations-btn')?.click()}
+                                style={FORTNOX_RETRY_BUTTON_STYLE}
+                            >
+                                Koppla om
+                            </button>
                             <button
                                 type="button"
                                 onClick={refreshActiveView}
