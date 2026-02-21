@@ -41,6 +41,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     const [thinkingTimeout, setThinkingTimeout] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null);
+    const [rateLimitWarning, setRateLimitWarning] = useState<{ remaining: number } | null>(null);
     const [showUpgradeModal, setShowUpgradeModal] = useState(false);
     const [showScrollButton, setShowScrollButton] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
@@ -361,10 +362,17 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             }
         };
 
+        const handleRateLimitWarning = (e: CustomEvent<{ remaining: number }>) => {
+            const remaining = typeof e.detail?.remaining === 'number' ? e.detail.remaining : 0;
+            setRateLimitWarning({ remaining });
+        };
+
         window.addEventListener('chat-rate-limit', handleRateLimit as EventListener);
+        window.addEventListener('chat-rate-limit-warning', handleRateLimitWarning as EventListener);
         window.addEventListener('chat-streaming-chunk', handleStreamingChunk as EventListener);
         return () => {
             window.removeEventListener('chat-rate-limit', handleRateLimit as EventListener);
+            window.removeEventListener('chat-rate-limit-warning', handleRateLimitWarning as EventListener);
             window.removeEventListener('chat-streaming-chunk', handleStreamingChunk as EventListener);
         };
     }, []);
@@ -498,6 +506,37 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             class="chat-list"
         >
             {/* Welcome Message removed - handled by index.html welcome-hero */}
+
+            {rateLimitWarning && !rateLimitInfo && (
+                <div class="rate-limit-banner" role="status" aria-live="polite">
+                    <div class="rate-limit-banner__icon" aria-hidden="true">⚠️</div>
+                    <div class="rate-limit-banner__content">
+                        <div class="rate-limit-banner__title">
+                            {rateLimitWarning.remaining === 0
+                                ? 'Sista förfrågan'
+                                : `${rateLimitWarning.remaining} förfrågningar kvar idag`}
+                        </div>
+                        <div class="rate-limit-banner__subtitle">
+                            Uppgradera till Pro för fler förfrågningar.
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        class="rate-limit-banner__upgrade"
+                        onClick={() => setShowUpgradeModal(true)}
+                    >
+                        Uppgradera
+                    </button>
+                    <button
+                        type="button"
+                        class="rate-limit-banner__close"
+                        aria-label="Stäng"
+                        onClick={() => setRateLimitWarning(null)}
+                    >
+                        ×
+                    </button>
+                </div>
+            )}
 
             {rateLimitInfo && (
                 <div class="rate-limit-banner" role="status" aria-live="polite">

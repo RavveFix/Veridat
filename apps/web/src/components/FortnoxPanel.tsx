@@ -582,6 +582,23 @@ function renderEmptyInvoiceTableRow(columnCount: number) {
     );
 }
 
+const SKELETON_WIDTHS = ['60%', '80%', '45%', '70%', '55%'];
+
+function renderSkeletonRows(columnCount: number, rowCount = 4) {
+    return Array.from({ length: rowCount }, (_, rowIdx) => (
+        <tr key={`skel-${rowIdx}`} aria-hidden="true">
+            {Array.from({ length: columnCount }, (__, colIdx) => (
+                <td key={colIdx} style={{ padding: '10px 12px' }}>
+                    <div
+                        className="skeleton skeleton-line"
+                        style={{ width: SKELETON_WIDTHS[(rowIdx + colIdx) % SKELETON_WIDTHS.length], height: '0.85rem' }}
+                    />
+                </td>
+            ))}
+        </tr>
+    ));
+}
+
 export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
     const fortnoxEndpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`;
     const [loadingSupplier, setLoadingSupplier] = useState(false);
@@ -1143,6 +1160,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                             <table style={INVOICE_TABLE_STYLE}>
                                 {renderTableHeader(supplierColumns)}
                                 <tbody>
+                                    {loadingSupplier && renderSkeletonRows(supplierColumns.length)}
                                     {filteredSupplierInvoices.length === 0 && !loadingSupplier && (
                                         renderEmptyInvoiceTableRow(supplierColumns.length)
                                     )}
@@ -1201,6 +1219,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                             <table style={INVOICE_TABLE_STYLE}>
                                 {renderTableHeader(customerColumns)}
                                 <tbody>
+                                    {loadingCustomer && renderSkeletonRows(customerColumns.length)}
                                     {filteredCustomerInvoices.length === 0 && !loadingCustomer && (
                                         renderEmptyInvoiceTableRow(customerColumns.length)
                                     )}

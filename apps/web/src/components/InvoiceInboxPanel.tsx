@@ -659,6 +659,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
     const [error, setError] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [dragOver, setDragOver] = useState(false);
+    const [loadingItems, setLoadingItems] = useState(true);
     const [postingDrawerOpen, setPostingDrawerOpen] = useState(false);
     const [postingTraceLoading, setPostingTraceLoading] = useState(false);
     const [postingTraceError, setPostingTraceError] = useState<string | null>(null);
@@ -728,6 +729,7 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
     // Load from finance-agent
     useEffect(() => {
         let cancelled = false;
+        setLoadingItems(true);
         void (async () => {
             try {
                 const loaded = await financeAgentService.refreshInvoiceInbox(companyId);
@@ -738,6 +740,8 @@ export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
                 if (!cancelled) {
                     setItems(financeAgentService.getCachedInvoiceInbox(companyId).map((item) => toInboxItem(item)));
                 }
+            } finally {
+                if (!cancelled) setLoadingItems(false);
             }
         })();
         return () => {
@@ -1485,7 +1489,17 @@ Föreslå korrekt kontering med debet/kredit.`;
             </div>
 
             {/* Invoice list */}
-            {filtered.length === 0 ? (
+            {loadingItems ? (
+                <div className="panel-stagger" style={INVOICE_LIST_GRID_STYLE} aria-hidden="true">
+                    {[0, 1, 2].map((i) => (
+                        <div key={i} className="panel-card panel-card--no-hover" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                            <div className="skeleton skeleton-line" style={{ width: '55%', height: '0.85rem' }} />
+                            <div className="skeleton skeleton-line" style={{ width: '80%', height: '0.85rem' }} />
+                            <div className="skeleton skeleton-line" style={{ width: '40%', height: '0.85rem' }} />
+                        </div>
+                    ))}
+                </div>
+            ) : filtered.length === 0 ? (
                 <div className="panel-card panel-card--no-hover" style={INVOICE_EMPTY_STATE_STYLE}>
                     {items.length === 0
                         ? 'Inga fakturor än. Dra och släpp en PDF eller hämta från Fortnox.'

@@ -338,6 +338,18 @@ class ChatServiceClass {
                 throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
             }
 
+            // Proactive rate-limit warning: emit event when quota is running low
+            const remainingRaw = response.headers.get('X-RateLimit-Remaining');
+            const remainingCount = remainingRaw !== null ? parseInt(remainingRaw, 10) : null;
+            if (remainingCount !== null && !Number.isNaN(remainingCount) && remainingCount < 3) {
+                window.dispatchEvent(new CustomEvent('chat-rate-limit-warning', {
+                    detail: {
+                        remaining: remainingCount,
+                        resetAt: response.headers.get('X-RateLimit-Reset')
+                    }
+                }));
+            }
+
             // Check if it's a streaming response
             const contentType = response.headers.get('Content-Type');
             if (contentType?.includes('text/event-stream')) {

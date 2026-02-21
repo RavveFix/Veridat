@@ -33,6 +33,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [showConfirmModal, setShowConfirmModal] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
 
     // Force re-render when deletion state changes (since currentlyDeleting is module-level)
     const [, setRenderKey] = useState(0);
@@ -230,6 +231,16 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
         return acc;
     }, { Idag: [], Igår: [], Tidigare: [] }), [conversations]);
 
+    const filteredConversations = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return null;
+        return conversations.filter(
+            (c) =>
+                c.title.toLowerCase().includes(q) ||
+                (c.last_message_preview ?? '').toLowerCase().includes(q)
+        );
+    }, [conversations, searchQuery]);
+
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 3000);
@@ -339,63 +350,95 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
         );
     }
 
+    const renderConvItem = (conv: Conversation, isActive: boolean, isDeleting: boolean) => (
+        <div
+            key={conv.id}
+            onClick={() => onSelectConversation(conv.id)}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelectConversation(conv.id);
+                }
+            }}
+            class={`conversation-item${isActive ? ' is-active' : ''}${isDeleting ? ' is-deleting' : ''}`}
+            title={conv.title || 'Ny konversation'}
+            role="button"
+            tabIndex={0}
+        >
+            <div class="conversation-item-content">
+                <div class="conversation-item-title">
+                    {conv.title || 'Ny konversation'}
+                </div>
+            </div>
+
+            <button
+                class={`conversation-delete${isDeleting ? ' is-loading' : ''}`}
+                onClick={(e) => handleDeleteClick(e, conv.id)}
+                disabled={isDeleting}
+                title="Ta bort konversation"
+                aria-label="Ta bort konversation"
+            >
+                {isDeleting ? (
+                    <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; border-top-color: #ff4d4d; animation: spin 1s ease-in-out infinite;"></div>
+                ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
+                    </svg>
+                )}
+            </button>
+        </div>
+    );
+
     return (
         <>
+            <div class="conversation-search" style={{ padding: '0.5rem 0.75rem 0.25rem' }}>
+                <div class="search-input-wrapper">
+                    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input
+                        type="search"
+                        class="search-input"
+                        placeholder="Sök konversationer..."
+                        value={searchQuery}
+                        onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
+                        aria-label="Sök konversationer"
+                        style={{ paddingLeft: '2.25rem', fontSize: '0.82rem', borderRadius: '8px', height: '34px' }}
+                    />
+                </div>
+            </div>
+
             <div class="conversation-list">
-                {groupLabels.map((label) => {
-                    const items = groupedConversations[label];
-                    if (items.length === 0) return null;
-
-                    return (
-                        <div class="conversation-group" key={label}>
-                            <div class="conversation-group-title">{label}</div>
-                            {items.map((conv) => {
-                                const isActive = conv.id === currentConversationId;
-                                // Check both module-level states to ensure button disabled state is always correct
-                                const isDeleting = currentlyDeleting === conv.id || pendingDeletions.has(conv.id);
-                                return (
-                                    <div
-                                        key={conv.id}
-                                        onClick={() => onSelectConversation(conv.id)}
-                                        onKeyDown={(event) => {
-                                            if (event.key === 'Enter' || event.key === ' ') {
-                                                event.preventDefault();
-                                                onSelectConversation(conv.id);
-                                            }
-                                        }}
-                                        class={`conversation-item${isActive ? ' is-active' : ''}${isDeleting ? ' is-deleting' : ''}`}
-                                        title={conv.title || 'Ny konversation'}
-                                        role="button"
-                                        tabIndex={0}
-                                    >
-                                        <div class="conversation-item-content">
-                                            <div class="conversation-item-title">
-                                                {conv.title || 'Ny konversation'}
-                                            </div>
-                                        </div>
-
-                                        <button
-                                            class={`conversation-delete${isDeleting ? ' is-loading' : ''}`}
-                                            onClick={(e) => handleDeleteClick(e, conv.id)}
-                                            disabled={isDeleting}
-                                            title="Ta bort konversation"
-                                            aria-label="Ta bort konversation"
-                                        >
-                                            {isDeleting ? (
-                                                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; border-top-color: #ff4d4d; animation: spin 1s ease-in-out infinite;"></div>
-                                            ) : (
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
-                                                </svg>
-                                            )}
-                                        </button>
-                                    </div>
-                                );
-                            })}
+                {filteredConversations !== null ? (
+                    filteredConversations.length === 0 ? (
+                        <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                            Inga konversationer matchar sökningen.
                         </div>
-                    );
-                })}
+                    ) : (
+                        filteredConversations.map((conv) => {
+                            const isActive = conv.id === currentConversationId;
+                            const isDeleting = currentlyDeleting === conv.id || pendingDeletions.has(conv.id);
+                            return renderConvItem(conv, isActive, isDeleting);
+                        })
+                    )
+                ) : (
+                    groupLabels.map((label) => {
+                        const items = groupedConversations[label];
+                        if (items.length === 0) return null;
+
+                        return (
+                            <div class="conversation-group" key={label}>
+                                <div class="conversation-group-title">{label}</div>
+                                {items.map((conv) => {
+                                    const isActive = conv.id === currentConversationId;
+                                    const isDeleting = currentlyDeleting === conv.id || pendingDeletions.has(conv.id);
+                                    return renderConvItem(conv, isActive, isDeleting);
+                                })}
+                            </div>
+                        );
+                    })
+                )}
             </div>
 
             {/* Custom Confirmation Modal */}

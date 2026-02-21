@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 
 interface ModalWrapperProps {
@@ -79,7 +80,7 @@ function getModalOverlayStyle(isFullscreen: boolean) {
     return {
         ...MODAL_OVERLAY_BASE_STYLE,
         alignItems: 'center',
-        padding: '1rem'
+        padding: 'max(1rem, env(safe-area-inset-top, 1rem)) 1rem max(1rem, env(safe-area-inset-bottom, 1rem))'
     };
 }
 
@@ -99,7 +100,7 @@ function getModalContentStyle(isFullscreen: boolean, maxWidth: string) {
     return {
         ...MODAL_CONTENT_BASE_STYLE,
         maxWidth: `min(90vw, ${maxWidth})`,
-        maxHeight: '85vh'
+        maxHeight: 'calc(85vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))'
     };
 }
 
@@ -110,8 +111,52 @@ function getModalTitleStyle(hasSubtitle: boolean) {
     };
 }
 
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export function ModalWrapper({ onClose, title, subtitle, children, maxWidth = '500px', variant = 'default' }: ModalWrapperProps) {
     const isFullscreen = variant === 'fullscreen';
+    const contentRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const prev = document.activeElement as HTMLElement | null;
+        // Auto-focus first focusable element in the modal
+        const first = contentRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE)[0];
+        first?.focus();
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                onClose();
+                return;
+            }
+            if (e.key !== 'Tab') return;
+
+            const focusable = Array.from(contentRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+            if (focusable.length === 0) return;
+
+            const firstEl = focusable[0];
+            const lastEl = focusable[focusable.length - 1];
+
+            if (e.shiftKey) {
+                if (document.activeElement === firstEl) {
+                    e.preventDefault();
+                    lastEl.focus();
+                }
+            } else {
+                if (document.activeElement === lastEl) {
+                    e.preventDefault();
+                    firstEl.focus();
+                }
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            prev?.focus();
+        };
+    }, [onClose]);
+
     return (
         <div
             className="modal-overlay"
@@ -123,8 +168,12 @@ export function ModalWrapper({ onClose, title, subtitle, children, maxWidth = '5
             }}
         >
             <div
+                ref={contentRef}
                 className="modal-content glass-panel"
                 style={getModalContentStyle(isFullscreen, maxWidth)}
+                role="dialog"
+                aria-modal="true"
+                aria-label={title}
             >
                 <button
                     onClick={onClose}
