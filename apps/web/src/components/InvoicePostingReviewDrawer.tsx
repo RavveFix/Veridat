@@ -56,6 +56,7 @@ const DRAWER_PANEL_STYLE = {
     boxShadow: 'var(--surface-shadow-strong)',
     display: 'flex',
     flexDirection: 'column',
+    paddingRight: 'env(safe-area-inset-right, 0)',
 } as const;
 
 const FULLSCREEN_PANEL_STYLE = {
@@ -63,6 +64,9 @@ const FULLSCREEN_PANEL_STYLE = {
     width: '100vw',
     height: '100dvh',
     borderLeft: 'none',
+    paddingLeft: 'env(safe-area-inset-left, 0)',
+    paddingRight: 'env(safe-area-inset-right, 0)',
+    paddingBottom: 'env(safe-area-inset-bottom, 0)',
 } as const;
 
 const HEADER_STYLE = {
@@ -316,11 +320,11 @@ const CORRECTION_MODAL_OVERLAY_STYLE = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '1rem',
+    padding: 'max(1rem, env(safe-area-inset-top, 1rem)) max(1rem, env(safe-area-inset-right, 1rem)) max(1rem, env(safe-area-inset-bottom, 1rem)) max(1rem, env(safe-area-inset-left, 1rem))',
 } as const;
 
 const CORRECTION_MODAL_STYLE = {
-    width: 'min(640px, 96vw)',
+    width: 'min(640px, 90vw)',
     maxHeight: '92vh',
     overflowY: 'auto',
     borderRadius: '14px',

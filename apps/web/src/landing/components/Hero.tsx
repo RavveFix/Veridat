@@ -73,7 +73,7 @@ export function Hero() {
 
                         <div style="display: flex; height: 100%;">
                             {/* Sidebar */}
-                            <div style="width: 240px; border-right: 1px solid var(--glass-border); background: rgba(255,255,255,0.01); display: none; @media(min-width: 768px){display:flex;} flex-direction: column; padding: 1.5rem;">
+                            <div class="hero-mockup-sidebar" style="width: 240px; border-right: 1px solid var(--glass-border); background: rgba(255,255,255,0.01); flex-direction: column; padding: 1.5rem;">
                                 <div style="height: 32px; width: 120px; background: rgba(255,255,255,0.05); border-radius: 6px; margin-bottom: 2rem;"></div>
                                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                                     <div style="height: 24px; width: 100%; background: rgba(255,255,255,0.03); border-radius: 6px;"></div>

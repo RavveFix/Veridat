@@ -477,6 +477,20 @@
 
 /* Responsive */
 @media (max-width: 640px) {
+    .artifact-table table {
+        width: max(100%, 600px);
+    }
+
+    .artifact-table th:nth-child(2),
+    .artifact-table td:nth-child(2) {
+        min-width: 160px;
+    }
+
+    .artifact-table th:nth-child(5),
+    .artifact-table td:nth-child(5) {
+        min-width: 140px;
+    }
+
     .artifact-summary {
         grid-template-columns: 1fr 1fr;
     }

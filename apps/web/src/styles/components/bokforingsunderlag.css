@@ -952,6 +952,16 @@
         text-align: right;
     }
 
+    .bfu-tx-table {
+        min-width: 380px;
+        font-size: 0.75rem;
+    }
+
+    .bfu-tx-table th,
+    .bfu-tx-table td {
+        padding: 0.375rem 0.5rem;
+    }
+
     .bfu-tx-filters {
         flex-direction: column;
         align-items: stretch;

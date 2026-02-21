@@ -3694,7 +3694,7 @@ h1 {
 
 .excel-panel.open {
     width: 50%;
-    min-width: 500px;
+    min-width: min(500px, 45vw);
     max-width: 700px;
     opacity: 1;
     pointer-events: all;
