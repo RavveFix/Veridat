@@ -1,5 +1,5 @@
 import { FunctionComponent } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { supabase } from '../../lib/supabase';
 import { logger } from '../../services/LoggerService';
 import { FetchErrorFallback } from '../ErrorBoundary';
@@ -390,7 +390,7 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
                     return (
                         <div class="conversation-group" key={label}>
                             <div class="conversation-group-title">{label}</div>
-                            {items.map((conv) => {
+                            {items.map((conv: Conversation) => {
                                 const isActive = conv.id === currentConversationId;
                                 const isDeleting = currentlyDeleting === conv.id || pendingDeletions.has(conv.id);
                                 return renderConvItem(conv, isActive, isDeleting);
