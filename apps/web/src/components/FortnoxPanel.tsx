@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
+import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
 import { logger } from '../services/LoggerService';
 import { companyService } from '../services/CompanyService';
 import { CopilotPanel } from './CopilotPanel';
@@ -601,6 +602,9 @@ function renderSkeletonRows(columnCount: number, rowCount = 4) {
 
 export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
     const fortnoxEndpoint = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`;
+    const [connectionStatus, setConnectionStatus] = useState<FortnoxConnectionStatus>(
+        fortnoxContextService.getConnectionStatus()
+    );
     const [loadingSupplier, setLoadingSupplier] = useState(false);
     const [loadingCustomer, setLoadingCustomer] = useState(false);
     const [supplierError, setSupplierError] = useState<string | null>(null);
@@ -799,15 +803,27 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         }
     };
 
+    // Sync connection status from service
     useEffect(() => {
-        void loadSupplierInvoices({ target: 'all' });
+        const handler = (e: Event) => {
+            setConnectionStatus((e as CustomEvent<FortnoxConnectionStatus>).detail);
+        };
+        fortnoxContextService.addEventListener('connection-changed', handler);
+        return () => fortnoxContextService.removeEventListener('connection-changed', handler);
     }, []);
 
     useEffect(() => {
+        if (connectionStatus === 'connected') {
+            void loadSupplierInvoices({ target: 'all' });
+        }
+    }, [connectionStatus]);
+
+    useEffect(() => {
+        if (connectionStatus !== 'connected') return;
         if (supplierFilter === 'authorizepending' && pendingInvoices === null && !loadingSupplier) {
             void loadSupplierInvoices({ filter: 'authorizepending', target: 'pending' });
         }
-    }, [supplierFilter, pendingInvoices, loadingSupplier]);
+    }, [connectionStatus, supplierFilter, pendingInvoices, loadingSupplier]);
 
     const loadCustomerInvoices = async () => {
         setLoadingCustomer(true);
@@ -975,10 +991,11 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
     };
 
     useEffect(() => {
+        if (connectionStatus !== 'connected') return;
         if (invoiceView === 'customer' && customerInvoices === null && !loadingCustomer) {
             void loadCustomerInvoices();
         }
-    }, [invoiceView, customerInvoices, loadingCustomer]);
+    }, [connectionStatus, invoiceView, customerInvoices, loadingCustomer]);
 
     const filteredSupplierInvoices = useMemo(() => {
         const today = todayString();
@@ -1072,6 +1089,29 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 </span>
             </div>
 
+            {connectionStatus === 'checking' && (
+                <div className="panel-card panel-card--no-hover" style={{ padding: '2rem', color: 'var(--text-secondary)', fontSize: '0.875rem', textAlign: 'center' }}>
+                    Kontrollerar Fortnox-anslutning...
+                </div>
+            )}
+
+            {(connectionStatus === 'disconnected' || connectionStatus === 'error') && (
+                <div className="panel-card panel-card--no-hover" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1.5rem' }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Fortnox är inte kopplat</div>
+                    <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                        Koppla ihop Fortnox under Integrationer för att se fakturor och genomföra attest.
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => document.getElementById('integrations-btn')?.click()}
+                        style={{ marginTop: '0.25rem', alignSelf: 'flex-start', padding: '0.5rem 1rem', borderRadius: '8px', border: 'none', background: 'var(--accent, #3b82f6)', color: '#fff', fontSize: '0.875rem', cursor: 'pointer', fontWeight: 500 }}
+                    >
+                        Öppna Integrationer
+                    </button>
+                </div>
+            )}
+
+            {connectionStatus === 'connected' && (<>
             <div className="panel-stagger" style={FORTNOX_SUMMARY_GRID_STYLE}>
                 {summaryCards.map((card) => (
                     <SummaryStatCard key={card.id} label={card.label} value={card.value} />
@@ -1321,6 +1361,7 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                     </div>
                 </div>
             )}
+            </>)}
 
             {toast && (
                 <div role="status" aria-live="polite" style={TOAST_STYLE}>

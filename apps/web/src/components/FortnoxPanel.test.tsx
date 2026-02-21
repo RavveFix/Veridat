@@ -36,6 +36,14 @@ vi.mock('./CopilotPanel', () => ({
     CopilotPanel: () => <div data-testid="copilot-panel-mock">Copilot mock</div>
 }));
 
+vi.mock('../services/FortnoxContextService', () => ({
+    fortnoxContextService: {
+        getConnectionStatus: vi.fn(() => 'connected' as const),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+    }
+}));
+
 interface Deferred<T> {
     promise: Promise<T>;
     resolve: (value: T) => void;
