@@ -2300,6 +2300,125 @@ Deno.serve(async (req: Request) => {
                 break;
             }
 
+            // ================================================================
+            // FINANCIAL STATEMENTS — Resultaträkning & Balansräkning
+            // ================================================================
+            case 'getFinancialStatements': {
+                const [fsCompanyResp, fsYearsResp] = await Promise.all([
+                    requireFortnoxService().getCompanyInfo(),
+                    requireFortnoxService().getFinancialYears(),
+                ]);
+                const fsCompany = fsCompanyResp.CompanyInformation;
+
+                // Pick requested financial year or default to the most recent
+                const financialYears = fsYearsResp.FinancialYears || [];
+                const requestedYearId = typeof payload.financialYearId === 'number'
+                    ? payload.financialYearId
+                    : financialYears[0]?.Id;
+
+                const selectedFY = financialYears.find(fy => fy.Id === requestedYearId) || financialYears[0];
+                if (!selectedFY) {
+                    throw new RequestValidationError('NO_FINANCIAL_YEAR', 'Inget räkenskapsår hittat i Fortnox.');
+                }
+
+                // Fetch all accounts with balances for this financial year
+                const accountsResp = await requireFortnoxService().getAccounts(selectedFY.Id);
+                const allAccounts = (accountsResp.Accounts || []).filter(a => a.Active !== false);
+
+                // Classify accounts into report sections
+                type AccountLine = {
+                    number: number;
+                    name: string;
+                    openingBalance: number;
+                    closingBalance: number;
+                    change: number;
+                };
+                type AccountSection = {
+                    title: string;
+                    accounts: AccountLine[];
+                    total: number;
+                };
+
+                function toLine(a: { Number: number; Description: string; BalanceBroughtForward?: number; BalanceCarriedForward?: number }): AccountLine {
+                    const opening = a.BalanceBroughtForward || 0;
+                    const closing = a.BalanceCarriedForward || 0;
+                    return {
+                        number: a.Number,
+                        name: a.Description || `Konto ${a.Number}`,
+                        openingBalance: opening,
+                        closingBalance: closing,
+                        change: closing - opening,
+                    };
+                }
+
+                function buildSection(title: string, accounts: AccountLine[]): AccountSection {
+                    const nonZero = accounts.filter(a => a.closingBalance !== 0 || a.openingBalance !== 0);
+                    return {
+                        title,
+                        accounts: nonZero,
+                        total: nonZero.reduce((sum, a) => sum + a.closingBalance, 0),
+                    };
+                }
+
+                const accountLines = allAccounts.map(toLine);
+
+                // --- RESULTATRÄKNING (P&L) ---
+                // Revenue accounts: 3xxx (credit-normal = negative in Fortnox → negate for display)
+                const revenue = buildSection('Nettoomsättning', accountLines.filter(a => a.number >= 3000 && a.number < 4000));
+                const cogs = buildSection('Råvaror och förnödenheter', accountLines.filter(a => a.number >= 4000 && a.number < 5000));
+                const otherExternal = buildSection('Övriga externa kostnader', accountLines.filter(a => a.number >= 5000 && a.number < 7000));
+                const personnel = buildSection('Personalkostnader', accountLines.filter(a => a.number >= 7000 && a.number < 8000));
+                const financial = buildSection('Finansiella poster', accountLines.filter(a => a.number >= 8000 && a.number < 9000));
+
+                // P&L totals (revenue is credit-normal in Fortnox, so negative = income)
+                const totalRevenue = revenue.total; // negative in Fortnox = income
+                const totalExpenses = cogs.total + otherExternal.total + personnel.total + financial.total; // positive = cost
+                const netResult = totalRevenue + totalExpenses; // negative = profit (Swedish convention: credit)
+
+                // --- BALANSRÄKNING (Balance Sheet) ---
+                const fixedAssets = buildSection('Anläggningstillgångar', accountLines.filter(a => a.number >= 1000 && a.number < 1400));
+                const currentAssets = buildSection('Omsättningstillgångar', accountLines.filter(a => a.number >= 1400 && a.number < 2000));
+                const equity = buildSection('Eget kapital', accountLines.filter(a => a.number >= 2000 && a.number < 2100));
+                const longTermLiabilities = buildSection('Långfristiga skulder', accountLines.filter(a => a.number >= 2100 && a.number < 2400));
+                const currentLiabilities = buildSection('Kortfristiga skulder', accountLines.filter(a => a.number >= 2400 && a.number < 3000));
+
+                const totalAssets = fixedAssets.total + currentAssets.total;
+                const totalLiabilitiesEquity = equity.total + longTermLiabilities.total + currentLiabilities.total;
+
+                result = {
+                    type: 'financial_statements',
+                    company: {
+                        name: fsCompany?.Name || '',
+                        orgNumber: fsCompany?.OrganizationNumber || '',
+                    },
+                    financialYear: {
+                        id: selectedFY.Id,
+                        fromDate: selectedFY.FromDate,
+                        toDate: selectedFY.ToDate,
+                    },
+                    availableYears: financialYears.map(fy => ({
+                        id: fy.Id,
+                        fromDate: fy.FromDate,
+                        toDate: fy.ToDate,
+                    })),
+                    resultatRakning: {
+                        sections: [revenue, cogs, otherExternal, personnel, financial],
+                        totalRevenue,
+                        totalExpenses,
+                        netResult,
+                    },
+                    balansRakning: {
+                        assets: [fixedAssets, currentAssets],
+                        liabilitiesEquity: [equity, longTermLiabilities, currentLiabilities],
+                        totalAssets,
+                        totalLiabilitiesEquity,
+                        balanced: Math.abs(totalAssets + totalLiabilitiesEquity) < 1,
+                    },
+                    accountCount: allAccounts.length,
+                };
+                break;
+            }
+
             default:
                 throw new RequestValidationError(
                     'UNKNOWN_ACTION',

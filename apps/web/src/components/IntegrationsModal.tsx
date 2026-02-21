@@ -25,6 +25,7 @@ import { ReconciliationView } from './ReconciliationView';
 import { InvoiceInboxPanel } from './InvoiceInboxPanel';
 import { DashboardPanel } from './DashboardPanel';
 import { VATReportFromFortnoxPanel } from './VATReportFromFortnoxPanel';
+import { FinancialStatementsPanel } from './FinancialStatementsPanel';
 
 interface IntegrationsModalProps {
     onClose: () => void;
@@ -64,9 +65,10 @@ type IntegrationTool =
     | 'reconciliation'
     | 'invoice-inbox'
     | 'dashboard'
-    | 'vat-report';
+    | 'vat-report'
+    | 'financial-statements';
 
-const FORTNOX_LOCKED_TOOLS: IntegrationTool[] = ['fortnox-panel', 'invoice-inbox', 'vat-report'];
+const FORTNOX_LOCKED_TOOLS: IntegrationTool[] = ['fortnox-panel', 'invoice-inbox', 'vat-report', 'financial-statements'];
 
 function isIntegrationTool(value: unknown): value is IntegrationTool {
     return typeof value === 'string' && [
@@ -77,7 +79,8 @@ function isIntegrationTool(value: unknown): value is IntegrationTool {
         'reconciliation',
         'invoice-inbox',
         'dashboard',
-        'vat-report'
+        'vat-report',
+        'financial-statements'
     ].includes(value);
 }
 
@@ -154,6 +157,16 @@ const TOOL_GROUPS: { title: string; tools: ToolDef[] }[] = [
                 iconColor: '#8b5cf6',
                 badge: 'pro',
                 testId: 'integration-tool-invoice-inbox',
+                requiresPro: true,
+            },
+            {
+                id: 'financial-statements',
+                title: 'Rapporter',
+                description: 'Resultaträkning och balansräkning baserat på Fortnox-bokföring.',
+                iconPath: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+                iconColor: '#06b6d4',
+                badge: 'pro',
+                testId: 'integration-tool-financial-statements',
                 requiresPro: true,
             },
         ],
@@ -266,6 +279,10 @@ const PRIMARY_SECTIONS_V2: PrimarySectionDef[] = [
         iconColor: '#3b82f6',
         primaryLabel: 'Öppna momsdeklaration',
         primaryTool: 'vat-report',
+        secondaryAction: {
+            label: 'Öppna rapporter',
+            tool: 'financial-statements' as IntegrationTool,
+        },
     },
 ];
 
@@ -1545,6 +1562,12 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 subtitle: 'Momsrapport baserad på din Fortnox-bokföring.',
                 maxWidth: '1200px',
                 render: () => <VATReportFromFortnoxPanel onBack={onBack} />,
+            },
+            'financial-statements': {
+                title: 'Rapporter',
+                subtitle: 'Resultaträkning och balansräkning baserat på din Fortnox-bokföring.',
+                maxWidth: '1200px',
+                render: () => <FinancialStatementsPanel onBack={onBack} />,
             },
             'fortnox-panel': {
                 title: 'Fortnoxpanel',
