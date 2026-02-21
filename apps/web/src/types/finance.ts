@@ -70,6 +70,39 @@ export interface InvoiceInboxRecord {
     aiDecisionId?: string | null;
 }
 
+export type ReceiptStatus = 'ny' | 'granskad' | 'bokford';
+export type ReceiptFortnoxSyncStatus = 'not_exported' | 'exported' | 'booked';
+
+export interface ReceiptInboxRecord {
+    id: string;
+    fileName: string;
+    fileUrl: string;
+    filePath: string;
+    fileBucket: string;
+    uploadedAt: string;
+    status: ReceiptStatus;
+    source: 'upload' | 'manual';
+    merchantName: string;
+    transactionDate: string;
+    transactionTime: string;
+    totalAmount: number | null;
+    vatAmount: number | null;
+    vatRate: number | null;
+    paymentMethod: string;
+    category: string;
+    description: string;
+    receiptNumber: string;
+    currency: string;
+    basAccount: string;
+    basAccountName: string;
+    fortnoxVoucherSeries: string;
+    fortnoxVoucherNumber: number | null;
+    fortnoxSyncStatus: ReceiptFortnoxSyncStatus;
+    aiExtracted: boolean;
+    aiRawResponse: string;
+    aiReviewNote: string;
+}
+
 export interface AgiRunRecord {
     id: string;
     period: string;

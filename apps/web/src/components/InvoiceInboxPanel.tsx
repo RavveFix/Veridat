@@ -16,6 +16,7 @@ import type { InvoiceInboxRecord } from '../types/finance';
 import { getFortnoxList, getFortnoxObject } from '../utils/fortnoxResponse';
 import { InvoicePostingReviewDrawer } from './InvoicePostingReviewDrawer';
 import { getInvoicePostingReviewEnabled, invoicePostingReviewService, type InvoicePostingTrace } from '../services/InvoicePostingReviewService';
+import { ReceiptInboxTab } from './ReceiptInboxTab';
 
 // =============================================================================
 // TYPES
@@ -646,7 +647,36 @@ VIKTIGT:
 // COMPONENT
 // =============================================================================
 
+type InboxTab = 'invoices' | 'receipts';
+
+const TAB_BAR_STYLE = {
+    display: 'flex',
+    gap: '0',
+    borderBottom: '1px solid var(--glass-border)',
+    marginBottom: '0.5rem',
+} as const;
+
+const TAB_BUTTON_BASE_STYLE = {
+    padding: '0.6rem 1.2rem',
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '2px solid transparent',
+    fontSize: '0.85rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+} as const;
+
+function getTabButtonStyle(active: boolean) {
+    return {
+        ...TAB_BUTTON_BASE_STYLE,
+        color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+        borderBottomColor: active ? 'var(--accent-primary)' : 'transparent',
+    } as const;
+}
+
 export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
+    const [activeTab, setActiveTab] = useState<InboxTab>('invoices');
     const [items, setItems] = useState<InvoiceInboxItem[]>([]);
     const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('alla');
     const [uploading, setUploading] = useState(false);
@@ -1386,9 +1416,35 @@ Föreslå korrekt kontering med debet/kredit.`;
                     Tillbaka
                 </button>
                 <span style={INVOICE_INBOX_HEADER_HINT_STYLE}>
-                    Ladda upp leverantörsfakturor. AI extraherar data automatiskt.
+                    {activeTab === 'invoices'
+                        ? 'Ladda upp leverantörsfakturor. AI extraherar data automatiskt.'
+                        : 'Fota eller ladda upp kvitton. AI extraherar data automatiskt.'}
                 </span>
             </div>
+
+            {/* Tab bar */}
+            <div style={TAB_BAR_STYLE}>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('invoices')}
+                    style={getTabButtonStyle(activeTab === 'invoices')}
+                >
+                    Leverantörsfakturor
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('receipts')}
+                    style={getTabButtonStyle(activeTab === 'receipts')}
+                >
+                    Kvitton
+                </button>
+            </div>
+
+            {/* Receipt tab content */}
+            {activeTab === 'receipts' && <ReceiptInboxTab />}
+
+            {/* Invoice tab content */}
+            {activeTab === 'invoices' && <>
 
             {/* Messages */}
             {error && (
@@ -1552,6 +1608,7 @@ Föreslå korrekt kontering med debet/kredit.`;
                 trace={postingTrace}
                 onClose={() => setPostingDrawerOpen(false)}
             />
+            </>}
         </div>
     );
 }

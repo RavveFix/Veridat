@@ -6,6 +6,7 @@ import type {
     AutoPostPolicy,
     BankImportRecord,
     InvoiceInboxRecord,
+    ReceiptInboxRecord,
     ReconciliationPeriodRecord,
 } from '../types/finance';
 
@@ -21,6 +22,9 @@ type FinanceAction =
     | 'upsertInvoiceInboxItem'
     | 'deleteInvoiceInboxItem'
     | 'listInvoiceInboxItems'
+    | 'upsertReceiptInboxItem'
+    | 'deleteReceiptInboxItem'
+    | 'listReceiptInboxItems'
     | 'runAgiDraft'
     | 'approveAgiDraft'
     | 'listComplianceAlerts';
@@ -43,6 +47,7 @@ function readStore<T>(key: string): Record<string, T[]> {
 class FinanceAgentServiceClass {
     private bankImportsCache = new Map<string, BankImportRecord[]>();
     private invoiceCache = new Map<string, InvoiceInboxRecord[]>();
+    private receiptCache = new Map<string, ReceiptInboxRecord[]>();
     private reconciliationCache = new Map<string, ReconciliationPeriodRecord[]>();
     private migrationPromises = new Map<string, Promise<void>>();
 
@@ -141,6 +146,10 @@ class FinanceAgentServiceClass {
         return this.invoiceCache.get(companyId) || [];
     }
 
+    getCachedReceiptInbox(companyId: string): ReceiptInboxRecord[] {
+        return this.receiptCache.get(companyId) || [];
+    }
+
     getCachedReconciliation(companyId: string): ReconciliationPeriodRecord[] {
         return this.reconciliationCache.get(companyId) || [];
     }
@@ -231,6 +240,61 @@ class FinanceAgentServiceClass {
         await this.refreshInvoiceInbox(companyId);
     }
 
+    // =========================================================================
+    // Receipt Inbox
+    // =========================================================================
+
+    async refreshReceiptInbox(companyId: string): Promise<ReceiptInboxRecord[]> {
+        await this.migrateIfNeeded(companyId);
+        const result = await this.invoke<{ items: ReceiptInboxRecord[] }>('listReceiptInboxItems', companyId, {});
+        const items = Array.isArray(result.items) ? result.items : [];
+        this.receiptCache.set(companyId, items);
+        return items;
+    }
+
+    async upsertReceiptInboxItem(
+        companyId: string,
+        item: ReceiptInboxRecord,
+        options?: {
+            eventType?: string;
+            previousStatus?: string;
+            idempotencyKey?: string;
+            fingerprint?: string;
+            eventPayload?: Record<string, unknown>;
+        }
+    ): Promise<ReceiptInboxRecord> {
+        await this.migrateIfNeeded(companyId);
+        const result = await this.invoke<{ item: ReceiptInboxRecord }>('upsertReceiptInboxItem', companyId, {
+            item,
+            eventType: options?.eventType,
+            previousStatus: options?.previousStatus,
+            idempotencyKey: options?.idempotencyKey,
+            fingerprint: options?.fingerprint,
+            eventPayload: options?.eventPayload || {},
+        });
+        await this.refreshReceiptInbox(companyId);
+        return result.item;
+    }
+
+    async deleteReceiptInboxItem(
+        companyId: string,
+        itemId: string,
+        options?: {
+            idempotencyKey?: string;
+            fingerprint?: string;
+            eventPayload?: Record<string, unknown>;
+        }
+    ): Promise<void> {
+        await this.migrateIfNeeded(companyId);
+        await this.invoke('deleteReceiptInboxItem', companyId, {
+            itemId,
+            idempotencyKey: options?.idempotencyKey,
+            fingerprint: options?.fingerprint,
+            eventPayload: options?.eventPayload || {},
+        });
+        await this.refreshReceiptInbox(companyId);
+    }
+
     async runAgiDraft(
         companyId: string,
         period: string,
@@ -257,6 +321,7 @@ class FinanceAgentServiceClass {
                 this.refreshBankImports(companyId),
                 this.refreshReconciliation(companyId),
                 this.refreshInvoiceInbox(companyId),
+                this.refreshReceiptInbox(companyId),
             ]);
         } catch (error) {
             logger.warn('Finance preload failed', error);

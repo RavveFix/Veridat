@@ -25,6 +25,9 @@ type FinanceAction =
     | 'upsertInvoiceInboxItem'
     | 'deleteInvoiceInboxItem'
     | 'listInvoiceInboxItems'
+    | 'upsertReceiptInboxItem'
+    | 'deleteReceiptInboxItem'
+    | 'listReceiptInboxItems'
     | 'runAgiDraft'
     | 'approveAgiDraft'
     | 'listComplianceAlerts'
@@ -289,6 +292,38 @@ function mapInvoiceInboxRowToClient(row: Record<string, unknown>): Record<string
         aiRawResponse: row.ai_raw_response || '',
         aiReviewNote: row.ai_review_note || '',
         aiDecisionId: row.ai_decision_id || null,
+    };
+}
+
+function mapReceiptInboxRowToClient(row: Record<string, unknown>): Record<string, unknown> {
+    return {
+        id: row.id,
+        fileName: row.file_name || '',
+        fileUrl: row.file_url || '',
+        filePath: row.file_path || '',
+        fileBucket: row.file_bucket || '',
+        uploadedAt: row.uploaded_at || new Date().toISOString(),
+        status: row.status || 'ny',
+        source: row.source || 'upload',
+        merchantName: row.merchant_name || '',
+        transactionDate: row.transaction_date || '',
+        transactionTime: row.transaction_time || '',
+        totalAmount: row.total_amount != null ? Number(row.total_amount) : null,
+        vatAmount: row.vat_amount != null ? Number(row.vat_amount) : null,
+        vatRate: row.vat_rate != null ? Number(row.vat_rate) : null,
+        paymentMethod: row.payment_method || '',
+        category: row.category || '',
+        description: row.description || '',
+        receiptNumber: row.receipt_number || '',
+        currency: row.currency || 'SEK',
+        basAccount: row.bas_account || '',
+        basAccountName: row.bas_account_name || '',
+        fortnoxVoucherSeries: row.fortnox_voucher_series || '',
+        fortnoxVoucherNumber: row.fortnox_voucher_number != null ? Number(row.fortnox_voucher_number) : null,
+        fortnoxSyncStatus: row.fortnox_sync_status || 'not_exported',
+        aiExtracted: row.ai_extracted === true,
+        aiRawResponse: row.ai_raw_response || '',
+        aiReviewNote: row.ai_review_note || '',
     };
 }
 
@@ -641,6 +676,123 @@ Deno.serve(async (req: Request) => {
 
                 const eventPayload = isRecord(payload.eventPayload) ? payload.eventPayload : {};
                 await supabaseAdmin.from('invoice_inbox_events').insert({
+                    user_id: userId,
+                    company_id: resolvedCompanyId,
+                    item_id: itemId,
+                    event_type: 'deleted',
+                    payload: eventPayload,
+                    idempotency_key: typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey : null,
+                    fingerprint: typeof payload.fingerprint === 'string' ? payload.fingerprint : null,
+                });
+
+                return jsonResponse(corsHeaders, 200, { ok: true });
+            }
+
+            // =================================================================
+            // RECEIPT INBOX
+            // =================================================================
+
+            case 'upsertReceiptInboxItem': {
+                const resolvedCompanyId = requireCompanyId();
+                const item = requireRecord(payload.item, 'payload.item');
+                const itemId = requireString(item.id, 'payload.item.id');
+                const now = new Date().toISOString();
+
+                const row = {
+                    user_id: userId,
+                    company_id: resolvedCompanyId,
+                    id: itemId,
+                    file_name: normalizeString(item.fileName),
+                    file_url: normalizeString(item.fileUrl),
+                    file_path: normalizeString(item.filePath),
+                    file_bucket: normalizeString(item.fileBucket),
+                    uploaded_at: normalizeDate(item.uploadedAt) || now,
+                    status: normalizeString(item.status) || 'ny',
+                    source: normalizeString(item.source) || 'upload',
+                    merchant_name: normalizeString(item.merchantName),
+                    transaction_date: toDateOnly(item.transactionDate),
+                    transaction_time: normalizeString(item.transactionTime),
+                    total_amount: normalizeNumber(item.totalAmount),
+                    vat_amount: normalizeNumber(item.vatAmount),
+                    vat_rate: normalizeNumber(item.vatRate),
+                    payment_method: normalizeString(item.paymentMethod),
+                    category: normalizeString(item.category),
+                    description: normalizeString(item.description),
+                    receipt_number: normalizeString(item.receiptNumber),
+                    currency: normalizeString(item.currency) || 'SEK',
+                    bas_account: normalizeString(item.basAccount),
+                    bas_account_name: normalizeString(item.basAccountName),
+                    fortnox_voucher_series: normalizeString(item.fortnoxVoucherSeries),
+                    fortnox_voucher_number: normalizeNumber(item.fortnoxVoucherNumber),
+                    fortnox_sync_status: normalizeString(item.fortnoxSyncStatus) || 'not_exported',
+                    ai_extracted: item.aiExtracted === true,
+                    ai_raw_response: normalizeString(item.aiRawResponse),
+                    ai_review_note: normalizeString(item.aiReviewNote),
+                };
+
+                const { data, error } = await supabaseAdmin
+                    .from('receipt_inbox_items')
+                    .upsert(row, { onConflict: 'user_id,company_id,id' })
+                    .select('*')
+                    .single();
+                if (error) throw error;
+
+                const eventType = normalizeString(payload.eventType);
+                if (eventType) {
+                    const eventPayload = isRecord(payload.eventPayload) ? payload.eventPayload : {};
+                    const { error: eventError } = await supabaseAdmin
+                        .from('receipt_inbox_events')
+                        .insert({
+                            user_id: userId,
+                            company_id: resolvedCompanyId,
+                            item_id: itemId,
+                            event_type: eventType,
+                            previous_status: normalizeString(payload.previousStatus) || null,
+                            new_status: normalizeString(row.status) || null,
+                            payload: eventPayload,
+                            idempotency_key: typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey : null,
+                            fingerprint: typeof payload.fingerprint === 'string' ? payload.fingerprint : null,
+                        });
+                    if (eventError) {
+                        console.error('[finance-agent] receipt event insert failed (non-fatal):', eventError.message);
+                    }
+                }
+
+                return jsonResponse(corsHeaders, 200, {
+                    ok: true,
+                    item: mapReceiptInboxRowToClient(data as unknown as Record<string, unknown>),
+                });
+            }
+
+            case 'listReceiptInboxItems': {
+                const resolvedCompanyId = requireCompanyId();
+                const { data, error } = await supabaseAdmin
+                    .from('receipt_inbox_items')
+                    .select('*')
+                    .eq('user_id', userId)
+                    .eq('company_id', resolvedCompanyId)
+                    .order('uploaded_at', { ascending: false });
+                if (error) throw error;
+
+                return jsonResponse(corsHeaders, 200, {
+                    items: (data || []).map((row) => mapReceiptInboxRowToClient(row as unknown as Record<string, unknown>)),
+                });
+            }
+
+            case 'deleteReceiptInboxItem': {
+                const resolvedCompanyId = requireCompanyId();
+                const itemId = requireString(payload.itemId, 'payload.itemId');
+
+                const { error } = await supabaseAdmin
+                    .from('receipt_inbox_items')
+                    .delete()
+                    .eq('user_id', userId)
+                    .eq('company_id', resolvedCompanyId)
+                    .eq('id', itemId);
+                if (error) throw error;
+
+                const eventPayload = isRecord(payload.eventPayload) ? payload.eventPayload : {};
+                await supabaseAdmin.from('receipt_inbox_events').insert({
                     user_id: userId,
                     company_id: resolvedCompanyId,
                     item_id: itemId,

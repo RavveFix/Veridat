@@ -1536,7 +1536,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
             },
             'invoice-inbox': {
                 title: 'Fakturainkorg',
-                subtitle: 'Ladda upp leverantörsfakturor, AI-extrahera och exportera till Fortnox.',
+                subtitle: 'Leverantörsfakturor och kvitton — AI-extrahera och exportera till Fortnox.',
                 maxWidth: '1200px',
                 render: () => <InvoiceInboxPanel onBack={onBack} />,
             },
