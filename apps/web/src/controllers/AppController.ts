@@ -161,10 +161,11 @@ export class AppController {
 
         if (connected === 'true') {
             this.showToast('Fortnox ansluten!', 'success');
-            // Refresh connection status and preload data
+            // Refresh connection status, preload data, then open FortnoxPanel
             fortnoxContextService.checkConnection().then((status) => {
                 if (status === 'connected') {
                     fortnoxContextService.preloadData();
+                    this.openIntegrationsModal('fortnox-panel');
                 }
             });
         } else if (error) {
@@ -505,32 +506,32 @@ export class AppController {
         }
     }
 
+    private openIntegrationsModal(initialTool?: string): void {
+        if (this.integrationsCleanup) {
+            logger.debug('Cleaning up previous integrations modal instance');
+            this.integrationsCleanup();
+            this.integrationsCleanup = null;
+        }
+        this.integrationsCleanup = mountModal({
+            containerId: 'integrations-modal-container',
+            Component: IntegrationsModal,
+            props: {
+                initialTool,
+                onClose: () => {
+                    if (this.integrationsCleanup) {
+                        this.integrationsCleanup();
+                        this.integrationsCleanup = null;
+                    }
+                }
+            }
+        });
+    }
+
     private setupIntegrationsButton(): void {
         const integrationsBtn = document.getElementById('integrations-btn');
 
         if (integrationsBtn && !this.integrationsListenerAttached) {
-            integrationsBtn.addEventListener('click', () => {
-                // Clean up previous instance if exists
-                if (this.integrationsCleanup) {
-                    logger.debug('Cleaning up previous integrations modal instance');
-                    this.integrationsCleanup();
-                    this.integrationsCleanup = null;
-                }
-
-                // Mount new instance and store cleanup function
-                this.integrationsCleanup = mountModal({
-                    containerId: 'integrations-modal-container',
-                    Component: IntegrationsModal,
-                    props: {
-                        onClose: () => {
-                            if (this.integrationsCleanup) {
-                                this.integrationsCleanup();
-                                this.integrationsCleanup = null;
-                            }
-                        }
-                    }
-                });
-            });
+            integrationsBtn.addEventListener('click', () => this.openIntegrationsModal());
             this.integrationsListenerAttached = true;
             logger.debug('Integrations button listener attached');
         }

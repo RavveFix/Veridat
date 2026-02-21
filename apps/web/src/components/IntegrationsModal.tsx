@@ -13,6 +13,7 @@ import { withTimeout, TimeoutError } from '../utils/asyncTimeout';
 import { logger } from '../services/LoggerService';
 import { isFortnoxEligible, normalizeUserPlan, type UserPlan } from '../services/PlanGateService';
 import { copilotService } from '../services/CopilotService';
+import { fortnoxContextService } from '../services/FortnoxContextService';
 import { companyService } from '../services/CompanyService';
 import { financeAgentService } from '../services/FinanceAgentService';
 import { ModalWrapper } from './ModalWrapper';
@@ -816,6 +817,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     const isFortnoxPlanEligible = isFortnoxEligible(userPlan);
     const [guardianBadgeCount, setGuardianBadgeCount] = useState(0);
     const [complianceBadgeCount, setComplianceBadgeCount] = useState(0);
+    const [disconnectConfirm, setDisconnectConfirm] = useState<string | null>(null);
 
     async function getSessionAccessToken(): Promise<string | null> {
         const { data: { session } } = await supabase.auth.getSession();
@@ -1191,20 +1193,23 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
         }
     }
 
-    async function handleDisconnect(integrationId: string) {
-        if (integrationId !== 'fortnox') {
-            return;
-        }
-
+    function handleDisconnect(integrationId: string) {
+        if (integrationId !== 'fortnox') return;
         const companyId = getActiveCompanyId();
         if (!companyId) {
             setError('Välj ett aktivt bolag innan du kopplar bort Fortnox.');
             return;
         }
+        setDisconnectConfirm(integrationId);
+    }
 
-        if (!confirm('Är du säker på att du vill koppla bort Fortnox?')) {
-            return;
-        }
+    async function doDisconnect() {
+        const integrationId = disconnectConfirm;
+        setDisconnectConfirm(null);
+        if (!integrationId) return;
+
+        const companyId = getActiveCompanyId();
+        if (!companyId) return;
 
         setConnecting(integrationId);
         setError(null);
@@ -1232,8 +1237,9 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 throw new Error(errorData.error || 'Kunde inte koppla bort Fortnox.');
             }
 
-            // Refresh the list
+            // Refresh modal list + notify FortnoxPanel via service
             await loadIntegrationStatus(companyId);
+            void fortnoxContextService.checkConnection();
         } catch (err) {
             logger.error('Error disconnecting Fortnox:', err);
 
@@ -1597,6 +1603,7 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
     );
 
     return (
+        <>
         <ModalWrapper onClose={onClose} title="Integreringar" subtitle="Anslut Veridat till dina bokföringssystem." maxWidth="1200px">
             <div className="panel-stagger" style={INTEGRATIONS_MODAL_BODY_STYLE}>
                 {error && (
@@ -1660,5 +1667,45 @@ export function IntegrationsModal({ onClose, initialTool }: IntegrationsModalPro
                 )}
             </div>
         </ModalWrapper>
+
+            {disconnectConfirm && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 3100,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+                }} onClick={() => setDisconnectConfirm(null)}>
+                    <div style={{
+                        background: 'var(--surface-2, #1e293b)', borderRadius: '12px',
+                        padding: '1.5rem', maxWidth: '420px', width: '90vw',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                        border: '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
+                    }} onClick={(e) => e.stopPropagation()}>
+                        <p style={{
+                            margin: '0 0 1.25rem', fontSize: '0.9rem',
+                            color: 'var(--text-primary)', lineHeight: 1.6,
+                        }}>
+                            Är du säker på att du vill koppla bort Fortnox? Du kan alltid ansluta igen senare.
+                        </p>
+                        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                            <button type="button" onClick={() => setDisconnectConfirm(null)} style={{
+                                padding: '0.5rem 1rem', borderRadius: '8px',
+                                border: '1px solid var(--border-subtle, rgba(255,255,255,0.12))',
+                                background: 'transparent', color: 'var(--text-secondary)',
+                                fontSize: '0.875rem', cursor: 'pointer',
+                            }}>
+                                Avbryt
+                            </button>
+                            <button type="button" onClick={() => void doDisconnect()} style={{
+                                padding: '0.5rem 1rem', borderRadius: '8px', border: 'none',
+                                background: '#ef4444', color: '#fff',
+                                fontSize: '0.875rem', cursor: 'pointer', fontWeight: 500,
+                            }}>
+                                Koppla bort
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
     );
 }

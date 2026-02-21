@@ -787,8 +787,13 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             });
 
             if (!result.ok) {
+                if (result.authMissing) {
+                    setConnectionStatus('error');
+                    if (target === 'pending') setPendingInvoices((prev) => prev ?? []);
+                    return;
+                }
                 setSupplierError(result.message);
-                updateScopeStatus(result.authMissing ? 'missing' : result.message);
+                updateScopeStatus(result.message);
                 if (target === 'pending') setPendingInvoices((prev) => prev ?? []);
                 return;
             }
@@ -843,8 +848,13 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             });
 
             if (!result.ok) {
+                if (result.authMissing) {
+                    setConnectionStatus('error');
+                    setCustomerInvoices((prev) => prev ?? []);
+                    return;
+                }
                 setCustomerError(result.message);
-                updateScopeStatus(result.authMissing ? 'missing' : result.message);
+                updateScopeStatus(result.message);
                 setCustomerInvoices((prev) => prev ?? []);
                 return;
             }
