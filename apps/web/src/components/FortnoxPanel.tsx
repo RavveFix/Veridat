@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { logger } from '../services/LoggerService';
 import { companyService } from '../services/CompanyService';
@@ -273,7 +273,7 @@ const FORTNOX_RETRY_BUTTON_STYLE = {
     marginLeft: 'auto',
     flexShrink: 0,
     padding: '0.2rem 0.6rem',
-    borderRadius: '6px',
+    borderRadius: '8px',
     border: '1px solid rgba(239,68,68,0.4)',
     background: 'transparent',
     color: '#ef4444',
@@ -624,6 +624,22 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
     const invoicePostingReviewEnabled = getInvoicePostingReviewEnabled();
     const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
     const [toast, setToast] = useState<string | null>(null);
+    const [tableScrollEdge, setTableScrollEdge] = useState<'none' | 'right' | 'both' | 'left'>('none');
+    const tableScrollRef = useRef<HTMLDivElement>(null);
+
+    const handleTableScroll = useCallback(() => {
+        const el = tableScrollRef.current;
+        if (!el) return;
+        const canScroll = el.scrollWidth > el.clientWidth + 4;
+        if (!canScroll) { setTableScrollEdge('none'); return; }
+        const atStart = el.scrollLeft <= 2;
+        const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2;
+        setTableScrollEdge(atStart ? 'right' : atEnd ? 'left' : 'both');
+    }, []);
+
+    useEffect(() => {
+        handleTableScroll();
+    }, [loadingSupplier, loadingCustomer, handleTableScroll]);
 
     const showToast = (msg: string) => {
         setToast(msg);
@@ -1155,7 +1171,12 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                         </div>
                     )}
 
-                    <div className="fortnox-workspace-table-scroll" style={FORTNOX_TABLE_SCROLL_STYLE}>
+                    <div
+                        ref={tableScrollRef}
+                        className={`fortnox-workspace-table-scroll fortnox-table-scroll--${tableScrollEdge}`}
+                        style={FORTNOX_TABLE_SCROLL_STYLE}
+                        onScroll={handleTableScroll}
+                    >
                         {isSupplierView ? (
                             <table style={INVOICE_TABLE_STYLE}>
                                 {renderTableHeader(supplierColumns)}

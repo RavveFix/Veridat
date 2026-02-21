@@ -42,7 +42,7 @@
     gap: 0.35rem;
     padding: 0.25rem 0.75rem;
     border-radius: 999px;
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     white-space: nowrap;
@@ -313,7 +313,7 @@
 
 .integ-v2-inline-link {
     color: var(--accent-primary);
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     font-weight: 700;
     text-decoration: none;
     border-bottom: 1px solid rgba(59, 130, 246, 0.45);
@@ -380,7 +380,7 @@
 
 .integ-v2-help__text {
     color: var(--text-secondary);
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     line-height: 1.45;
 }
 
@@ -388,7 +388,7 @@
     border: none;
     background: transparent;
     color: var(--accent-primary);
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     font-weight: 700;
     cursor: pointer;
     white-space: nowrap;
@@ -397,7 +397,7 @@
 .integ-v2-help__details {
     margin: -0.55rem 0 0;
     color: var(--text-secondary);
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     line-height: 1.5;
 }
 

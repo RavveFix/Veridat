@@ -16,6 +16,26 @@
     scrollbar-width: thin;
 }
 
+/* Scroll edge fade indicators via mask-image
+   'right' = at start, content to the right
+   'both'  = in the middle
+   'left'  = at end, content to the left
+   'none'  = no overflow, no mask */
+.fortnox-table-scroll--right {
+    mask-image: linear-gradient(to left, transparent 0, black 40px);
+    -webkit-mask-image: linear-gradient(to left, transparent 0, black 40px);
+}
+
+.fortnox-table-scroll--both {
+    mask-image: linear-gradient(to right, transparent 0, black 40px, black calc(100% - 40px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 40px, black calc(100% - 40px), transparent 100%);
+}
+
+.fortnox-table-scroll--left {
+    mask-image: linear-gradient(to right, transparent 0, black 40px);
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 40px);
+}
+
 .fortnox-workspace-copilot-card {
     overflow: auto;
 }

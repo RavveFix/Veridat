@@ -62,7 +62,7 @@ const CHANGELOG_CHANGE_TAG_BASE_STYLE = {
     display: 'inline-block',
     padding: '0.15rem 0.4rem',
     borderRadius: '4px',
-    fontSize: '0.65rem',
+    fontSize: '0.7rem',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
