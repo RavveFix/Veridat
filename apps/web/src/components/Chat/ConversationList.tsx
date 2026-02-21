@@ -1,5 +1,5 @@
 import { FunctionComponent } from 'preact';
-import { useEffect, useState, useMemo } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { supabase } from '../../lib/supabase';
 import { logger } from '../../services/LoggerService';
 import { FetchErrorFallback } from '../ErrorBoundary';
@@ -33,7 +33,6 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [showConfirmModal, setShowConfirmModal] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
-    const [searchQuery, setSearchQuery] = useState('');
 
     // Force re-render when deletion state changes (since currentlyDeleting is module-level)
     const [, setRenderKey] = useState(0);
@@ -231,15 +230,6 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
         return acc;
     }, { Idag: [], Igår: [], Tidigare: [] }), [conversations]);
 
-    const filteredConversations = useMemo(() => {
-        const q = searchQuery.trim().toLowerCase();
-        if (!q) return null;
-        return conversations.filter(
-            (c) =>
-                c.title.toLowerCase().includes(q) ||
-                (c.last_message_preview ?? '').toLowerCase().includes(q)
-        );
-    }, [conversations, searchQuery]);
 
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
@@ -392,53 +382,22 @@ export const ConversationList: FunctionComponent<ConversationListProps> = ({ cur
 
     return (
         <>
-            <div class="conversation-search" style={{ padding: '0.5rem 0.75rem 0.25rem' }}>
-                <div class="search-input-wrapper">
-                    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-                    </svg>
-                    <input
-                        type="search"
-                        class="search-input"
-                        placeholder="Sök konversationer..."
-                        value={searchQuery}
-                        onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
-                        aria-label="Sök konversationer"
-                        style={{ paddingLeft: '2.25rem', fontSize: '0.82rem', borderRadius: '8px', height: '34px' }}
-                    />
-                </div>
-            </div>
-
             <div class="conversation-list">
-                {filteredConversations !== null ? (
-                    filteredConversations.length === 0 ? (
-                        <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                            Inga konversationer matchar sökningen.
-                        </div>
-                    ) : (
-                        filteredConversations.map((conv) => {
-                            const isActive = conv.id === currentConversationId;
-                            const isDeleting = currentlyDeleting === conv.id || pendingDeletions.has(conv.id);
-                            return renderConvItem(conv, isActive, isDeleting);
-                        })
-                    )
-                ) : (
-                    groupLabels.map((label) => {
-                        const items = groupedConversations[label];
-                        if (items.length === 0) return null;
+                {groupLabels.map((label) => {
+                    const items = groupedConversations[label];
+                    if (items.length === 0) return null;
 
-                        return (
-                            <div class="conversation-group" key={label}>
-                                <div class="conversation-group-title">{label}</div>
-                                {items.map((conv) => {
-                                    const isActive = conv.id === currentConversationId;
-                                    const isDeleting = currentlyDeleting === conv.id || pendingDeletions.has(conv.id);
-                                    return renderConvItem(conv, isActive, isDeleting);
-                                })}
-                            </div>
-                        );
-                    })
-                )}
+                    return (
+                        <div class="conversation-group" key={label}>
+                            <div class="conversation-group-title">{label}</div>
+                            {items.map((conv) => {
+                                const isActive = conv.id === currentConversationId;
+                                const isDeleting = currentlyDeleting === conv.id || pendingDeletions.has(conv.id);
+                                return renderConvItem(conv, isActive, isDeleting);
+                            })}
+                        </div>
+                    );
+                })}
             </div>
 
             {/* Custom Confirmation Modal */}
