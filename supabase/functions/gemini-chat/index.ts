@@ -12,6 +12,7 @@ import {
   GeminiRateLimitError,
   generateConversationTitle,
   type GetVouchersArgs,
+  type LearnAccountingPatternArgs,
   type RecentChatsArgs,
   sendMessageStreamToGemini,
   sendMessageToGemini,
@@ -52,6 +53,7 @@ import {
 import { createClient } from "npm:@supabase/supabase-js@2";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { FortnoxService } from "../../services/FortnoxService.ts";
+import { ExpensePatternService } from "../../services/ExpensePatternService.ts";
 
 const logger = createLogger("gemini-chat");
 const RATE_LIMIT_ENDPOINT = "ai";
@@ -2086,6 +2088,41 @@ ANVÄNDARFRÅGA:
         });
       }
 
+      // Load learned expense patterns (supplier → BAS account mappings)
+      try {
+        const patternService = new ExpensePatternService(supabaseAdmin);
+        const patterns = await patternService.listPatterns(userId, resolvedCompanyId, 20);
+
+        if (patterns.length > 0) {
+          const patternLines = patterns
+            .filter((p) => p.confirmation_count >= 1)
+            .slice(0, 12)
+            .map((p) => {
+              const vatLabel = p.vat_rate > 0 ? ` (${p.vat_rate}% moms)` : " (momsfri)";
+              const usageNote = p.usage_count > 1 ? ` [använt ${p.usage_count}x]` : "";
+              return `- ${p.supplier_name} → ${p.bas_account} ${p.bas_account_name}${vatLabel}${usageNote}`;
+            });
+
+          if (patternLines.length > 0) {
+            contextBlocks.push(
+              [
+                "SYSTEM CONTEXT: Inlärda konteringsmönster. Använd dessa när du föreslår BAS-konto för kända leverantörer.",
+                "Om motparten matchar ett mönster, föreslå det kontot direkt och nämn att du lärt dig det.",
+                "Om användaren korrigerar ditt förslag, anropa learn_accounting_pattern för att uppdatera.",
+                "<learnedPatterns>",
+                ...patternLines,
+                "</learnedPatterns>",
+              ].join("\n"),
+            );
+          }
+        }
+      } catch (patternError) {
+        logger.warn("Failed to load expense patterns", {
+          userId,
+          companyId: resolvedCompanyId,
+        });
+      }
+
       try {
         const memoryService = new CompanyMemoryService(supabaseAdmin);
         const memory = await memoryService.get(userId, resolvedCompanyId);
@@ -2343,6 +2380,48 @@ ANVÄNDARFRÅGA:
                       );
                       toolResponseText = followUp.text ||
                         "Jag kunde inte sammanställa ett svar från webbkällorna.";
+                    }
+                  } else if (toolName === "learn_accounting_pattern") {
+                    // Handle learning a new accounting pattern from user correction
+                    const patternArgs = toolArgs as LearnAccountingPatternArgs;
+                    try {
+                      const patternService = new ExpensePatternService(supabaseAdmin);
+                      const patternId = await patternService.confirmPattern(
+                        userId,
+                        resolvedCompanyId,
+                        patternArgs.supplier_name,
+                        patternArgs.bas_account,
+                        patternArgs.bas_account_name,
+                        patternArgs.vat_rate,
+                        patternArgs.expense_type || "cost",
+                        patternArgs.amount || 0,
+                        null,
+                        patternArgs.description_keywords || [],
+                        false,
+                      );
+                      if (patternId) {
+                        logger.info("Learned accounting pattern", {
+                          patternId,
+                          supplier: patternArgs.supplier_name,
+                          account: patternArgs.bas_account,
+                        });
+                        const learnPrompt = `SYSTEM: Konteringsregeln har sparats. Leverantör "${patternArgs.supplier_name}" → konto ${patternArgs.bas_account} (${patternArgs.bas_account_name}), ${patternArgs.vat_rate}% moms. Bekräfta kort för användaren att du lärt dig detta och kommer använda det nästa gång. Svara på svenska. Användarens meddelande: "${message}"`;
+                        const followUp = await sendMessageToGemini(
+                          learnPrompt,
+                          undefined,
+                          history,
+                          undefined,
+                          effectiveModel,
+                          { disableTools: true },
+                        );
+                        toolResponseText = followUp.text ||
+                          `Jag har lärt mig att ${patternArgs.supplier_name} ska bokföras på konto ${patternArgs.bas_account} (${patternArgs.bas_account_name}). Nästa gång föreslår jag detta automatiskt.`;
+                      } else {
+                        toolResponseText = `Jag kunde tyvärr inte spara regeln just nu. Försök igen.`;
+                      }
+                    } catch (learnError) {
+                      logger.warn("Failed to learn pattern", { error: String(learnError) });
+                      toolResponseText = `Det gick inte att spara konteringsregeln. Försök igen senare.`;
                     }
                   } else {
                     // Execute Fortnox tools server-side
@@ -3008,6 +3087,44 @@ ANVÄNDARFRÅGA:
               resourceType: "supplier_invoice",
               resourceId: bsiArgs.invoice_number,
             });
+            break;
+          }
+          case "learn_accounting_pattern": {
+            const patternArgs = args as LearnAccountingPatternArgs;
+            try {
+              const patternService = new ExpensePatternService(supabaseAdmin);
+              const patternId = await patternService.confirmPattern(
+                userId,
+                resolvedCompanyId,
+                patternArgs.supplier_name,
+                patternArgs.bas_account,
+                patternArgs.bas_account_name,
+                patternArgs.vat_rate,
+                patternArgs.expense_type || "cost",
+                patternArgs.amount || 0,
+                null,
+                patternArgs.description_keywords || [],
+                false,
+              );
+              if (patternId) {
+                logger.info("Learned accounting pattern (non-stream)", {
+                  patternId,
+                  supplier: patternArgs.supplier_name,
+                  account: patternArgs.bas_account,
+                });
+                responseText =
+                  `Jag har lärt mig att ${patternArgs.supplier_name} ska bokföras på konto ${patternArgs.bas_account} (${patternArgs.bas_account_name}), ${patternArgs.vat_rate}% moms. Nästa gång föreslår jag detta automatiskt.`;
+              } else {
+                responseText =
+                  `Jag kunde tyvärr inte spara regeln just nu. Försök igen.`;
+              }
+            } catch (learnError) {
+              logger.warn("Failed to learn pattern (non-stream)", {
+                error: String(learnError),
+              });
+              responseText =
+                `Det gick inte att spara konteringsregeln. Försök igen senare.`;
+            }
             break;
           }
           case "create_journal_entry": {

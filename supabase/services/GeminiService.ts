@@ -688,6 +688,46 @@ const tools: Tool[] = [
                     },
                     required: ["invoice_number"]
                 }
+            },
+            {
+                name: "learn_accounting_pattern",
+                description: "Spara en konteringsregel som användaren bekräftat eller korrigerat. Anropa detta när användaren: 1) korrigerar ditt kontoförslag ('nej, det ska vara konto 5420'), 2) bekräftar att en kontering stämmer, eller 3) ger en ny regel ('bokför alltid Telia på 6212'). Detta gör att du kan föreslå rätt konto automatiskt nästa gång.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        supplier_name: {
+                            type: SchemaType.STRING,
+                            description: "Leverantörens/motpartens namn (t.ex. 'Telia', 'Ellevio AB')"
+                        },
+                        bas_account: {
+                            type: SchemaType.STRING,
+                            description: "BAS-kontonummer (t.ex. '5420', '6212')"
+                        },
+                        bas_account_name: {
+                            type: SchemaType.STRING,
+                            description: "Kontonamn (t.ex. 'Programvaror', 'Telekommunikation')"
+                        },
+                        vat_rate: {
+                            type: SchemaType.NUMBER,
+                            description: "Momssats i procent (25, 12, 6 eller 0)"
+                        },
+                        expense_type: {
+                            type: SchemaType.STRING,
+                            description: "Typ: 'cost' för kostnad/inköp, 'sale' för intäkt/försäljning",
+                            enum: ["cost", "sale"]
+                        },
+                        amount: {
+                            type: SchemaType.NUMBER,
+                            description: "Beloppet (valfritt, hjälper med anomalidetektering)"
+                        },
+                        description_keywords: {
+                            type: SchemaType.ARRAY,
+                            description: "Nyckelord från beskrivningen (valfritt, t.ex. ['abonnemang', 'bredband'])",
+                            items: { type: SchemaType.STRING }
+                        }
+                    },
+                    required: ["supplier_name", "bas_account", "bas_account_name", "vat_rate", "expense_type"]
+                }
             }
         ]
     }
@@ -772,6 +812,17 @@ export type BookSupplierInvoiceArgs = {
     [key: string]: unknown;
 };
 
+export type LearnAccountingPatternArgs = {
+    supplier_name: string;
+    bas_account: string;
+    bas_account_name: string;
+    vat_rate: number;
+    expense_type: 'cost' | 'sale';
+    amount?: number;
+    description_keywords?: string[];
+    [key: string]: unknown;
+};
+
 export type ToolCall =
     | { tool: 'conversation_search'; args: ConversationSearchArgs }
     | { tool: 'recent_chats'; args: RecentChatsArgs }
@@ -785,7 +836,8 @@ export type ToolCall =
     | { tool: 'create_supplier_invoice'; args: CreateSupplierInvoiceArgs }
     | { tool: 'create_journal_entry'; args: CreateJournalEntryArgs }
     | { tool: 'export_journal_to_fortnox'; args: ExportJournalToFortnoxArgs }
-    | { tool: 'book_supplier_invoice'; args: BookSupplierInvoiceArgs };
+    | { tool: 'book_supplier_invoice'; args: BookSupplierInvoiceArgs }
+    | { tool: 'learn_accounting_pattern'; args: LearnAccountingPatternArgs };
 
 export interface GeminiResponse {
     text?: string;
