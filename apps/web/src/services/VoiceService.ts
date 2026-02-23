@@ -28,6 +28,7 @@ export class VoiceService {
     private onResultCallback: ((text: string) => void) | null = null;
     private onStateChangeCallback: ((isListening: boolean) => void) | null = null;
     private onAudioLevelCallback: ((level: number) => void) | null = null;
+    private onErrorCallback: ((errorCode: string) => void) | null = null;
 
     // Audio analysis
     private audioContext: AudioContext | null = null;
@@ -97,6 +98,9 @@ export class VoiceService {
             this.isListening = false;
             this.notifyStateChange();
             this.stopAudioAnalysis();
+            if (this.onErrorCallback) {
+                this.onErrorCallback(event.error);
+            }
         };
     }
 
@@ -214,6 +218,10 @@ export class VoiceService {
 
     public onAudioLevel(callback: (level: number) => void) {
         this.onAudioLevelCallback = callback;
+    }
+
+    public onError(callback: (errorCode: string) => void) {
+        this.onErrorCallback = callback;
     }
 
     private notifyStateChange() {

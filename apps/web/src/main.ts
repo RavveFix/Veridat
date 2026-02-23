@@ -39,6 +39,8 @@ import './styles/components/bokforingsunderlag.css';
 import './styles/components/spreadsheet-viewer.css';
 import './styles/components/integrations.css';
 import './styles/components/fortnox-workspace.css';
+import './styles/components/app-sidebar.css';
+import './styles/components/page-wrapper.css';
 
 logger.debug('main.ts module loading...');
 

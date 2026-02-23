@@ -15,7 +15,7 @@ import { logger } from '../services/LoggerService';
 import type { BankImport, BankTransaction } from '../types/bank';
 
 interface ReconciliationViewProps {
-    onBack: () => void;
+    onBack?: () => void;
     onOpenBankImport?: () => void;
 }
 
@@ -343,15 +343,17 @@ export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationV
     return (
         <div className="panel-stagger" style={RECONCILIATION_PANEL_STACK_STYLE}>
             <div style={RECONCILIATION_HEADER_ROW_STYLE}>
-                <button
-                    type="button"
-                    onClick={onBack}
-                    style={RECONCILIATION_BACK_BUTTON_STYLE}
-                    onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
-                    onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
-                >
-                    Tillbaka
-                </button>
+                {onBack && (
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        style={RECONCILIATION_BACK_BUTTON_STYLE}
+                        onMouseOver={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
+                        onMouseOut={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
+                    >
+                        Tillbaka
+                    </button>
+                )}
                 <span style={RECONCILIATION_HEADER_TEXT_STYLE}>
                     Bankavstämning per period. Markera månader som avstämda.
                 </span>

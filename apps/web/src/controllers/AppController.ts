@@ -11,13 +11,16 @@ import { mountModal } from '../utils/modalHelpers';
 import { LegalConsentModal } from '../components/LegalConsentModal';
 import { SettingsModal } from '../components/SettingsModal';
 import { IntegrationsModal } from '../components/IntegrationsModal';
-import { AgentDashboardModal } from '../components/AgentDashboardModal';
-import { ConversationList } from '../components/Chat/ConversationList';
 import { ExcelWorkspace } from '../components/ExcelWorkspace';
 import { MemoryIndicator } from '../components/MemoryIndicator';
 import { SearchModalWrapper } from '../components/SearchModal';
 import { initKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { FortnoxSidebar } from '../components/FortnoxSidebar';
+import { AppSidebar, type AppPage } from '../components/AppSidebar';
+import { InvoicesPage } from '../components/pages/InvoicesPage';
+import { BankPage } from '../components/pages/BankPage';
+import { ReportsPage } from '../components/pages/ReportsPage';
+import { DashboardPanel } from '../components/DashboardPanel';
 
 // Services
 import { logger } from '../services/LoggerService';
@@ -37,18 +40,53 @@ import { conversationController } from './ConversationController';
 import { chatController } from './ChatController';
 import { modelSelectorController } from './ModelSelectorController';
 
+// =============================================================================
+// PAGE IDs for DOM containers
+// =============================================================================
+
+const PAGE_CONTAINER_IDS: Record<AppPage, string> = {
+    overview: 'page-overview',
+    chat: 'page-chat',
+    invoices: 'page-invoices',
+    bank: 'page-bank',
+    reports: 'page-reports',
+};
+
+const PAGE_URL_MAP: Record<AppPage, string> = {
+    overview: '/app/overview',
+    chat: '/app',
+    invoices: '/app/invoices',
+    bank: '/app/bank',
+    reports: '/app/reports',
+};
+
+// Maps copilot tool names to pages
+const TOOL_TO_PAGE: Record<string, AppPage> = {
+    'fortnox-panel': 'invoices',
+    'invoice-inbox': 'invoices',
+    'bank-import': 'bank',
+    'bank-reconciliation': 'bank',
+    'reconciliation': 'bank',
+    'vat-report': 'reports',
+    'financial-statements': 'reports',
+    'dashboard': 'overview',
+    'bookkeeping-rules': 'invoices',
+    'agency': 'overview',
+};
+
 export class AppController {
     private excelWorkspace: ExcelWorkspace | null = null;
     private fortnoxSidebar: FortnoxSidebar | null = null;
     private settingsCleanup: (() => void) | null = null;
     private integrationsCleanup: (() => void) | null = null;
-    private agentDashboardCleanup: (() => void) | null = null;
-    private settingsListenerAttached = false;
-    private integrationsListenerAttached = false;
-    private agentDashboardListenerAttached = false;
+    private appSidebarCleanup: (() => void) | null = null;
     private boundCopilotToolListener: EventListener | null = null;
     private lastActiveAt = Date.now();
     private resumeInProgress = false;
+
+    // Page navigation state
+    private activePage: AppPage = 'overview';
+    private mountedPages = new Set<AppPage>();
 
     async init(): Promise<void> {
         logger.debug('AppController.init() starting...');
@@ -87,23 +125,13 @@ export class AppController {
         // Initialize keyboard shortcuts
         initKeyboardShortcuts();
 
-        // Setup settings button
-        this.setupSettingsButton();
-
-        // Setup integrations button
-        this.setupIntegrationsButton();
-
-        // Setup agent dashboard button
-        this.setupAgentDashboardButton();
-
         // Setup copilot tool event listener
         this.setupCopilotToolListener();
 
-        // Setup new chat button
-        this.setupNewChatButton();
-
-        // Setup contact button
-        this.setupContactButton();
+        // Listen for open-integrations-modal events (from FortnoxPanel etc.)
+        window.addEventListener('open-integrations-modal', () => {
+            this.openIntegrationsModal();
+        });
 
         // Initialize voice input
         voiceInputController.init();
@@ -111,7 +139,8 @@ export class AppController {
         // Setup app lifecycle handlers (resume from idle)
         this.setupLifecycleHandlers();
 
-        // Load conversation based on URL route
+        // Route to initial page based on URL
+        const initialPage = this.getPageFromUrl();
         const path = window.location.pathname;
         const chatMatch = path.match(/^\/app\/chat\/([a-f0-9-]{36})$/i);
 
@@ -119,34 +148,161 @@ export class AppController {
             // Direct link to specific conversation
             const conversationId = chatMatch[1];
             logger.info('Loading conversation from URL', { conversationId });
+            this.navigateToPage('chat', false);
             const loaded = await conversationController.loadConversationFromUrl(conversationId);
             if (!loaded) {
-                // loadConversationFromUrl handles redirect on failure
                 logger.warn('Failed to load conversation from URL, redirecting to new chat');
             }
-        } else if (path === '/app/newchat') {
-            // New chat route
-            await conversationController.startNewChat();
-        } else if (path === '/app' || path === '/app/') {
-            // Default /app route - redirect to new chat for fresh start
+        } else if (initialPage === 'chat' || path === '/app/newchat') {
+            this.navigateToPage('chat', false);
             await conversationController.startNewChat();
         } else {
-            // Unknown /app/* route - fallback to new chat
-            logger.warn('Unknown app route, starting new chat', { path });
+            this.navigateToPage(initialPage, false);
+            // Also prepare a new chat in the background so it's ready
             await conversationController.startNewChat();
         }
 
         // Handle Fortnox OAuth callback params (redirect from Fortnox)
         this.handleFortnoxOAuthCallback();
 
-        // Auto-focus input
-        uiController.focusInput();
+        // Auto-focus input (only when on chat page)
+        if (this.activePage === 'chat') {
+            uiController.focusInput();
+        }
 
         // Hide Loader with smooth transition
         uiController.hideLoader();
 
         logger.debug('AppController.init() complete');
     }
+
+    // =========================================================================
+    // PAGE NAVIGATION
+    // =========================================================================
+
+    /**
+     * Navigate to a page. Hides all other pages, shows the target.
+     * Mounts Preact page component lazily on first visit.
+     */
+    navigateToPage(page: AppPage, pushState = true): void {
+        if (this.activePage === page && this.mountedPages.has(page)) return;
+
+        // Hide all page containers
+        for (const [pageName, containerId] of Object.entries(PAGE_CONTAINER_IDS)) {
+            const el = document.getElementById(containerId);
+            if (!el) continue;
+            el.style.display = pageName === page ? '' : 'none';
+        }
+
+        this.activePage = page;
+
+        // Lazy-mount Preact components for pages (skip chat - it's always present)
+        if (page !== 'chat' && !this.mountedPages.has(page)) {
+            this.mountPage(page);
+        }
+
+        this.mountedPages.add(page);
+
+        // Update URL
+        if (pushState) {
+            const url = PAGE_URL_MAP[page] || '/app';
+            window.history.pushState({ page }, '', url);
+        }
+
+        // Re-mount AppSidebar to update activePage prop
+        this.mountAppSidebar();
+
+        // Focus chat input when navigating to chat
+        if (page === 'chat') {
+            uiController.focusInput();
+        }
+    }
+
+    private mountPage(page: AppPage): void {
+        const containerId = PAGE_CONTAINER_IDS[page];
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        switch (page) {
+            case 'overview':
+                mountPreactComponent(DashboardPanel, {
+                    onNavigate: (tool: string) => {
+                        const targetPage = TOOL_TO_PAGE[tool];
+                        if (targetPage) {
+                            this.navigateToPage(targetPage);
+                        } else {
+                            logger.warn('Unknown tool in DashboardPanel onNavigate', { tool });
+                        }
+                    },
+                    isAdmin: false,
+                }, container);
+                break;
+            case 'invoices':
+                mountPreactComponent(InvoicesPage, {}, container);
+                break;
+            case 'bank':
+                mountPreactComponent(BankPage, {}, container);
+                break;
+            case 'reports':
+                mountPreactComponent(ReportsPage, {}, container);
+                break;
+        }
+    }
+
+    private getPageFromUrl(): AppPage {
+        const path = window.location.pathname;
+        if (path.startsWith('/app/invoices')) return 'invoices';
+        if (path.startsWith('/app/bank')) return 'bank';
+        if (path.startsWith('/app/reports')) return 'reports';
+        if (path.startsWith('/app/overview')) return 'overview';
+        if (path.startsWith('/app/chat')) return 'chat';
+        if (path === '/app/newchat') return 'chat';
+        // Default: overview as start page
+        return 'overview';
+    }
+
+    // =========================================================================
+    // SIDEBAR
+    // =========================================================================
+
+    private mountAppSidebar(): void {
+        const mount = document.getElementById('app-sidebar-mount');
+        if (!mount) return;
+
+        const currentCompany = companyManager.getCurrent();
+
+        if (this.appSidebarCleanup) {
+            this.appSidebarCleanup();
+        }
+
+        this.appSidebarCleanup = mountPreactComponent(AppSidebar, {
+            activePage: this.activePage,
+            onNavigate: (page: AppPage) => {
+                this.navigateToPage(page);
+            },
+            onNewChat: async () => {
+                this.navigateToPage('chat');
+                await conversationController.startNewChat();
+            },
+            onSelectConversation: async (id: string) => {
+                await conversationController.loadConversation(id);
+            },
+            onOpenSettings: () => this.openSettings(),
+            onOpenSearch: () => {
+                window.dispatchEvent(new CustomEvent('open-search-modal'));
+            },
+            onOpenIntegrations: () => {
+                this.openIntegrationsModal();
+            },
+            onToggleTheme: () => themeController.toggle(),
+            currentConversationId: currentCompany.conversationId || null,
+            companyId: currentCompany?.id || null,
+        }, mount);
+    }
+
+    // =========================================================================
+    // FORTNOX OAUTH CALLBACK
+    // =========================================================================
 
     /**
      * Checks for Fortnox OAuth redirect query params and shows feedback.
@@ -165,7 +321,7 @@ export class AppController {
             fortnoxContextService.checkConnection().then((status) => {
                 if (status === 'connected') {
                     fortnoxContextService.preloadData();
-                    this.openIntegrationsModal('fortnox-panel');
+                    this.navigateToPage('invoices');
                 }
             });
         } else if (error) {
@@ -200,6 +356,10 @@ export class AppController {
         setTimeout(() => toast.remove(), 4000);
     }
 
+    // =========================================================================
+    // LEGAL CONSENT
+    // =========================================================================
+
     private getConsentSyncContext(): ConsentSyncContext | undefined {
         const currentCompany = companyManager.getCurrent();
         if (!currentCompany?.id) return undefined;
@@ -216,18 +376,14 @@ export class AppController {
         logger.debug('Evaluating legal consent requirements', { requiredDocs });
 
         if (!hasAccepted) {
-            // First, check if this is a re-consent scenario (existing user with outdated version)
-            // This takes priority over local consent from login page
             const needsReconsent = await this.checkNeedsReconsent();
 
             if (needsReconsent) {
-                // Clear any local consent - existing users must re-accept via modal
                 authService.clearLocalConsent();
                 logger.info('User needs to re-consent to updated terms');
                 return this.showReconsentModal();
             }
 
-            // Not a re-consent scenario - check for local consent (new user from login page)
             if (authService.hasLocalConsent(userCreatedAt)) {
                 logger.info('Found local consent from login (new user), syncing to DB...');
                 const synced = await authService.syncLocalConsentToDatabase(this.getConsentSyncContext());
@@ -236,14 +392,10 @@ export class AppController {
                     return true;
                 }
 
-                // Sync failed but we have local consent - allow access
-                // Will retry sync on next load
                 logger.warn('DB sync failed, but allowing access with local consent');
                 return true;
             }
 
-            // Authenticated user without consent (e.g. magic link opened on another device)
-            // Show consent modal instead of redirecting to avoid login loops.
             logger.warn('No consent found for authenticated user, showing consent modal');
             return this.showReconsentModal();
         }
@@ -262,7 +414,6 @@ export class AppController {
                 .eq('id', session.user.id)
                 .single();
 
-            // If user has accepted previously, treat missing/outdated version as re-consent.
             return !!profile?.has_accepted_terms;
         } catch {
             return false;
@@ -273,8 +424,6 @@ export class AppController {
         logger.info('Showing consent modal');
         uiController.removeLoaderImmediately();
 
-        // Use mountModal helper (same pattern as SettingsModal)
-        // LegalConsentModal now renders its own full-screen overlay
         mountModal({
             containerId: 'legal-consent-modal-container',
             Component: LegalConsentModal,
@@ -291,6 +440,10 @@ export class AppController {
 
         return false;
     }
+
+    // =========================================================================
+    // AUTH & LIFECYCLE
+    // =========================================================================
 
     private setupAuthListener(): void {
         supabase.auth.onAuthStateChange(async (event, session) => {
@@ -337,6 +490,12 @@ export class AppController {
             }
             void this.handleAppResume('visibility');
         });
+
+        // Handle browser back/forward navigation
+        window.addEventListener('popstate', (e) => {
+            const page = (e.state?.page as AppPage) || this.getPageFromUrl();
+            this.navigateToPage(page, false);
+        });
     }
 
     private async handleAppResume(source: 'focus' | 'visibility' | 'online'): Promise<void> {
@@ -344,7 +503,6 @@ export class AppController {
         const idleMs = now - this.lastActiveAt;
         this.lastActiveAt = now;
 
-        // Avoid noisy refreshes unless we were idle for a bit
         if (idleMs < 60_000 && source !== 'online') {
             return;
         }
@@ -384,7 +542,6 @@ export class AppController {
                 supabase.realtime.connect();
             }
 
-            // Force refresh of chat + conversation list after idle
             window.dispatchEvent(new CustomEvent('refresh-conversation-list', { detail: { force: true } }));
             window.dispatchEvent(new CustomEvent('chat-refresh'));
         } catch (error) {
@@ -394,6 +551,10 @@ export class AppController {
         }
     }
 
+    // =========================================================================
+    // INITIALIZE CONTROLLERS
+    // =========================================================================
+
     private initializeControllers(): void {
         // Theme controller
         themeController.init();
@@ -401,22 +562,8 @@ export class AppController {
         // Sidebar controller (responsive toggle)
         sidebarController.init();
 
-        // Mount ConversationList in sidebar
-        const conversationListContainer = document.getElementById('conversation-list-container');
-        if (conversationListContainer) {
-            const currentCompany = companyManager.getCurrent();
-            mountPreactComponent(
-                ConversationList,
-                {
-                    currentConversationId: currentCompany.conversationId || null,
-                    onSelectConversation: async (id: string) => {
-                        await conversationController.loadConversation(id);
-                    },
-                    companyId: currentCompany?.id || null
-                },
-                conversationListContainer
-            );
-        }
+        // Mount AppSidebar (replaces old ConversationList + footer buttons)
+        this.mountAppSidebar();
 
         // Company modal controller
         companyModalController.init(async (companyId) => {
@@ -455,7 +602,7 @@ export class AppController {
         // Mount global search modal
         this.mountSearchModal();
 
-        // Setup search trigger click handlers (topbar + sidebar)
+        // Setup search trigger click handlers (topbar)
         const searchTriggers = Array.from(document.querySelectorAll<HTMLElement>('[data-search-trigger]'));
         for (const trigger of searchTriggers) {
             trigger.addEventListener('click', () => {
@@ -471,42 +618,35 @@ export class AppController {
         mountPreactComponent(SearchModalWrapper, {}, container);
     }
 
-    private setupSettingsButton(): void {
-        const settingsBtn = document.getElementById('settings-btn');
+    // =========================================================================
+    // MODALS (Settings, Integrations, Agent Dashboard)
+    // =========================================================================
 
-        if (settingsBtn && !this.settingsListenerAttached) {
-            settingsBtn.addEventListener('click', () => {
-                // Clean up previous instance if exists
-                if (this.settingsCleanup) {
-                    logger.debug('Cleaning up previous settings modal instance');
-                    this.settingsCleanup();
-                    this.settingsCleanup = null;
-                }
-
-                // Mount new instance and store cleanup function
-                this.settingsCleanup = mountModal({
-                    containerId: 'settings-modal-container',
-                    Component: SettingsModal,
-                    props: {
-                        onClose: () => {
-                            if (this.settingsCleanup) {
-                                this.settingsCleanup();
-                                this.settingsCleanup = null;
-                            }
-                        },
-                        onLogout: async () => {
-                            await supabase.auth.signOut();
-                            window.location.href = '/login';
-                        }
-                    }
-                });
-            });
-            this.settingsListenerAttached = true;
-            logger.debug('Settings button listener attached');
+    private openSettings(): void {
+        if (this.settingsCleanup) {
+            this.settingsCleanup();
+            this.settingsCleanup = null;
         }
+
+        this.settingsCleanup = mountModal({
+            containerId: 'settings-modal-container',
+            Component: SettingsModal,
+            props: {
+                onClose: () => {
+                    if (this.settingsCleanup) {
+                        this.settingsCleanup();
+                        this.settingsCleanup = null;
+                    }
+                },
+                onLogout: async () => {
+                    await supabase.auth.signOut();
+                    window.location.href = '/login';
+                }
+            }
+        });
     }
 
-    private openIntegrationsModal(initialTool?: string): void {
+    private openIntegrationsModal(): void {
         if (this.integrationsCleanup) {
             logger.debug('Cleaning up previous integrations modal instance');
             this.integrationsCleanup();
@@ -516,7 +656,6 @@ export class AppController {
             containerId: 'integrations-modal-container',
             Component: IntegrationsModal,
             props: {
-                initialTool,
                 onClose: () => {
                     if (this.integrationsCleanup) {
                         this.integrationsCleanup();
@@ -527,91 +666,27 @@ export class AppController {
         });
     }
 
-    private setupIntegrationsButton(): void {
-        const integrationsBtn = document.getElementById('integrations-btn');
-
-        if (integrationsBtn && !this.integrationsListenerAttached) {
-            integrationsBtn.addEventListener('click', () => this.openIntegrationsModal());
-            this.integrationsListenerAttached = true;
-            logger.debug('Integrations button listener attached');
-        }
-    }
-
-    private setupAgentDashboardButton(): void {
-        const btn = document.getElementById('agent-dashboard-btn');
-
-        if (btn && !this.agentDashboardListenerAttached) {
-            btn.addEventListener('click', () => {
-                if (this.agentDashboardCleanup) {
-                    this.agentDashboardCleanup();
-                    this.agentDashboardCleanup = null;
-                }
-
-                this.agentDashboardCleanup = mountModal({
-                    containerId: 'agent-dashboard-modal-container',
-                    Component: AgentDashboardModal,
-                    props: {
-                        onClose: () => {
-                            if (this.agentDashboardCleanup) {
-                                this.agentDashboardCleanup();
-                                this.agentDashboardCleanup = null;
-                            }
-                        }
-                    }
-                });
-            });
-            this.agentDashboardListenerAttached = true;
-        }
-    }
-
     /**
-     * Listens for copilot-open-tool events and opens IntegrationsModal with the requested tool.
+     * Listens for copilot-open-tool events and routes to the appropriate page.
      */
     private setupCopilotToolListener(): void {
         this.boundCopilotToolListener = ((e: CustomEvent<{ tool: string }>) => {
             const tool = e.detail?.tool;
             if (!tool) return;
 
-            // Clean up previous instance if exists
-            if (this.integrationsCleanup) {
-                this.integrationsCleanup();
-                this.integrationsCleanup = null;
+            const targetPage = TOOL_TO_PAGE[tool];
+            if (targetPage) {
+                this.navigateToPage(targetPage);
+            } else {
+                logger.warn('Unknown copilot tool, no page mapping', { tool });
             }
-
-            this.integrationsCleanup = mountModal({
-                containerId: 'integrations-modal-container',
-                Component: IntegrationsModal,
-                props: {
-                    initialTool: tool,
-                    onClose: () => {
-                        if (this.integrationsCleanup) {
-                            this.integrationsCleanup();
-                            this.integrationsCleanup = null;
-                        }
-                    }
-                }
-            });
         }) as EventListener;
         window.addEventListener('copilot-open-tool', this.boundCopilotToolListener);
     }
 
-    private setupNewChatButton(): void {
-        const newChatBtn = document.getElementById('new-chat-btn');
-        if (newChatBtn) {
-            newChatBtn.addEventListener('click', async () => {
-                await conversationController.startNewChat();
-            });
-        }
-    }
-
-    private setupContactButton(): void {
-        const contactBtn = document.getElementById('contact-btn');
-        if (contactBtn) {
-            contactBtn.addEventListener('click', () => {
-                window.location.href = 'mailto:hej@veridat.se?subject=Uppgradera%20till%20Pro&body=Hej%2C%0A%0AJag%20skulle%20vilja%20uppgradera%20till%20Pro%20(40%20förfrågningar%2Ftimme%2C%20200%2Fdag).%0A%0AMvh';
-            });
-        }
-    }
+    // =========================================================================
+    // FORTNOX SIDEBAR
+    // =========================================================================
 
     private initFortnoxSidebar(): void {
         this.fortnoxSidebar = new FortnoxSidebar();
@@ -632,7 +707,6 @@ export class AppController {
                 fortnoxContextService.preloadData();
                 copilotService.start();
             }
-            // Hide toggle button if not connected
             if (toggleBtn && status === 'disconnected') {
                 toggleBtn.style.display = 'none';
             }
@@ -644,7 +718,6 @@ export class AppController {
             if (toggleBtn) {
                 toggleBtn.style.display = status === 'connected' ? '' : 'none';
             }
-            // Start/stop copilot based on connection
             if (status === 'connected') {
                 copilotService.start();
             } else {

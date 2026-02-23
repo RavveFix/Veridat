@@ -58,7 +58,7 @@ interface FinancialStatementsData {
 type ReportTab = 'resultat' | 'balans';
 
 interface FinancialStatementsPanelProps {
-    onBack: () => void;
+    onBack?: () => void;
 }
 
 // =============================================================================
@@ -237,7 +237,7 @@ export function FinancialStatementsPanel({ onBack }: FinancialStatementsPanelPro
     if (loading) {
         return (
             <div>
-                <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>
+                {onBack && <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>}
                 <div style={LOADING_WRAP}>
                     <div className="spinner" style={{ margin: '0 auto 1rem' }} />
                     <div style={LOADING_TEXT}>Hämtar resultat- och balansräkning från Fortnox...</div>
@@ -250,7 +250,7 @@ export function FinancialStatementsPanel({ onBack }: FinancialStatementsPanelPro
     if (error) {
         return (
             <div>
-                <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>
+                {onBack && <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>}
                 <div style={ERROR_BOX}>
                     <p style={ERROR_TEXT}>{error}</p>
                     <button type="button" onClick={() => void fetchReport(selectedYearId || undefined)} style={RETRY_BTN}>
@@ -269,7 +269,7 @@ export function FinancialStatementsPanel({ onBack }: FinancialStatementsPanelPro
         <div className="panel-stagger">
             {/* Header */}
             <div style={HEADER_ROW}>
-                <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>
+                {onBack && <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>}
                 <button type="button" onClick={() => void fetchReport(selectedYearId || undefined)} style={REFRESH_BTN}>
                     Uppdatera
                 </button>

@@ -1,0 +1,194 @@
+/* =============================================================================
+ * AppSidebar - Sidnavigation + konversationslista + kompakt footer
+ * ============================================================================= */
+
+/* Mount point inside <aside class="sidebar"> needs to fill remaining space */
+#app-sidebar-mount {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.app-sidebar {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+ * Primary Navigation
+ * --------------------------------------------------------------------------- */
+
+.app-sidebar__nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--sidebar-gutter);
+}
+
+.app-sidebar__nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: 44px;
+    padding: var(--space-3) var(--space-4);
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 0.95rem;
+    transition: background 0.15s, color 0.15s, transform 0.15s;
+}
+
+.app-sidebar__nav-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.app-sidebar__nav-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.app-sidebar__nav-btn--active {
+    background: var(--accent-primary);
+    color: var(--text-on-accent);
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(14, 165, 233, 0.25);
+}
+
+.app-sidebar__nav-btn--active:hover {
+    background: var(--accent-secondary);
+    color: var(--text-on-accent);
+}
+
+/* Dark theme active state */
+[data-theme="dark"] .app-sidebar__nav-btn--active {
+    box-shadow: 0 2px 12px rgba(14, 165, 233, 0.35);
+}
+
+/* ---------------------------------------------------------------------------
+ * New Conversation Button
+ * --------------------------------------------------------------------------- */
+
+.app-sidebar__new-chat {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: var(--space-2) var(--sidebar-gutter);
+    padding: var(--space-2) var(--space-4);
+    min-height: 36px;
+    background: transparent;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 0.85rem;
+    transition: all 0.15s;
+}
+
+.app-sidebar__new-chat:hover {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+    background: var(--surface-hover);
+}
+
+/* ---------------------------------------------------------------------------
+ * Conversation List
+ * --------------------------------------------------------------------------- */
+
+.app-sidebar__conversations {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    padding: 0 var(--sidebar-gutter);
+}
+
+/* ---------------------------------------------------------------------------
+ * Footer (Search, Settings, Theme)
+ * --------------------------------------------------------------------------- */
+
+.app-sidebar__footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--sidebar-gutter);
+    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.app-sidebar__footer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.app-sidebar__footer-btn:hover {
+    background: var(--surface-hover);
+    color: var(--accent-primary);
+}
+
+.app-sidebar__footer-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Collapsed Sidebar overrides
+ * --------------------------------------------------------------------------- */
+
+.sidebar.collapsed .app-sidebar__nav-btn span,
+.sidebar.collapsed .app-sidebar__new-chat span {
+    display: none;
+}
+
+.sidebar.collapsed .app-sidebar__nav {
+    padding: var(--space-2) 0.5rem;
+    align-items: center;
+}
+
+.sidebar.collapsed .app-sidebar__nav-btn {
+    justify-content: center;
+    padding: var(--space-2);
+    width: 40px;
+    min-height: 40px;
+}
+
+.sidebar.collapsed .app-sidebar__new-chat {
+    display: none;
+}
+
+.sidebar.collapsed .app-sidebar__conversations {
+    display: none;
+}
+
+.sidebar.collapsed .app-sidebar__footer {
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) 0.5rem;
+}
+
+.sidebar.collapsed .app-sidebar__footer-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+}

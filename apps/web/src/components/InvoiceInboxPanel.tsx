@@ -63,7 +63,9 @@ interface InvoiceInboxItem {
 }
 
 interface InvoiceInboxPanelProps {
-    onBack: () => void;
+    onBack?: () => void;
+    /** When true, hides internal tab bar (used when embedded in InvoicesPage which has its own tabs) */
+    embedded?: boolean;
 }
 
 interface InvoiceSummary {
@@ -675,7 +677,7 @@ function getTabButtonStyle(active: boolean) {
     } as const;
 }
 
-export function InvoiceInboxPanel({ onBack }: InvoiceInboxPanelProps) {
+export function InvoiceInboxPanel({ onBack, embedded }: InvoiceInboxPanelProps) {
     const [activeTab, setActiveTab] = useState<InboxTab>('invoices');
     const [items, setItems] = useState<InvoiceInboxItem[]>([]);
     const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('alla');
@@ -1408,13 +1410,15 @@ Föreslå korrekt kontering med debet/kredit.`;
         <div className="panel-stagger" style={INVOICE_INBOX_ROOT_STYLE}>
             {/* Header */}
             <div style={INVOICE_INBOX_HEADER_STYLE}>
-                <button
-                    type="button"
-                    onClick={onBack}
-                    style={INVOICE_INBOX_BACK_BUTTON_STYLE}
-                >
-                    Tillbaka
-                </button>
+                {onBack && (
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        style={INVOICE_INBOX_BACK_BUTTON_STYLE}
+                    >
+                        Tillbaka
+                    </button>
+                )}
                 <span style={INVOICE_INBOX_HEADER_HINT_STYLE}>
                     {activeTab === 'invoices'
                         ? 'Ladda upp leverantörsfakturor. AI extraherar data automatiskt.'
@@ -1422,29 +1426,31 @@ Föreslå korrekt kontering med debet/kredit.`;
                 </span>
             </div>
 
-            {/* Tab bar */}
-            <div style={TAB_BAR_STYLE}>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('invoices')}
-                    style={getTabButtonStyle(activeTab === 'invoices')}
-                >
-                    Leverantörsfakturor
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('receipts')}
-                    style={getTabButtonStyle(activeTab === 'receipts')}
-                >
-                    Kvitton
-                </button>
-            </div>
+            {/* Tab bar (hidden when embedded in page with its own tabs) */}
+            {!embedded && (
+                <div style={TAB_BAR_STYLE}>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('invoices')}
+                        style={getTabButtonStyle(activeTab === 'invoices')}
+                    >
+                        Leverantörsfakturor
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('receipts')}
+                        style={getTabButtonStyle(activeTab === 'receipts')}
+                    >
+                        Kvitton
+                    </button>
+                </div>
+            )}
 
-            {/* Receipt tab content */}
-            {activeTab === 'receipts' && <ReceiptInboxTab />}
+            {/* Receipt tab content (only when not embedded) */}
+            {!embedded && activeTab === 'receipts' && <ReceiptInboxTab />}
 
             {/* Invoice tab content */}
-            {activeTab === 'invoices' && <>
+            {(embedded || activeTab === 'invoices') && <>
 
             {/* Messages */}
             {error && (

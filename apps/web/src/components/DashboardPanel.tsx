@@ -39,10 +39,10 @@ import {
 // =============================================================================
 
 interface DashboardPanelProps {
-    onBack: () => void;
+    onBack?: () => void;
     onNavigate: (tool: string) => void;
     isAdmin: boolean;
-    userId: string | null;
+    userId?: string | null;
     timeWindowDays?: number;
 }
 

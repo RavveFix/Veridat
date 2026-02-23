@@ -16,7 +16,7 @@ type CsvPreview = {
 };
 
 interface BankImportPanelProps {
-    onBack: () => void;
+    onBack?: () => void;
 }
 
 interface SupplierInvoiceSummary {
@@ -1177,13 +1177,15 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
     return (
         <div className="panel-stagger" style={BANK_IMPORT_ROOT_STYLE}>
             <div style={BANK_IMPORT_HEADER_STYLE}>
-                <button
-                    type="button"
-                    onClick={onBack}
-                    style={BANK_IMPORT_BACK_BUTTON_STYLE}
-                >
-                    Tillbaka
-                </button>
+                {onBack && (
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        style={BANK_IMPORT_BACK_BUTTON_STYLE}
+                    >
+                        Tillbaka
+                    </button>
+                )}
                 <span style={BANK_IMPORT_HEADER_HINT_STYLE}>
                     Importera kontoutdrag (CSV) och matcha mot Fortnox.
                 </span>

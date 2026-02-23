@@ -73,6 +73,19 @@ export class VoiceInputController {
             }
         });
 
+        // Error handler - show Swedish error message
+        this.voiceService.onError((errorCode) => {
+            const messages: Record<string, string> = {
+                'not-allowed':         'Mikrofontillstånd nekades. Tillåt åtkomst i webbläsarens inställningar.',
+                'audio-capture':       'Kunde inte komma åt mikrofonen. Kontrollera att den är ansluten.',
+                'network':             'Nätverksfel vid röstinmatning. Kontrollera internetanslutningen.',
+                'service-not-allowed': 'Röstinmatning är inte tillåten på denna sida.',
+                'no-speech':           'Inget tal identifierades. Försök igen.',
+            };
+            const msg = messages[errorCode] ?? 'Röstinmatning misslyckades. Försök igen.';
+            this.showToast(msg, 'error');
+        });
+
         // Cancel button - discard recording
         if (voiceCancelBtn) {
             voiceCancelBtn.addEventListener('click', () => {

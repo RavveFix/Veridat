@@ -15,7 +15,7 @@ import {
 } from '../services/InvoicePostingReviewService';
 
 interface FortnoxPanelProps {
-    onBack: () => void;
+    onBack?: () => void;
 }
 
 interface SupplierInvoiceSummary {
@@ -628,6 +628,8 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
     const invoicePostingReviewEnabled = getInvoicePostingReviewEnabled();
     const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
     const [toast, setToast] = useState<string | null>(null);
+    const [connectingFortnox, setConnectingFortnox] = useState(false);
+    const [connectError, setConnectError] = useState<string | null>(null);
     const [tableScrollEdge, setTableScrollEdge] = useState<'none' | 'right' | 'both' | 'left'>('none');
     const tableScrollRef = useRef<HTMLDivElement>(null);
 
@@ -733,6 +735,54 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accessToken}`
     });
+
+    const handleConnectFortnox = async () => {
+        setConnectingFortnox(true);
+        setConnectError(null);
+
+        try {
+            const companyId = companyService.getCurrentId();
+            if (!companyId) {
+                setConnectError('Välj ett aktivt bolag innan du ansluter Fortnox.');
+                return;
+            }
+
+            const accessToken = await getSessionAccessToken();
+            if (!accessToken) {
+                setConnectError('Du måste vara inloggad.');
+                return;
+            }
+
+            const response = await fetch(
+                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox-oauth`,
+                {
+                    method: 'POST',
+                    headers: buildAuthHeaders(accessToken),
+                    body: JSON.stringify({ action: 'initiate', companyId }),
+                }
+            );
+
+            if (!response.ok) {
+                const errorData = (await response.json().catch(() => ({}))) as { error?: string; errorCode?: string };
+                if (errorData.errorCode === 'COMPANY_ORG_REQUIRED' || errorData.error === 'company_org_required') {
+                    setConnectError('Bolaget måste ha organisationsnummer innan Fortnox kan anslutas.');
+                } else if (errorData.errorCode === 'PLAN_REQUIRED' || errorData.error === 'plan_required') {
+                    setConnectError('Fortnox kräver Veridat Pro eller Trial.');
+                } else {
+                    setConnectError(errorData.error || 'Kunde inte starta Fortnox-anslutning.');
+                }
+                return;
+            }
+
+            const { authorizationUrl } = await response.json() as { authorizationUrl: string };
+            window.location.href = authorizationUrl;
+        } catch (err) {
+            logger.error('Error initiating Fortnox OAuth:', err);
+            setConnectError('Kunde inte ansluta till Fortnox. Försök igen.');
+        } finally {
+            setConnectingFortnox(false);
+        }
+    };
 
     async function callFortnox<T>(
         action: string,
@@ -1097,13 +1147,15 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             style={FORTNOX_PANEL_ROOT_STYLE}
         >
             <div style={FORTNOX_HEADER_STYLE}>
-                <button
-                    type="button"
-                    onClick={onBack}
-                    style={FORTNOX_BACK_BUTTON_STYLE}
-                >
-                    Tillbaka
-                </button>
+                {onBack && (
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        style={FORTNOX_BACK_BUTTON_STYLE}
+                    >
+                        Tillbaka
+                    </button>
+                )}
                 <span style={FORTNOX_HEADER_HINT_STYLE}>
                     Fortnox-panelen samlar leverantörsfakturor och avvikelser på ett ställe.
                 </span>
@@ -1119,14 +1171,20 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 <div className="panel-card panel-card--no-hover" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1.5rem' }}>
                     <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Fortnox är inte kopplat</div>
                     <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                        Koppla ihop Fortnox under Integrationer för att se fakturor och genomföra attest.
+                        Anslut ditt Fortnox-konto för att se fakturor, genomföra attest och synka bokföring.
                     </div>
+                    {connectError && (
+                        <div style={{ fontSize: '0.8rem', color: '#ef4444', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.08)', borderRadius: '6px' }}>
+                            {connectError}
+                        </div>
+                    )}
                     <button
                         type="button"
-                        onClick={() => document.getElementById('integrations-btn')?.click()}
-                        style={{ marginTop: '0.25rem', alignSelf: 'flex-start', padding: '0.5rem 1rem', borderRadius: '8px', border: 'none', background: 'var(--accent, #3b82f6)', color: '#fff', fontSize: '0.875rem', cursor: 'pointer', fontWeight: 500 }}
+                        onClick={handleConnectFortnox}
+                        disabled={connectingFortnox}
+                        style={{ marginTop: '0.25rem', alignSelf: 'flex-start', padding: '0.6rem 1.25rem', borderRadius: '8px', border: 'none', background: connectingFortnox ? 'var(--text-secondary)' : 'var(--accent, #3b82f6)', color: '#fff', fontSize: '0.875rem', cursor: connectingFortnox ? 'wait' : 'pointer', fontWeight: 500, opacity: connectingFortnox ? 0.7 : 1 }}
                     >
-                        Öppna Integrationer
+                        {connectingFortnox ? 'Ansluter...' : 'Anslut Fortnox'}
                     </button>
                 </div>
             )}
@@ -1223,10 +1281,11 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                             <span>{activeError}</span>
                             <button
                                 type="button"
-                                onClick={() => document.getElementById('integrations-btn')?.click()}
+                                onClick={handleConnectFortnox}
+                                disabled={connectingFortnox}
                                 style={FORTNOX_RETRY_BUTTON_STYLE}
                             >
-                                Koppla om
+                                {connectingFortnox ? 'Ansluter...' : 'Koppla om'}
                             </button>
                             <button
                                 type="button"

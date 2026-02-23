@@ -17,7 +17,7 @@ interface InvoiceDetail {
 }
 
 interface VATReportFromFortnoxPanelProps {
-    onBack: () => void;
+    onBack?: () => void;
 }
 
 interface InvoiceTableProps {
@@ -246,13 +246,15 @@ export function VATReportFromFortnoxPanel({ onBack }: VATReportFromFortnoxPanelP
 
     return (
         <div>
-            <button
-                type="button"
-                onClick={onBack}
-                style={VAT_BACK_BUTTON_STYLE}
-            >
-                ← Tillbaka
-            </button>
+            {onBack && (
+                <button
+                    type="button"
+                    onClick={onBack}
+                    style={VAT_BACK_BUTTON_STYLE}
+                >
+                    ← Tillbaka
+                </button>
+            )}
 
             {!loading && (
                 <button
