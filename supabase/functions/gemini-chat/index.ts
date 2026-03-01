@@ -2618,11 +2618,13 @@ Deno.serve(async (req: Request) => {
     } else if (isAgentMode) {
       finalMessage =
         `[AGENT-LÄGE — TOOL-ONLY]\n` +
-        `DU FÅR ABSOLUT INTE svara med text. Anropa ENBART propose_action_plan.\n` +
+        `DU FÅR ABSOLUT INTE svara med text. Anropa ENBART propose_action_plan ELLER request_clarification.\n` +
         `Om du svarar med text istället för tool call misslyckas systemet.\n` +
         `Svara ALLTID på svenska. Visa ALDRIG intern tankeprocess.\n\n` +
         `Regler:\n` +
-        `1. Anropa propose_action_plan som ditt ENDA svar — ingen text före eller efter\n` +
+        `1. Om belopp, antal, pris eller annan kritisk information SAKNAS → anropa request_clarification. Gissa ALDRIG belopp.\n` +
+        `   Exempel: "Skapa faktura till Acme för konsulttimmar" → fråga om belopp, antal timmar, timpris\n` +
+        `   Exempel: "Skapa faktura till Acme på 15 000 kr för konsulttimmar" → tillräcklig info, använd propose_action_plan\n` +
         `2. Inkludera ALLTID posting_rows med account (nummer), accountName, debit, credit\n` +
         `3. Använd BARA konton från [KONTOPLAN]. Saknas kontoplanen → standard BAS-konton\n` +
         `4. KUNDFAKTUROR: action_type = "create_invoice", parameters MÅSTE innehålla:\n` +
@@ -3053,7 +3055,7 @@ ANVÄNDARFRÅGA:
           history,
           undefined,
           effectiveModel,
-          { disableTools, forceToolCall: isAgentMode ? "propose_action_plan" : undefined },
+          { disableTools, forceToolCall: isAgentMode ? ["propose_action_plan", "request_clarification"] : undefined },
         );
         logger.debug("Gemini stream created successfully");
         const encoder = new TextEncoder();
@@ -3292,6 +3294,16 @@ ANVÄNDARFRÅGA:
                       planId,
                       actionCount: actionPlan.actions.length,
                       summary: actionPlan.summary,
+                    });
+                  } else if (toolName === "request_clarification") {
+                    // AI needs more info before creating a plan — stream as text
+                    const clarArgs = toolArgs as { message?: string; missing_fields?: string[] };
+                    const clarText = clarArgs.message || "Jag behöver mer information för att kunna skapa en handlingsplan.";
+                    const sseData = `data: ${JSON.stringify({ text: clarText })}\n\n`;
+                    controller.enqueue(encoder.encode(sseData));
+                    toolResponseText = clarText;
+                    logger.info("Agent requested clarification", {
+                      missingFields: clarArgs.missing_fields,
                     });
                   } else if (toolName === "register_payment") {
                     // Handle payment registration via Fortnox

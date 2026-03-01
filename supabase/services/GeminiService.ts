@@ -861,6 +861,25 @@ const tools: Tool[] = [
                 }
             },
             {
+                name: "request_clarification",
+                description: "Fråga användaren om saknad information innan en handlingsplan skapas. Använd detta i agent-läge när belopp, antal, pris, momssats eller annan kritisk information saknas i användarens meddelande.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        message: {
+                            type: SchemaType.STRING,
+                            description: "Fråga/meddelande till användaren på svenska. Var specifik om vilken information som behövs."
+                        },
+                        missing_fields: {
+                            type: SchemaType.ARRAY,
+                            description: "Lista på saknade fält (t.ex. 'belopp', 'antal timmar', 'momssats')",
+                            items: { type: SchemaType.STRING }
+                        }
+                    },
+                    required: ["message", "missing_fields"]
+                }
+            },
+            {
                 name: "register_payment",
                 description: "Registrerar en betalning för en kund- eller leverantörsfaktura i Fortnox.",
                 parameters: {
@@ -1094,7 +1113,7 @@ export const sendMessageToGemini = async (
     history?: Array<{ role: string, content: string }>,
     apiKey?: string,
     modelOverride?: string,
-    options?: { disableTools?: boolean; forceToolCall?: string }
+    options?: { disableTools?: boolean; forceToolCall?: string | string[] }
 ): Promise<GeminiResponse> => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -1116,7 +1135,9 @@ export const sendMessageToGemini = async (
             toolConfig: options?.forceToolCall ? {
                 functionCallingConfig: {
                     mode: "ANY" as any,
-                    allowedFunctionNames: [options.forceToolCall],
+                    allowedFunctionNames: Array.isArray(options.forceToolCall)
+                        ? options.forceToolCall
+                        : [options.forceToolCall],
                 },
             } : undefined,
         });
@@ -1280,7 +1301,7 @@ export const sendMessageStreamToGemini = async (
     history?: Array<{ role: string, content: string }>,
     apiKey?: string,
     modelOverride?: string,
-    options?: { disableTools?: boolean; forceToolCall?: string }
+    options?: { disableTools?: boolean; forceToolCall?: string | string[] }
 ) => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -1298,7 +1319,9 @@ export const sendMessageStreamToGemini = async (
             toolConfig: options?.forceToolCall ? {
                 functionCallingConfig: {
                     mode: "ANY" as any,
-                    allowedFunctionNames: [options.forceToolCall],
+                    allowedFunctionNames: Array.isArray(options.forceToolCall)
+                        ? options.forceToolCall
+                        : [options.forceToolCall],
                 },
             } : undefined,
         });
