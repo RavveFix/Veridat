@@ -2629,7 +2629,8 @@ Deno.serve(async (req: Request) => {
         `3. Använd BARA konton från [KONTOPLAN]. Saknas kontoplanen → standard BAS-konton\n` +
         `4. KUNDFAKTUROR: action_type = "create_invoice", parameters MÅSTE innehålla:\n` +
         `   - CustomerNumber: kundnumret från [KUNDER] (matcha namn → nummer)\n` +
-        `   - InvoiceRows: [{ Description: "beskrivning", Price: belopp_exkl_moms, DeliveredQuantity: 1 }]\n` +
+        `   - InvoiceRows: [{ Description: "beskrivning", Price: enhetspris_exkl_moms, DeliveredQuantity: antal }]\n` +
+        `     VIKTIGT: Price = à-pris per enhet, INTE totalbelopp. Exempel: 5 timmar á 2000 kr → Price: 2000, DeliveredQuantity: 5\n` +
         `   - Inkludera ÄVEN posting_rows för konteringsförhandsvisning\n` +
         `5. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice" med parameters: { SupplierNumber: leverantörsnumret från [LEVERANTÖRER] }\n` +
         `6. VERIFIKAT/JOURNALPOSTER: action_type = "book_invoice" med posting_rows\n` +
