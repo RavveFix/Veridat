@@ -829,8 +829,10 @@ function extractInvoiceReference(message: string): { type: "supplier" | "custome
 
 function detectAgentNeeds(message: string): { needsCustomers: boolean; needsSuppliers: boolean; needsArticles: boolean } {
   const m = message.toLowerCase();
+  const isSupplierInvoice = /leverantörsfaktura|lev\.?faktura|supplier invoice/.test(m);
   return {
-    needsCustomers: /kund|faktura|invoice/.test(m) && !/leverantör/.test(m),
+    // Fetch customers for any invoice/kund message UNLESS it's specifically a supplier invoice
+    needsCustomers: /kund|faktura|invoice/.test(m) && !isSupplierInvoice,
     needsSuppliers: /leverantör|supplier|lev\.?faktura/.test(m),
     needsArticles: /artikel|produkt|vara|article/.test(m),
   };
