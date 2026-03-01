@@ -2280,16 +2280,25 @@ Deno.serve(async (req: Request) => {
                       let invoiceRows = params.InvoiceRows || params.invoice_rows;
                       if ((!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) && action.posting_rows?.length) {
                         // Use revenue posting rows (3xxx accounts) to build invoice rows
+                        // parseInt handles accounts like "3041_8" → 3041
                         const revenueRows = action.posting_rows.filter((r: any) => {
-                          const acct = Number(r.account);
-                          return acct >= 3000 && acct <= 3999;
+                          const acct = parseInt(String(r.account), 10);
+                          return !isNaN(acct) && acct >= 3000 && acct <= 3999;
                         });
-                        if (revenueRows.length > 0) {
-                          invoiceRows = revenueRows.map((r: any) => ({
+                        // Fallback: if no 3xxx rows found, use any credit rows
+                        const sourceRows = revenueRows.length > 0
+                          ? revenueRows
+                          : action.posting_rows.filter((r: any) => Number(r.credit) > 0);
+                        if (sourceRows.length > 0) {
+                          invoiceRows = sourceRows.map((r: any) => ({
                             Description: r.comment || r.accountName || action.description,
                             Price: Number(r.credit) || Number(r.debit) || 0,
                             DeliveredQuantity: 1,
                           }));
+                          logger.info("InvoiceRows built from posting_rows fallback", {
+                            rowCount: invoiceRows.length,
+                            source: revenueRows.length > 0 ? "3xxx_accounts" : "credit_rows",
+                          });
                         }
                       }
 
