@@ -2569,60 +2569,74 @@ Deno.serve(async (req: Request) => {
         `- Basera förslaget på informationen i meddelandet och din kunskap om BAS-kontoplanen\n` +
         `- Inkludera ALLTID posting_rows med account (nummer), accountName, debit, credit\n` +
         `- Svara ALDRIG med markdown-tabeller — BARA propose_action_plan\n` +
-        `- Använd STANDARD BAS-konton som garanterat finns i alla kontoplaner:\n` +
-        `  * Intäkter: 3001 (Försäljning varor/tjänster), INTE 3041/3042/3011\n` +
-        `  * Kundfordringar: 1510\n` +
-        `  * Leverantörsskulder: 2440\n` +
-        `  * Utgående moms 25%: 2611, 12%: 2621, 6%: 2631\n` +
-        `  * Ingående moms: 2641\n` +
-        `  * Bank/kassa: 1930 (bank), 1910 (kassa)\n` +
-        `  * Kontorsmaterial: 6110, Förbrukningsinventarier: 5410\n` +
-        `  * Konsulttjänster: 6550, Lokalhyra: 5010\n` +
+        `- Använd BARA konton från [KONTOPLAN] nedan. Om kontoplanen saknas, använd standard BAS-konton.\n` +
         `- För LEVERANTÖRSFAKTUROR:\n` +
         `  * Om fakturan REDAN FINNS i Fortnox (se [FAKTURADATA]): använd "book_supplier_invoice" med parameters: { invoice_number: löpnumret }\n` +
         `  * Om fakturan INTE finns: använd "create_supplier_invoice" med parameters: supplier_number, total_amount, vat_rate, account, description\n` +
         `- För KUNDFAKTUROR/VERIFIKAT: använd action_type "book_invoice" med posting_rows\n\n`;
 
-      // Pre-fetch invoice data from Fortnox if user references a specific invoice
+      // Pre-fetch company chart of accounts + invoice data from Fortnox
       let invoiceContext = "";
+      let accountsContext = "";
       if (resolvedCompanyId) {
+        const fortnoxHeaders = { Authorization: authHeader, "Content-Type": "application/json" };
+        const fortnoxUrl = `${supabaseUrl}/functions/v1/fortnox`;
+
+        // Helper: fetch with 5s timeout
+        const fetchWithTimeout = (body: Record<string, unknown>) => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 5000);
+          return fetch(fortnoxUrl, {
+            method: "POST", headers: fortnoxHeaders, signal: ctrl.signal,
+            body: JSON.stringify(body),
+          }).then(r => { clearTimeout(timer); return r.ok ? r.json() : null; })
+            .catch(() => { clearTimeout(timer); return null; });
+        };
+
+        // Fetch chart of accounts + invoice in parallel (both with 5s timeout)
         const invoiceRef = extractInvoiceReference(message);
-        if (invoiceRef) {
-          try {
-            const fnAction = invoiceRef.type === "supplier" ? "getSupplierInvoice" : "getInvoice";
-            const fnPayload = invoiceRef.type === "supplier"
+        const [accountsData, invoiceData] = await Promise.all([
+          fetchWithTimeout({ action: "getAccounts", companyId: resolvedCompanyId, payload: {} }),
+          invoiceRef ? fetchWithTimeout({
+            action: invoiceRef.type === "supplier" ? "getSupplierInvoice" : "getInvoice",
+            companyId: resolvedCompanyId,
+            payload: invoiceRef.type === "supplier"
               ? { givenNumber: invoiceRef.number }
-              : { invoiceNumber: invoiceRef.number };
-            const resp = await fetch(`${supabaseUrl}/functions/v1/fortnox`, {
-              method: "POST",
-              headers: { Authorization: authHeader, "Content-Type": "application/json" },
-              body: JSON.stringify({ action: fnAction, companyId: resolvedCompanyId, payload: fnPayload }),
-            });
-            if (resp.ok) {
-              const data = await resp.json();
-              const inv = data.SupplierInvoice || data.Invoice;
-              if (inv) {
-                invoiceContext =
-                  `[FAKTURADATA FRÅN FORTNOX]\n` +
-                  `Typ: ${invoiceRef.type === "supplier" ? "Leverantörsfaktura" : "Kundfaktura"}\n` +
-                  `Nummer: ${inv.GivenNumber || inv.DocumentNumber}\n` +
-                  `${invoiceRef.type === "supplier" ? "Leverantör" : "Kund"}: ${inv.SupplierName || inv.CustomerName} (nr ${inv.SupplierNumber || inv.CustomerNumber})\n` +
-                  `Fakturanummer: ${inv.InvoiceNumber || ""}\n` +
-                  `Total: ${inv.Total} kr\n` +
-                  `Moms: ${inv.VAT || inv.TotalVAT || 0} kr\n` +
-                  `Datum: ${inv.InvoiceDate}\n` +
-                  `Förfallodatum: ${inv.DueDate}\n` +
-                  `Status: ${inv.Booked ? "Bokförd" : "Ej bokförd"}\n` +
-                  `Använd dessa EXAKTA belopp i ditt förslag.\n\n`;
-              }
-            }
-          } catch (e) {
-            logger.warn("Agent invoice pre-fetch failed", { error: e });
+              : { invoiceNumber: invoiceRef.number },
+          }) : null,
+        ]);
+
+        // Build compact chart of accounts (comma-separated, only bookkeeping-relevant)
+        if (accountsData?.Accounts) {
+          const active = (accountsData.Accounts as Array<{ Number: number; Description: string; Active: boolean }>)
+            .filter((a) => a.Active && a.Number >= 1000 && a.Number <= 8999)
+            .map((a) => `${a.Number} ${a.Description}`);
+          if (active.length > 0) {
+            accountsContext = `[KONTOPLAN — ${active.length} konton]\n` + active.join(", ") + "\n\n";
+          }
+        }
+
+        // Build invoice context
+        if (invoiceData) {
+          const inv = invoiceData.SupplierInvoice || invoiceData.Invoice;
+          if (inv) {
+            invoiceContext =
+              `[FAKTURADATA FRÅN FORTNOX]\n` +
+              `Typ: ${invoiceRef!.type === "supplier" ? "Leverantörsfaktura" : "Kundfaktura"}\n` +
+              `Nummer: ${inv.GivenNumber || inv.DocumentNumber}\n` +
+              `${invoiceRef!.type === "supplier" ? "Leverantör" : "Kund"}: ${inv.SupplierName || inv.CustomerName} (nr ${inv.SupplierNumber || inv.CustomerNumber})\n` +
+              `Fakturanummer: ${inv.InvoiceNumber || ""}\n` +
+              `Total: ${inv.Total} kr\n` +
+              `Moms: ${inv.VAT || inv.TotalVAT || 0} kr\n` +
+              `Datum: ${inv.InvoiceDate}\n` +
+              `Förfallodatum: ${inv.DueDate}\n` +
+              `Status: ${inv.Booked ? "Bokförd" : "Ej bokförd"}\n` +
+              `Använd dessa EXAKTA belopp i ditt förslag.\n\n`;
           }
         }
       }
 
-      finalMessage += invoiceContext + `Användarens meddelande:\n${message}`;
+      finalMessage += accountsContext + invoiceContext + `Användarens meddelande:\n${message}`;
     }
 
     if (!isSkillAssist && !isAgentMode && !vatReportContext && conversationId) {

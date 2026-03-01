@@ -85,6 +85,7 @@ const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
     'sync_profile',
     'getVATReport',
     'getFinancialStatements',
+    'getAccounts',
 ]);
 
 function shouldFailClosedOnRateLimiterError(action: string): boolean {
@@ -1332,6 +1333,12 @@ Deno.serve(async (req: Request) => {
             case 'getArticles':
                 result = await requireFortnoxService().getArticles();
                 break;
+
+            case 'getAccounts': {
+                const financialYear = typeof payload?.financialYear === 'number' ? payload.financialYear : undefined;
+                result = await requireFortnoxService().getAccounts(financialYear);
+                break;
+            }
 
             case 'getInvoices': {
                 const fromDate = payload?.fromDate as string | undefined;
