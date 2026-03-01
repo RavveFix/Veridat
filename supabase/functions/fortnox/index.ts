@@ -84,6 +84,7 @@ const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
     'findOrCreateSupplier',
     'sync_profile',
     'getVATReport',
+    'getFinancialStatements',
 ]);
 
 function shouldFailClosedOnRateLimiterError(action: string): boolean {
@@ -2321,11 +2322,59 @@ Deno.serve(async (req: Request) => {
                     throw new RequestValidationError('NO_FINANCIAL_YEAR', 'Inget räkenskapsår hittat i Fortnox.');
                 }
 
-                // Fetch all accounts with balances for this financial year
-                const accountsResp = await requireFortnoxService().getAccounts(selectedFY.Id);
-                const allAccounts = (accountsResp.Accounts || []).filter(a => a.Active !== false);
+                // Use SIE type 1 (årssaldon) — the /accounts list endpoint does NOT
+                // return computed BalanceCarriedForward from booked vouchers.
+                const sieExport = await requireFortnoxService().exportSIE(1, selectedFY.Id);
+                const sieContent = sieExport.content;
 
-                // Classify accounts into report sections
+                // Parse SIE file for account names and balances
+                type SieAccount = { number: number; name: string; ib: number; ub: number; res: number };
+                const sieAccounts = new Map<number, SieAccount>();
+
+                function ensureAccount(num: number): SieAccount {
+                    let acc = sieAccounts.get(num);
+                    if (!acc) {
+                        acc = { number: num, name: `Konto ${num}`, ib: 0, ub: 0, res: 0 };
+                        sieAccounts.set(num, acc);
+                    }
+                    return acc;
+                }
+
+                for (const line of sieContent.split('\n')) {
+                    const trimmed = line.trim();
+
+                    // #KONTO 1510 "Kundfordringar"
+                    if (trimmed.startsWith('#KONTO ')) {
+                        const m = trimmed.match(/^#KONTO\s+(\d+)\s+"([^"]*)"/);
+                        if (m) {
+                            const acc = ensureAccount(parseInt(m[1], 10));
+                            acc.name = m[2];
+                        }
+                    }
+                    // #IB 0 1510 12345.00  (year 0 = current year)
+                    else if (trimmed.startsWith('#IB ')) {
+                        const m = trimmed.match(/^#IB\s+0\s+(\d+)\s+([-\d.]+)/);
+                        if (m) {
+                            ensureAccount(parseInt(m[1], 10)).ib = parseFloat(m[2]);
+                        }
+                    }
+                    // #UB 0 1510 67890.00
+                    else if (trimmed.startsWith('#UB ')) {
+                        const m = trimmed.match(/^#UB\s+0\s+(\d+)\s+([-\d.]+)/);
+                        if (m) {
+                            ensureAccount(parseInt(m[1], 10)).ub = parseFloat(m[2]);
+                        }
+                    }
+                    // #RES 0 3010 -15200.00
+                    else if (trimmed.startsWith('#RES ')) {
+                        const m = trimmed.match(/^#RES\s+0\s+(\d+)\s+([-\d.]+)/);
+                        if (m) {
+                            ensureAccount(parseInt(m[1], 10)).res = parseFloat(m[2]);
+                        }
+                    }
+                }
+
+                // Build account lines from SIE data
                 type AccountLine = {
                     number: number;
                     name: string;
@@ -2339,16 +2388,20 @@ Deno.serve(async (req: Request) => {
                     total: number;
                 };
 
-                function toLine(a: { Number: number; Description: string; BalanceBroughtForward?: number; BalanceCarriedForward?: number }): AccountLine {
-                    const opening = a.BalanceBroughtForward || 0;
-                    const closing = a.BalanceCarriedForward || 0;
-                    return {
-                        number: a.Number,
-                        name: a.Description || `Konto ${a.Number}`,
+                const accountLines: AccountLine[] = [];
+                for (const acc of sieAccounts.values()) {
+                    // For balance sheet accounts (1xxx-2xxx): use UB as closing balance
+                    // For P&L accounts (3xxx-8xxx): use RES as the period result
+                    const isBalanceSheet = acc.number < 3000;
+                    const closing = isBalanceSheet ? acc.ub : acc.res;
+                    const opening = acc.ib;
+                    accountLines.push({
+                        number: acc.number,
+                        name: acc.name,
                         openingBalance: opening,
                         closingBalance: closing,
                         change: closing - opening,
-                    };
+                    });
                 }
 
                 function buildSection(title: string, accounts: AccountLine[]): AccountSection {
@@ -2360,8 +2413,6 @@ Deno.serve(async (req: Request) => {
                     };
                 }
 
-                const accountLines = allAccounts.map(toLine);
-
                 // --- RESULTATRÄKNING (P&L) ---
                 // Revenue accounts: 3xxx (credit-normal = negative in Fortnox → negate for display)
                 const revenue = buildSection('Nettoomsättning', accountLines.filter(a => a.number >= 3000 && a.number < 4000));
@@ -2371,9 +2422,9 @@ Deno.serve(async (req: Request) => {
                 const financial = buildSection('Finansiella poster', accountLines.filter(a => a.number >= 8000 && a.number < 9000));
 
                 // P&L totals (revenue is credit-normal in Fortnox, so negative = income)
-                const totalRevenue = revenue.total; // negative in Fortnox = income
-                const totalExpenses = cogs.total + otherExternal.total + personnel.total + financial.total; // positive = cost
-                const netResult = totalRevenue + totalExpenses; // negative = profit (Swedish convention: credit)
+                const totalRevenue = revenue.total;
+                const totalExpenses = cogs.total + otherExternal.total + personnel.total + financial.total;
+                const netResult = totalRevenue + totalExpenses;
 
                 // --- BALANSRÄKNING (Balance Sheet) ---
                 const fixedAssets = buildSection('Anläggningstillgångar', accountLines.filter(a => a.number >= 1000 && a.number < 1400));
@@ -2414,7 +2465,7 @@ Deno.serve(async (req: Request) => {
                         totalLiabilitiesEquity,
                         balanced: Math.abs(totalAssets + totalLiabilitiesEquity) < 1,
                     },
-                    accountCount: allAccounts.length,
+                    accountCount: sieAccounts.size,
                 };
                 break;
             }

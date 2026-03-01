@@ -5,6 +5,7 @@ import { parseAIResponse, markdownToHtml, containsCodeBlock, containsMarkdownTab
 import { ArtifactCard, CodeArtifact } from './ArtifactCard';
 import { VATSummaryCard } from './VATSummaryCard';
 import { JournalEntryCard, type JournalEntry, type JournalValidation, type JournalTransaction } from './JournalEntryCard';
+import { ActionPlanCard, type ActionPlanData, type ActionPlanAction } from './ActionPlanCard';
 import type { VATReportData } from '../../types/vat';
 import type { SkillDraft } from '../../types/skills';
 import { skillService } from '../../services/SkillService';
@@ -24,6 +25,18 @@ interface AIResponseRendererProps {
         entries?: JournalEntry[];
         validation?: JournalValidation;
         transaction?: JournalTransaction;
+        // Action plan metadata
+        plan_id?: string;
+        status?: string;
+        summary?: string;
+        actions?: ActionPlanAction[];
+        assumptions?: string[];
+        execution_results?: Array<{
+            action_id: string;
+            success: boolean;
+            result?: string;
+            error?: string;
+        }>;
     } | null;
     fileName?: string | null;
     fileUrl?: string | null;
@@ -142,6 +155,34 @@ const AIResponseRendererInner: FunctionComponent<AIResponseRendererProps> = ({
                     entries={metadata.entries}
                     validation={metadata.validation}
                     transaction={metadata.transaction}
+                />
+            </div>
+        );
+    }
+
+    // Check if this is an action plan response - show interactive approval card
+    if (metadata?.type === 'action_plan' && metadata.actions && metadata.plan_id) {
+        const planData: ActionPlanData = {
+            type: 'action_plan',
+            plan_id: metadata.plan_id,
+            status: (metadata.status as ActionPlanData['status']) || 'pending',
+            summary: metadata.summary || '',
+            actions: metadata.actions,
+            assumptions: metadata.assumptions,
+            execution_results: metadata.execution_results,
+        };
+
+        const handleActionResponse = (planId: string, decision: 'approved' | 'rejected') => {
+            window.dispatchEvent(new CustomEvent('action-plan-response', {
+                detail: { planId, decision }
+            }));
+        };
+
+        return (
+            <div class="ai-response">
+                <ActionPlanCard
+                    plan={planData}
+                    onRespond={handleActionResponse}
                 />
             </div>
         );

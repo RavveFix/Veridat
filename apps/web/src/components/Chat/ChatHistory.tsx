@@ -45,6 +45,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     const [showUpgradeModal, setShowUpgradeModal] = useState(false);
     const [showScrollButton, setShowScrollButton] = useState(false);
     const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
+    const [streamingMetadata, setStreamingMetadata] = useState<Record<string, unknown> | null>(null);
     const [detectedEntities, setDetectedEntities] = useState<DetectedEntity[]>([]);
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -71,6 +72,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         }
         streamingBufferRef.current = '';
         setStreamingMessage(null);
+        setStreamingMetadata(null);
         setDetectedEntities([]);
 
         if (!isCreatingConversation) {
@@ -238,6 +240,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                 if (newMsg.role === 'assistant') {
                     setIsThinking(false);
                     setStreamingMessage(null); // Clear streaming content now that DB message exists
+                    setStreamingMetadata(null);
                 }
                 setOptimisticMessages([]);
                 pendingOptimisticRef.current = false;
@@ -294,6 +297,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             }
             streamingBufferRef.current = '';
             setStreamingMessage(null);
+            setStreamingMetadata(null);
             setDetectedEntities([]);
             pendingOptimisticRef.current = true;
             setOptimisticMessages(prev => [...prev, tempMessage]);
@@ -329,6 +333,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             setIsThinking(false);
             setErrorMessage(null);
             setStreamingMessage(null);
+            setStreamingMetadata(null);
             const rateLimitData = {
                 remaining: typeof e.detail?.remaining === 'number' ? e.detail.remaining : 0,
                 resetAt: typeof e.detail?.resetAt === 'string' ? e.detail.resetAt : null,
@@ -387,6 +392,45 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         return () => window.removeEventListener('fortnox-entities-detected', handleEntities as EventListener);
     }, []);
 
+    // Handle action plan metadata from streaming responses
+    useEffect(() => {
+        const handleActionPlan = (e: CustomEvent) => {
+            const planData = e.detail;
+            if (planData && planData.plan_id) {
+                setStreamingMetadata({
+                    type: 'action_plan',
+                    plan_id: planData.plan_id,
+                    status: planData.status || 'pending',
+                    summary: planData.summary || '',
+                    actions: planData.actions || [],
+                    assumptions: planData.assumptions,
+                    execution_results: planData.execution_results,
+                });
+            }
+        };
+
+        const handleActionStatus = (e: CustomEvent) => {
+            const status = e.detail;
+            if (status) {
+                setStreamingMetadata(prev => {
+                    if (!prev || prev.type !== 'action_plan') return prev;
+                    return {
+                        ...prev,
+                        status: status.overall_status || prev.status,
+                        execution_results: status.execution_results || prev.execution_results,
+                    };
+                });
+            }
+        };
+
+        window.addEventListener('chat-action-plan', handleActionPlan as EventListener);
+        window.addEventListener('chat-action-status', handleActionStatus as EventListener);
+        return () => {
+            window.removeEventListener('chat-action-plan', handleActionPlan as EventListener);
+            window.removeEventListener('chat-action-status', handleActionStatus as EventListener);
+        };
+    }, []);
+
     // Handle show-upgrade-modal event (from ModelSelectorController when clicking locked Pro)
     useEffect(() => {
         const handleShowUpgradeModal = () => {
@@ -411,6 +455,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             if (lastMsg?.role === 'assistant') {
                 setIsThinking(false);
                 setStreamingMessage(null);
+                setStreamingMetadata(null);
             }
         }
     }, [messages]);
@@ -468,6 +513,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         }
         streamingBufferRef.current = '';
         setStreamingMessage(null);
+        setStreamingMetadata(null);
         setOptimisticMessages([]);
         pendingOptimisticRef.current = false;
         window.dispatchEvent(new CustomEvent('chat-retry'));
@@ -617,7 +663,19 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
 
                     {streamingMessage ? (
                         <div class="bubble thinking-bubble streaming-bubble">
-                            <StreamingText content={streamingMessage} />
+                            {streamingMetadata?.type === 'action_plan' ? (
+                                <>
+                                    {streamingMessage && (
+                                        <StreamingText content={streamingMessage} />
+                                    )}
+                                    <AIResponseRenderer
+                                        content=""
+                                        metadata={streamingMetadata as any}
+                                    />
+                                </>
+                            ) : (
+                                <StreamingText content={streamingMessage} />
+                            )}
                         </div>
                     ) : thinkingTimeout ? (
                         <div class="bubble thinking-bubble">

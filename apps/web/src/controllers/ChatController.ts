@@ -31,9 +31,9 @@ export class ChatController {
     private loadingConversationId: string | null = null;
     private conversationLoadingTimeout: number | null = null;
     private placeholderUnmount: (() => void) | null = null;
-    private skillAssistMode: boolean = false;
-    private static readonly SKILL_ASSIST_STORAGE_KEY = 'veridat_skill_assist_mode';
-    private static readonly SKILL_ASSIST_PLACEHOLDER = 'Beskriv vad du vill automatisera i bokföringen...';
+    private agentMode: boolean = false;
+    private static readonly AGENT_MODE_STORAGE_KEY = 'veridat_agent_mode';
+    private static readonly AGENT_MODE_PLACEHOLDER = 'Beskriv en bokföringsåtgärd du vill utföra...';
 
     init(excelWorkspace: ExcelWorkspace): void {
         this.excelWorkspace = excelWorkspace;
@@ -46,7 +46,7 @@ export class ChatController {
         this.setupCompanyChangeHandler();
         this.setupConversationLoadingHandler();
         this.setupAnimatedPlaceholder();
-        this.setupSkillAssistToggle();
+        this.setupAgentModeToggle();
     }
 
     /**
@@ -130,6 +130,13 @@ export class ChatController {
             this.updateInputForConversationLoading();
         }) as EventListener);
 
+        // Listen for action plan responses (approve/reject from ActionPlanCard)
+        window.addEventListener('action-plan-response', ((event: Event) => {
+            const { planId, decision } = (event as CustomEvent).detail;
+            logger.info('Action plan response', { planId, decision });
+            this.handleActionPlanResponse(planId, decision);
+        }) as EventListener);
+
         // Listen for messages loaded to end loading state (ChatHistory dispatches this)
         window.addEventListener('chat-messages-loaded', ((event: Event) => {
             if (!this.conversationLoading) return;
@@ -166,10 +173,10 @@ export class ChatController {
         } else if (!this.rateLimitActive) {
             // Only re-enable if not rate limited
             userInput.disabled = false;
-            if (placeholderContainer && !userInput.value && !this.skillAssistMode) {
+            if (placeholderContainer && !userInput.value && !this.agentMode) {
                 placeholderContainer.classList.remove('hidden');
             }
-            this.updateInputForSkillAssist();
+            this.updateInputForAgentMode();
             userInput.classList.remove('loading');
             // Focus input after loading completes for better UX
             setTimeout(() => userInput.focus(), 50);
@@ -196,53 +203,53 @@ export class ChatController {
             if (this.conversationLoading) {
                 return;
             }
-            if (placeholderContainer && !userInput.value && !this.skillAssistMode) {
+            if (placeholderContainer && !userInput.value && !this.agentMode) {
                 placeholderContainer.classList.remove('hidden');
             }
-            this.updateInputForSkillAssist();
+            this.updateInputForAgentMode();
             userInput.classList.remove('rate-limited');
         }
     }
 
-    private setupSkillAssistToggle(): void {
-        const { skillAssistToggle } = uiController.elements;
-        if (!skillAssistToggle) return;
+    private setupAgentModeToggle(): void {
+        const { agentModeToggle } = uiController.elements;
+        if (!agentModeToggle) return;
 
-        const stored = localStorage.getItem(ChatController.SKILL_ASSIST_STORAGE_KEY);
-        this.setSkillAssistMode(stored === 'true', false);
+        const stored = localStorage.getItem(ChatController.AGENT_MODE_STORAGE_KEY);
+        this.setAgentMode(stored === 'true', false);
 
-        skillAssistToggle.addEventListener('click', () => {
-            this.setSkillAssistMode(!this.skillAssistMode, true);
+        agentModeToggle.addEventListener('click', () => {
+            this.setAgentMode(!this.agentMode, true);
         });
     }
 
-    private setSkillAssistMode(enabled: boolean, persist: boolean): void {
-        this.skillAssistMode = enabled;
-        const { skillAssistToggle } = uiController.elements;
-        if (skillAssistToggle) {
-            skillAssistToggle.classList.toggle('active', enabled);
-            skillAssistToggle.setAttribute('aria-pressed', String(enabled));
+    private setAgentMode(enabled: boolean, persist: boolean): void {
+        this.agentMode = enabled;
+        const { agentModeToggle } = uiController.elements;
+        if (agentModeToggle) {
+            agentModeToggle.classList.toggle('active', enabled);
+            agentModeToggle.setAttribute('aria-pressed', String(enabled));
         }
         if (persist) {
             try {
-                localStorage.setItem(ChatController.SKILL_ASSIST_STORAGE_KEY, String(enabled));
+                localStorage.setItem(ChatController.AGENT_MODE_STORAGE_KEY, String(enabled));
             } catch {
                 // Ignore storage errors
             }
         }
-        this.updateInputForSkillAssist();
+        this.updateInputForAgentMode();
     }
 
-    private updateInputForSkillAssist(): void {
+    private updateInputForAgentMode(): void {
         const { userInput } = uiController.elements;
         const placeholderContainer = document.getElementById('animated-placeholder-container');
         if (!userInput) return;
 
-        if (this.skillAssistMode) {
+        if (this.agentMode) {
             if (placeholderContainer) {
                 placeholderContainer.classList.add('hidden');
             }
-            userInput.placeholder = ChatController.SKILL_ASSIST_PLACEHOLDER;
+            userInput.placeholder = ChatController.AGENT_MODE_PLACEHOLDER;
         } else if (!this.conversationLoading && !this.rateLimitActive) {
             userInput.placeholder = '';
             if (placeholderContainer && !userInput.value) {
@@ -263,7 +270,7 @@ export class ChatController {
             userInput.addEventListener('input', () => {
                 if (userInput.value.length > 0) {
                     placeholderContainer.classList.add('hidden');
-                } else if (!this.conversationLoading && !this.rateLimitActive && !this.skillAssistMode) {
+                } else if (!this.conversationLoading && !this.rateLimitActive && !this.agentMode) {
                     placeholderContainer.classList.remove('hidden');
                 }
             });
@@ -301,8 +308,8 @@ export class ChatController {
         const { userInput } = uiController.elements;
 
         if (placeholderContainer && userInput) {
-            if (this.skillAssistMode && !this.conversationLoading && !this.rateLimitActive) {
-                this.updateInputForSkillAssist();
+            if (this.agentMode && !this.conversationLoading && !this.rateLimitActive) {
+                this.updateInputForAgentMode();
                 return;
             }
             if (userInput.value.length === 0 && !this.conversationLoading && !this.rateLimitActive) {
@@ -560,7 +567,7 @@ export class ChatController {
         }
 
         const userMessage = message;
-        const shouldUseSkillAssist = this.skillAssistMode && !this.currentFile && userMessage.length > 0;
+        const shouldUseAgent = this.agentMode && !this.currentFile && userMessage.length > 0;
 
         // Show loading state in send button
         const { chatForm } = uiController.elements;
@@ -775,7 +782,7 @@ export class ChatController {
                         }));
                         isFirstChunk = false;
                     },
-                    shouldUseSkillAssist ? 'skill_assist' : null
+                    shouldUseAgent ? 'agent' : null
                 );
 
                 if (!didStream) {
@@ -828,6 +835,38 @@ export class ChatController {
                 restoreButton();
                 conversationController.resetToWelcomeState();
             }
+        }
+    }
+
+    /**
+     * Handle action plan approval/rejection from ActionPlanCard.
+     * Sends the decision to the edge function which executes the plan.
+     */
+    private async handleActionPlanResponse(
+        planId: string,
+        decision: 'approved' | 'rejected'
+    ): Promise<void> {
+        try {
+            let isFirstChunk = true;
+            await chatService.sendActionPlanResponse(
+                planId,
+                decision,
+                undefined,
+                (chunk) => {
+                    window.dispatchEvent(new CustomEvent('chat-streaming-chunk', {
+                        detail: { chunk, isNewResponse: isFirstChunk }
+                    }));
+                    isFirstChunk = false;
+                }
+            );
+            chatService.dispatchRefresh();
+        } catch (error) {
+            logger.error('Action plan response failed', error);
+            uiController.showError(
+                decision === 'approved'
+                    ? 'Kunde inte utföra handlingsplanen. Försök igen.'
+                    : 'Kunde inte avbryta handlingsplanen.'
+            );
         }
     }
 

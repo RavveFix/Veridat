@@ -35,6 +35,8 @@ const ACCOUNTING_TOOLS = new Set([
   "create_journal_entry",
   "export_journal_to_fortnox",
   "book_supplier_invoice",
+  "propose_action_plan",
+  "register_payment",
   "web_search",
 ]);
 
@@ -220,11 +222,49 @@ function buildSupplierInvoiceRows(
   const account = asString(toolArgs.account) || "—";
   const totalAmount = asNumber(toolArgs.total_amount);
   const vatRate = asNumber(toolArgs.vat_rate);
+  const isRC = toolArgs.is_reverse_charge === true;
 
   if (totalAmount === null || vatRate === null) {
     return [];
   }
 
+  // Reverse charge: total_amount is net (no VAT charged by supplier)
+  // Fortnox auto-creates VAT rows, but show them in chat for transparency
+  if (isRC) {
+    const rcVat = Math.round(totalAmount * ((vatRate || 25) / 100) * 100) / 100;
+    return [
+      {
+        account,
+        accountName: "Kostnad",
+        debit: totalAmount,
+        credit: null,
+        comment: "Kostnadsrad (omvänd skattskyldighet)",
+      },
+      {
+        account: "2645",
+        accountName: "Ingående moms omvänd",
+        debit: rcVat,
+        credit: null,
+        comment: `Omvänd skattskyldighet ${vatRate || 25}%`,
+      },
+      {
+        account: "2614",
+        accountName: "Utgående moms omvänd",
+        debit: null,
+        credit: rcVat,
+        comment: `Omvänd skattskyldighet ${vatRate || 25}%`,
+      },
+      {
+        account: "2440",
+        accountName: "Leverantörsskulder",
+        debit: null,
+        credit: totalAmount,
+        comment: "Total skuld till leverantören (exkl. moms)",
+      },
+    ];
+  }
+
+  // Standard VAT path
   const vatMultiplier = 1 + (vatRate / 100);
   const netAmount = Math.round((totalAmount / vatMultiplier) * 100) / 100;
   const vatAmount = Math.round((totalAmount - netAmount) * 100) / 100;
@@ -346,6 +386,11 @@ function buildAssumptions(
     if (!asString(toolArgs.due_date)) {
       assumptions.add(
         "Förfallodatum saknas i underlaget och antas enligt standardvillkor.",
+      );
+    }
+    if (toolArgs.is_reverse_charge === true) {
+      assumptions.add(
+        "Omvänd skattskyldighet tillämpad — bekräfta att fakturan INTE innehåller svensk moms.",
       );
     }
   }

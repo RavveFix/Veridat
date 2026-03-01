@@ -40,7 +40,7 @@ export interface UIElements {
     // Header/settings
     settingsBtn: HTMLElement | null;
     themeToggle: HTMLElement | null;
-    skillAssistToggle: HTMLElement | null;
+    agentModeToggle: HTMLElement | null;
 
     // Loader
     appLoader: HTMLElement | null;
@@ -91,7 +91,7 @@ class UIControllerService {
             // Header/settings
             settingsBtn: document.getElementById('settings-btn'),
             themeToggle: document.getElementById('theme-toggle'),
-            skillAssistToggle: document.getElementById('skill-assist-toggle'),
+            agentModeToggle: document.getElementById('agent-mode-toggle'),
 
             // Loader
             appLoader: document.getElementById('app-loader'),

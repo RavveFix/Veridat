@@ -179,7 +179,7 @@ class ChatServiceClass {
         fileUrl: string | null = null,
         vatReportContext: Record<string, unknown> | null = null,
         onStreamingChunk?: (chunk: string) => void,
-        assistantMode: 'skill_assist' | null = null
+        assistantMode: 'agent' | 'skill_assist' | null = null
     ): Promise<GeminiResponse> {
         logger.startTimer('gemini-chat');
 
@@ -378,6 +378,8 @@ class ChatServiceClass {
                                     text?: string;
                                     toolCall?: { name: string; args: Record<string, unknown> };
                                     usedMemories?: UsedMemory[];
+                                    actionPlan?: Record<string, unknown>;
+                                    actionStatus?: Record<string, unknown>;
                                 };
                                 if (data.text) {
                                     fullText += data.text;
@@ -389,6 +391,18 @@ class ChatServiceClass {
                                 // Capture used memories for transparency
                                 if (data.usedMemories && Array.isArray(data.usedMemories)) {
                                     usedMemories = data.usedMemories;
+                                }
+                                // Dispatch action plan for ActionPlanCard rendering
+                                if (data.actionPlan) {
+                                    window.dispatchEvent(new CustomEvent('chat-action-plan', {
+                                        detail: data.actionPlan
+                                    }));
+                                }
+                                // Dispatch action execution status updates
+                                if (data.actionStatus) {
+                                    window.dispatchEvent(new CustomEvent('chat-action-status', {
+                                        detail: data.actionStatus
+                                    }));
                                 }
                             } catch {
                                 logger.warn('Failed to parse SSE data', { dataStr });
@@ -935,6 +949,98 @@ class ChatServiceClass {
         window.dispatchEvent(new CustomEvent('chat-error', {
             detail: { message }
         }));
+    }
+
+    /**
+     * Send an action plan response (approve/reject) to the edge function.
+     * Returns a streaming response with execution status updates.
+     */
+    async sendActionPlanResponse(
+        planId: string,
+        decision: 'approved' | 'rejected',
+        modifications?: Record<string, unknown>,
+        onStreamingChunk?: (chunk: string) => void
+    ): Promise<GeminiResponse> {
+        const company = companyManager.getCurrent();
+        const conversationId = company.conversationId;
+        if (!conversationId) throw new Error('Ingen aktiv konversation');
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Not authenticated');
+
+        const response = await fetch(`${this.supabaseUrl}/functions/v1/gemini-chat`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({
+                message: decision === 'approved' ? 'Godkänn handlingsplan' : 'Avbryt handlingsplan',
+                conversationId,
+                companyId: company.id,
+                metadata: {
+                    action_response: {
+                        plan_id: planId,
+                        decision,
+                        modifications: modifications || undefined
+                    }
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error((errorData as any)?.message || `Fel vid ${decision === 'approved' ? 'godkännande' : 'avbrytning'}`);
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('text/event-stream')) {
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('No response body');
+
+            const decoder = new TextDecoder();
+            let fullText = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const dataStr = line.slice(6).trim();
+                        if (dataStr === '[DONE]') continue;
+
+                        try {
+                            const data = JSON.parse(dataStr) as {
+                                text?: string;
+                                actionStatus?: Record<string, unknown>;
+                            };
+                            if (data.text) {
+                                fullText += data.text;
+                                if (onStreamingChunk) onStreamingChunk(data.text);
+                            }
+                            if (data.actionStatus) {
+                                window.dispatchEvent(new CustomEvent('chat-action-status', {
+                                    detail: data.actionStatus
+                                }));
+                            }
+                        } catch {
+                            // Ignore parse errors
+                        }
+                    }
+                }
+            }
+
+            this.dispatchRefresh();
+            return { type: 'text', data: fullText };
+        }
+
+        const data = await response.json();
+        this.dispatchRefresh();
+        return data as GeminiResponse;
     }
 
     /**

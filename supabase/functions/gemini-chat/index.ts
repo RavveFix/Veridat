@@ -1127,6 +1127,14 @@ async function generateSmartTitleIfNeeded(
     return null;
   }
 }
+interface ActionResponseMetadata {
+  action_response: {
+    plan_id: string;
+    decision: "approved" | "modified" | "rejected";
+    modifications?: Record<string, unknown>;
+  };
+}
+
 interface RequestBody {
   action?: "generate_title" | null;
   message: string;
@@ -1141,8 +1149,9 @@ interface RequestBody {
   vatReportContext?: VATReportContext | null;
   model?: string | null;
   titleContext?: string | null;
-  assistantMode?: "skill_assist" | null;
+  assistantMode?: "skill_assist" | "agent" | null;
   stream?: boolean;
+  metadata?: ActionResponseMetadata | null;
 }
 
 // Proper type for VAT report context instead of 'any'
@@ -1278,6 +1287,31 @@ async function executeFortnoxTool(
           }`
           : "Inga verifikationer hittades.";
       }
+      case "get_invoice": {
+        const invNum = Number(toolArgs.invoice_number);
+        const resp = await fortnoxService.getInvoice(invNum);
+        const inv = (resp as any).Invoice || resp;
+        return `Faktura ${inv.InvoiceNumber}:\n` +
+          `- Kund: ${inv.CustomerName || "—"} (${inv.CustomerNumber})\n` +
+          `- Datum: ${inv.InvoiceDate}\n` +
+          `- Förfallodatum: ${inv.DueDate}\n` +
+          `- Belopp: ${inv.Total} kr (varav moms ${inv.TotalVAT} kr)\n` +
+          `- Netto: ${inv.Net} kr\n` +
+          `- Bokförd: ${inv.Booked ? "Ja" : "Nej"}\n` +
+          `- Status: ${inv.Cancelled ? "Makulerad" : inv.Booked ? "Bokförd" : "Utkast"}`;
+      }
+      case "get_supplier_invoice": {
+        const siNum = Number(toolArgs.given_number);
+        const resp = await fortnoxService.getSupplierInvoice(siNum);
+        const si = (resp as any).SupplierInvoice || resp;
+        return `Leverantörsfaktura ${si.GivenNumber}:\n` +
+          `- Leverantör: ${si.SupplierName || "—"} (${si.SupplierNumber})\n` +
+          `- Fakturanr: ${si.InvoiceNumber || "—"}\n` +
+          `- Datum: ${si.InvoiceDate}\n` +
+          `- Förfallodatum: ${si.DueDate}\n` +
+          `- Belopp: ${si.Total} kr (varav moms ${si.VAT || 0} kr)\n` +
+          `- Bokförd: ${si.Booked ? "Ja" : "Nej"}`;
+      }
       case "create_supplier": {
         const csArgs = toolArgs as CreateSupplierArgs;
         const result = await callFortnoxWrite(
@@ -1308,9 +1342,35 @@ async function executeFortnoxTool(
       }
       case "create_supplier_invoice": {
         const siArgs = toolArgs as CreateSupplierInvoiceArgs;
+        const isRC = siArgs.is_reverse_charge === true;
+
+        // For reverse charge: total_amount IS the net (no VAT charged by supplier)
+        // For normal: calculate net from gross using VAT rate
         const vatMul = 1 + (siArgs.vat_rate / 100);
-        const net = Math.round((siArgs.total_amount / vatMul) * 100) / 100;
-        const vat = Math.round((siArgs.total_amount - net) * 100) / 100;
+        const net = isRC
+          ? siArgs.total_amount
+          : Math.round((siArgs.total_amount / vatMul) * 100) / 100;
+        const vat = isRC
+          ? 0
+          : (typeof siArgs.vat_amount === "number"
+            ? siArgs.vat_amount
+            : Math.round((siArgs.total_amount - net) * 100) / 100);
+
+        // For reverse charge: Fortnox auto-creates VAT rows (2645/2614)
+        // when VATType is EUINTERNAL — send only cost + payables rows
+        const fortnoxRows = isRC
+          ? [
+            { Account: siArgs.account, Debit: net, Credit: 0 },
+            { Account: 2440, Debit: 0, Credit: net },
+          ]
+          : [
+            { Account: siArgs.account, Debit: net, Credit: 0 },
+            { Account: 2640, Debit: vat, Credit: 0 },
+            { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
+          ];
+
+        const vatType = isRC ? "EUINTERNAL" : "NORMAL";
+
         const result = await callFortnoxWrite(
           "exportSupplierInvoice",
           {
@@ -1321,14 +1381,11 @@ async function executeFortnoxTool(
               DueDate: siArgs.due_date ||
                 new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
               Total: siArgs.total_amount,
-              VAT: vat,
-              VATType: "NORMAL",
+              VAT: isRC ? 0 : vat,
+              VATType: vatType,
+              Currency: siArgs.currency || "SEK",
               AccountingMethod: "ACCRUAL",
-              SupplierInvoiceRows: [
-                { Account: siArgs.account, Debit: net, Credit: 0 },
-                { Account: 2640, Debit: vat, Credit: 0 },
-                { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
-              ],
+              SupplierInvoiceRows: fortnoxRows,
             },
           },
           "export_supplier_invoice",
@@ -1344,7 +1401,8 @@ async function executeFortnoxTool(
             `supplier-${siArgs.supplier_number}`,
           newState: result as unknown as Record<string, unknown>,
         });
-        return `Leverantörsfaktura skapad!\n- Belopp: ${siArgs.total_amount} kr (${net} + ${vat} moms)\n- Konto: ${siArgs.account}\n- Förfallodatum: ${
+        const rcNote = isRC ? " (omvänd skattskyldighet)" : "";
+        return `Leverantörsfaktura skapad!${rcNote}\n- Belopp: ${siArgs.total_amount} kr${isRC ? "" : ` (${net} + ${vat} moms)`}\n- Konto: ${siArgs.account}\n- Förfallodatum: ${
           siArgs.due_date || "30 dagar"
         }`;
       }
@@ -1411,8 +1469,35 @@ async function executeFortnoxTool(
         });
         return `Leverantörsfaktura ${bArgs.invoice_number} är nu bokförd.`;
       }
-      case "create_invoice":
-        return null; // Handled by client
+      case "create_invoice": {
+        const ciArgs = toolArgs as Record<string, unknown>;
+        const result = await callFortnoxWrite(
+          "createInvoice",
+          {
+            invoice: {
+              CustomerNumber: ciArgs.CustomerNumber,
+              InvoiceRows: ciArgs.InvoiceRows || [],
+              InvoiceDate: ciArgs.InvoiceDate ||
+                new Date().toISOString().slice(0, 10),
+              DueDate: ciArgs.DueDate || undefined,
+              Comments: ciArgs.Comments || undefined,
+            },
+          },
+          "create_invoice",
+          String(ciArgs.CustomerNumber),
+        );
+        const inv = (result as any)?.Invoice || result;
+        void auditService.log({
+          userId,
+          companyId: companyId || undefined,
+          actorType: "ai",
+          action: "create",
+          resourceType: "invoice",
+          resourceId: String(inv.InvoiceNumber || ""),
+          newState: result,
+        });
+        return `Kundfaktura skapad som utkast (nr ${inv.InvoiceNumber || "tilldelas"}) i Fortnox.`;
+      }
       default:
         return null;
     }
@@ -1504,11 +1589,13 @@ Deno.serve(async (req: Request) => {
       titleContext,
       assistantMode,
       stream: streamParam,
+      metadata: requestMetadata,
     }: RequestBody = await req.json();
     const hasFileAttachment = Boolean(
       fileData || fileDataPages || documentText || fileUrl || fileName,
     );
     const isSkillAssist = assistantMode === "skill_assist";
+    const isAgentMode = assistantMode === "agent";
 
     // Log which model is requested
     if (model) {
@@ -1783,6 +1870,554 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Handle action plan response (approve/reject/modify)
+    if (requestMetadata?.action_response) {
+      const { plan_id, decision, modifications } =
+        requestMetadata.action_response;
+      logger.info("Action plan response received", { plan_id, decision });
+
+      try {
+        // Find the message with this action plan
+        const { data: planMessages } = await supabaseAdmin
+          .from("messages")
+          .select("id, metadata")
+          .eq("conversation_id", conversationId)
+          .not("metadata", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(20);
+
+        const planMessage = (planMessages || []).find(
+          (m: any) => m.metadata?.plan_id === plan_id,
+        );
+
+        if (!planMessage) {
+          return new Response(
+            JSON.stringify({ error: "action_plan_not_found" }),
+            {
+              status: 404,
+              headers: {
+                ...responseHeaders,
+                "Content-Type": "application/json",
+              },
+            },
+          );
+        }
+
+        const plan = planMessage.metadata as Record<string, unknown>;
+        const actions = (plan.actions || []) as Array<{
+          id: string;
+          action_type: string;
+          description: string;
+          parameters: Record<string, unknown>;
+          posting_rows?: Array<Record<string, unknown>>;
+          status: string;
+        }>;
+
+        if (decision === "rejected") {
+          // Update plan status to rejected
+          await supabaseAdmin
+            .from("messages")
+            .update({
+              metadata: { ...plan, status: "rejected" },
+            })
+            .eq("id", planMessage.id);
+
+          const encoder = new TextEncoder();
+          const rejectStream = new ReadableStream({
+            start(controller) {
+              const text = "Handlingsplanen har avbrutits. Inget har ändrats i Fortnox.";
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ text })}\n\n`,
+                ),
+              );
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            },
+          });
+
+          // Save the assistant rejection message
+          if (conversationService) {
+            await conversationService.addMessage(
+              conversationId!,
+              "assistant",
+              "Handlingsplanen har avbrutits. Inget har ändrats i Fortnox.",
+            );
+          }
+
+          return new Response(rejectStream, {
+            headers: {
+              ...responseHeaders,
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
+        }
+
+        // Execute approved/modified actions
+        const fortnoxConfig = {
+          clientId: Deno.env.get("FORTNOX_CLIENT_ID") ?? "",
+          clientSecret: Deno.env.get("FORTNOX_CLIENT_SECRET") ?? "",
+          redirectUri: "",
+        };
+        const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+
+        const executionResults: Array<{
+          action_id: string;
+          success: boolean;
+          result?: string;
+          error?: string;
+        }> = [];
+
+        const encoder = new TextEncoder();
+        const execStream = new ReadableStream({
+          async start(controller) {
+            try {
+              for (let i = 0; i < actions.length; i++) {
+                let action = actions[i];
+
+                // Apply modifications if any
+                if (decision === "modified" && modifications) {
+                  const actionMods = (modifications as any)[action.id];
+                  if (actionMods) {
+                    action = { ...action, ...actionMods };
+                  }
+                }
+
+                // Stream status update
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${
+                      JSON.stringify({
+                        actionStatus: {
+                          step: i + 1,
+                          total: actions.length,
+                          action_id: action.id,
+                          description: action.description,
+                          status: "executing",
+                        },
+                      })
+                    }\n\n`,
+                  ),
+                );
+
+                try {
+                  const buildIdempotencyKey = (op: string, res: string) =>
+                    `action_plan:${plan_id}:${op}:${res}`.slice(0, 200);
+
+                  const callFortnoxWrite = async (
+                    fnAction: string,
+                    payload: Record<string, unknown>,
+                    operation: string,
+                    resource: string,
+                  ): Promise<Record<string, unknown>> => {
+                    const response = await fetch(
+                      `${supabaseUrl}/functions/v1/fortnox`,
+                      {
+                        method: "POST",
+                        headers: {
+                          Authorization: authHeader,
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          action: fnAction,
+                          companyId: resolvedCompanyId,
+                          payload: {
+                            ...payload,
+                            idempotencyKey: buildIdempotencyKey(
+                              operation,
+                              resource,
+                            ),
+                            sourceContext: "action-plan-execution",
+                          },
+                        }),
+                      },
+                    );
+                    const result = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                      throw new Error(
+                        typeof result?.error === "string"
+                          ? result.error
+                          : `Fortnox write failed (${response.status})`,
+                      );
+                    }
+                    return (result || {}) as Record<string, unknown>;
+                  };
+
+                  let resultText = "";
+                  const params = action.parameters || {};
+
+                  switch (action.action_type) {
+                    case "create_supplier_invoice": {
+                      const isRC = params.is_reverse_charge === true;
+                      const vatMul = 1 +
+                        ((params.vat_rate as number || 25) / 100);
+                      const totalAmt = params.total_amount as number || 0;
+                      const net = isRC
+                        ? totalAmt
+                        : Math.round((totalAmt / vatMul) * 100) / 100;
+                      const vat = isRC
+                        ? 0
+                        : Math.round((totalAmt - net) * 100) / 100;
+
+                      const result = await callFortnoxWrite(
+                        "exportSupplierInvoice",
+                        {
+                          invoice: {
+                            SupplierNumber: params.supplier_number,
+                            InvoiceNumber: params.invoice_number || "",
+                            InvoiceDate: params.invoice_date ||
+                              new Date().toISOString().slice(0, 10),
+                            DueDate: params.due_date || "",
+                            Total: totalAmt,
+                            Currency: params.currency || "SEK",
+                            VATType: isRC ? "EUINTERNAL" : undefined,
+                            SupplierInvoiceRows: [
+                              {
+                                Account: params.account || 5010,
+                                Debit: net,
+                                Credit: 0,
+                              },
+                              ...(isRC ? [] : [
+                                {
+                                  Account: 2640,
+                                  Debit: vat,
+                                  Credit: 0,
+                                },
+                              ]),
+                              {
+                                Account: 2440,
+                                Debit: 0,
+                                Credit: totalAmt,
+                              },
+                            ],
+                          },
+                        },
+                        "create_supplier_invoice",
+                        String(params.supplier_number),
+                      );
+                      const givenNumber =
+                        (result as any)?.SupplierInvoice?.GivenNumber || "";
+                      resultText =
+                        `Leverantörsfaktura skapad (nr ${givenNumber})`;
+                      void auditService.log({
+                        userId,
+                        companyId: resolvedCompanyId || undefined,
+                        actorType: "ai",
+                        action: "create",
+                        resourceType: "supplier_invoice",
+                        resourceId: String(givenNumber),
+                        newState: result,
+                      });
+                      break;
+                    }
+                    case "book_supplier_invoice": {
+                      await callFortnoxWrite(
+                        "bookSupplierInvoice",
+                        {
+                          givenNumber: Number(params.invoice_number),
+                        },
+                        "book_supplier_invoice",
+                        String(params.invoice_number),
+                      );
+                      resultText =
+                        `Leverantörsfaktura ${params.invoice_number} bokförd`;
+                      void auditService.log({
+                        userId,
+                        companyId: resolvedCompanyId || undefined,
+                        actorType: "ai",
+                        action: "update",
+                        resourceType: "supplier_invoice",
+                        resourceId: String(params.invoice_number),
+                      });
+                      break;
+                    }
+                    case "create_supplier": {
+                      const result = await callFortnoxWrite(
+                        "createSupplier",
+                        {
+                          supplier: {
+                            Name: params.name,
+                            OrganisationNumber: params.org_number || undefined,
+                            Email: params.email || undefined,
+                          },
+                        },
+                        "create_supplier",
+                        String(params.org_number || params.name),
+                      );
+                      const supplier = (result as any).Supplier || result;
+                      resultText =
+                        `Leverantör skapad: ${supplier.Name || params.name} (nr ${supplier.SupplierNumber || "tilldelas"})`;
+                      break;
+                    }
+                    case "export_journal_to_fortnox": {
+                      const result = await callFortnoxWrite(
+                        "exportVoucher",
+                        {
+                          voucher: params.voucher || params,
+                        },
+                        "export_journal_to_fortnox",
+                        String(params.journal_entry_id || ""),
+                      );
+                      const voucher = (result as any).Voucher || result;
+                      resultText =
+                        `Verifikat exporterat: ${voucher.VoucherSeries || ""}${voucher.VoucherNumber || ""}`;
+                      break;
+                    }
+                    case "register_payment": {
+                      const payType = params.payment_type as string;
+                      const invoiceNum = String(
+                        params.invoice_number || "",
+                      );
+                      const payAmount = params.amount as number || 0;
+                      const payDate = (params.payment_date as string) ||
+                        new Date().toISOString().slice(0, 10);
+
+                      if (payType === "supplier") {
+                        await callFortnoxWrite(
+                          "registerSupplierInvoicePayment",
+                          {
+                            payment: {
+                              InvoiceNumber: invoiceNum,
+                              Amount: payAmount,
+                              PaymentDate: payDate,
+                            },
+                          },
+                          "register_supplier_invoice_payment",
+                          invoiceNum,
+                        );
+                      } else {
+                        await callFortnoxWrite(
+                          "registerInvoicePayment",
+                          {
+                            payment: {
+                              InvoiceNumber: Number(invoiceNum),
+                              Amount: payAmount,
+                              PaymentDate: payDate,
+                            },
+                          },
+                          "register_invoice_payment",
+                          invoiceNum,
+                        );
+                      }
+                      resultText =
+                        `Betalning ${payAmount} kr registrerad för faktura ${invoiceNum}`;
+                      break;
+                    }
+                    case "create_invoice": {
+                      const result = await callFortnoxWrite(
+                        "createInvoice",
+                        {
+                          invoice: {
+                            CustomerNumber: params.CustomerNumber ||
+                              params.customer_number,
+                            InvoiceRows: params.InvoiceRows ||
+                              params.invoice_rows || [],
+                            InvoiceDate: params.InvoiceDate ||
+                              params.invoice_date ||
+                              new Date().toISOString().slice(0, 10),
+                            DueDate: params.DueDate || params.due_date ||
+                              undefined,
+                            Comments: params.Comments || params.description ||
+                              undefined,
+                          },
+                        },
+                        "create_invoice",
+                        String(
+                          params.CustomerNumber || params.customer_number,
+                        ),
+                      );
+                      const inv = (result as any)?.Invoice || result;
+                      resultText = `Kundfaktura skapad som utkast (nr ${
+                        inv.InvoiceNumber || "tilldelas"
+                      })`;
+                      void auditService.log({
+                        userId,
+                        companyId: resolvedCompanyId || undefined,
+                        actorType: "ai",
+                        action: "create",
+                        resourceType: "invoice",
+                        resourceId: String(inv.InvoiceNumber || ""),
+                        newState: result,
+                      });
+                      break;
+                    }
+                    default:
+                      resultText =
+                        `Okänd åtgärdstyp: ${action.action_type}`;
+                  }
+
+                  executionResults.push({
+                    action_id: action.id,
+                    success: true,
+                    result: resultText,
+                  });
+
+                  // Stream success
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${
+                        JSON.stringify({
+                          actionStatus: {
+                            step: i + 1,
+                            total: actions.length,
+                            action_id: action.id,
+                            description: action.description,
+                            status: "completed",
+                            result: resultText,
+                          },
+                        })
+                      }\n\n`,
+                    ),
+                  );
+                } catch (actionError) {
+                  const errorMsg = actionError instanceof Error
+                    ? actionError.message
+                    : "Okänt fel";
+                  executionResults.push({
+                    action_id: action.id,
+                    success: false,
+                    error: errorMsg,
+                  });
+
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${
+                        JSON.stringify({
+                          actionStatus: {
+                            step: i + 1,
+                            total: actions.length,
+                            action_id: action.id,
+                            description: action.description,
+                            status: "failed",
+                            error: errorMsg,
+                          },
+                        })
+                      }\n\n`,
+                    ),
+                  );
+                }
+              }
+
+              // Build summary text
+              const successCount = executionResults.filter((r) => r.success)
+                .length;
+              const failCount = executionResults.filter((r) => !r.success)
+                .length;
+              const summaryLines = executionResults.map((r) =>
+                r.success ? `- ${r.result}` : `- Fel: ${r.error}`
+              );
+              const summaryText = failCount === 0
+                ? `Alla ${successCount} åtgärder har utförts:\n${summaryLines.join("\n")}`
+                : `${successCount} av ${executionResults.length} åtgärder lyckades:\n${summaryLines.join("\n")}`;
+
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ text: summaryText })}\n\n`,
+                ),
+              );
+
+              // Update plan status
+              const newStatus = failCount === 0 ? "executed" : "partial";
+              await supabaseAdmin
+                .from("messages")
+                .update({
+                  metadata: {
+                    ...plan,
+                    status: newStatus,
+                    execution_results: executionResults,
+                  },
+                })
+                .eq("id", planMessage.id);
+
+              // Save the execution summary as assistant message
+              if (conversationService || conversationId) {
+                try {
+                  if (!conversationService) {
+                    conversationService = new ConversationService(
+                      supabaseClient,
+                    );
+                  }
+                  await conversationService.addMessage(
+                    conversationId!,
+                    "assistant",
+                    summaryText,
+                  );
+                } catch (_saveErr) {
+                  logger.warn("Failed to save execution summary");
+                }
+              }
+
+              // Log AI decision
+              void auditService.logAIDecision({
+                userId,
+                companyId: resolvedCompanyId || undefined,
+                aiProvider: "action_plan",
+                aiModel: "user_approved",
+                aiFunction: "execute_action_plan",
+                inputData: {
+                  plan_id,
+                  decision,
+                  action_count: actions.length,
+                },
+                outputData: {
+                  success_count: successCount,
+                  fail_count: failCount,
+                  results: executionResults,
+                },
+                confidence: 1.0,
+              });
+
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            } catch (streamErr) {
+              logger.error("Action plan execution stream error", streamErr);
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${
+                    JSON.stringify({
+                      text: "Ett fel uppstod vid utförande av handlingsplanen.",
+                    })
+                  }\n\n`,
+                ),
+              );
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            }
+          },
+        });
+
+        return new Response(execStream, {
+          headers: {
+            ...responseHeaders,
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        });
+      } catch (planError) {
+        logger.error("Action plan execution failed", planError);
+        return new Response(
+          JSON.stringify({
+            error: "action_plan_execution_failed",
+            message: planError instanceof Error
+              ? planError.message
+              : "Okänt fel",
+          }),
+          {
+            status: 500,
+            headers: {
+              ...responseHeaders,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+    }
+
     const historyIntent = (hasFileAttachment || isSkillAssist)
       ? { search: false, recent: false }
       : detectHistoryIntent(message);
@@ -1899,7 +2534,17 @@ Deno.serve(async (req: Request) => {
     if (isSkillAssist) {
       finalMessage =
         `${buildSkillAssistSystemPrompt()}\n\nAnvändarens önskemål:\n${message}`;
-    } else if (!vatReportContext && conversationId) {
+    } else if (isAgentMode) {
+      finalMessage =
+        `[AGENT-LÄGE AKTIVT] Användaren har aktiverat agent-läge. Du ska:\n` +
+        `1. ALLTID föreslå konkreta åtgärder via propose_action_plan med debet/kredit-poster\n` +
+        `2. Vara proaktiv — analysera och föreslå utan att bli tillfrågad\n` +
+        `3. Kedja operationer — efter en åtgärd, föreslå nästa steg\n` +
+        `4. Hämta fakturor/verifikat automatiskt för att ge fullständiga förslag\n\n` +
+        `Användarens meddelande:\n${message}`;
+    }
+
+    if (!isSkillAssist && !isAgentMode && !vatReportContext && conversationId) {
       try {
         const { data: reports, error } = await supabaseAdmin
           .from("vat_reports")
@@ -2213,6 +2858,14 @@ ANVÄNDARFRÅGA:
         const encoder = new TextEncoder();
         let fullText = "";
         let toolCallDetected: any = null;
+        let streamingActionPlan: {
+          type: string;
+          plan_id: string;
+          status: string;
+          summary: string;
+          actions: Array<Record<string, unknown>>;
+          assumptions: string[];
+        } | null = null;
 
         const responseStream = new ReadableStream({
           async start(controller) {
@@ -2381,6 +3034,126 @@ ANVÄNDARFRÅGA:
                       toolResponseText = followUp.text ||
                         "Jag kunde inte sammanställa ett svar från webbkällorna.";
                     }
+                  } else if (toolName === "propose_action_plan") {
+                    // Handle action plan proposal — save to metadata, stream as interactive card
+                    const planArgs = toolArgs as {
+                      summary?: string;
+                      actions?: Array<{
+                        action_type: string;
+                        description: string;
+                        parameters: Record<string, unknown>;
+                        posting_rows?: Array<{
+                          account: string;
+                          accountName: string;
+                          debit: number;
+                          credit: number;
+                          comment?: string;
+                        }>;
+                        confidence?: number;
+                      }>;
+                      assumptions?: string[];
+                    };
+                    const planId = crypto.randomUUID();
+                    const actionPlan = {
+                      type: "action_plan" as const,
+                      plan_id: planId,
+                      status: "pending" as const,
+                      summary: planArgs.summary || "Handlingsplan",
+                      actions: (planArgs.actions || []).map((a, i) => ({
+                        id: `${planId}-${i}`,
+                        action_type: a.action_type,
+                        description: a.description,
+                        parameters: a.parameters || {},
+                        posting_rows: a.posting_rows || [],
+                        confidence: a.confidence ?? 0.8,
+                        status: "pending" as const,
+                      })),
+                      assumptions: planArgs.assumptions || [],
+                    };
+
+                    // Stream the action plan as a special SSE event
+                    const ssePlanData = `data: ${
+                      JSON.stringify({ actionPlan })
+                    }\n\n`;
+                    controller.enqueue(encoder.encode(ssePlanData));
+
+                    // Also set a text summary for the AI to follow up on
+                    const actionsDesc = actionPlan.actions
+                      .map((a, i) => `${i + 1}. ${a.description}`)
+                      .join("\n");
+                    toolResponseText =
+                      `Jag har förberett en handlingsplan: "${actionPlan.summary}"\n\n${actionsDesc}\n\nGodkänn, ändra eller avbryt planen med knapparna ovan.`;
+
+                    // Save plan metadata for the message (will be stored below)
+                    streamingActionPlan = actionPlan;
+
+                    logger.info("Action plan proposed", {
+                      planId,
+                      actionCount: actionPlan.actions.length,
+                      summary: actionPlan.summary,
+                    });
+                  } else if (toolName === "register_payment") {
+                    // Handle payment registration via Fortnox
+                    const payArgs = toolArgs as {
+                      payment_type?: string;
+                      invoice_number?: string;
+                      amount?: number;
+                      payment_date?: string;
+                    };
+                    const paymentDate = payArgs.payment_date ||
+                      new Date().toISOString().slice(0, 10);
+                    const invoiceNum = payArgs.invoice_number || "";
+                    const payAmount = payArgs.amount || 0;
+
+                    if (payArgs.payment_type === "supplier") {
+                      const result = await callFortnoxWrite(
+                        "registerSupplierInvoicePayment",
+                        {
+                          payment: {
+                            InvoiceNumber: invoiceNum,
+                            Amount: payAmount,
+                            PaymentDate: paymentDate,
+                          },
+                        },
+                        "register_supplier_invoice_payment",
+                        invoiceNum,
+                      );
+                      void auditService.log({
+                        userId,
+                        companyId: resolvedCompanyId || undefined,
+                        actorType: "ai",
+                        action: "create",
+                        resourceType: "supplier_invoice_payment",
+                        resourceId: invoiceNum,
+                        newState: result,
+                      });
+                      toolResponseText =
+                        `Betalning på ${payAmount} kr registrerad för leverantörsfaktura ${invoiceNum} (${paymentDate}).`;
+                    } else {
+                      const result = await callFortnoxWrite(
+                        "registerInvoicePayment",
+                        {
+                          payment: {
+                            InvoiceNumber: Number(invoiceNum),
+                            Amount: payAmount,
+                            PaymentDate: paymentDate,
+                          },
+                        },
+                        "register_invoice_payment",
+                        invoiceNum,
+                      );
+                      void auditService.log({
+                        userId,
+                        companyId: resolvedCompanyId || undefined,
+                        actorType: "ai",
+                        action: "create",
+                        resourceType: "invoice_payment",
+                        resourceId: invoiceNum,
+                        newState: result,
+                      });
+                      toolResponseText =
+                        `Betalning på ${payAmount} kr registrerad för kundfaktura ${invoiceNum} (${paymentDate}).`;
+                    }
                   } else if (toolName === "learn_accounting_pattern") {
                     // Handle learning a new accounting pattern from user correction
                     const patternArgs = toolArgs as LearnAccountingPatternArgs;
@@ -2490,10 +3263,14 @@ ANVÄNDARFRÅGA:
                       supabaseClient,
                     );
                   }
-                  // Include usedMemories in metadata for transparency
-                  const messageMetadata = usedMemories.length > 0
-                    ? { usedMemories }
-                    : null;
+                  // Include usedMemories and action plan in metadata
+                  const messageMetadata: Record<string, unknown> | null =
+                    (usedMemories.length > 0 || streamingActionPlan)
+                      ? {
+                        ...(usedMemories.length > 0 ? { usedMemories } : {}),
+                        ...(streamingActionPlan ? streamingActionPlan : {}),
+                      }
+                      : null;
                   await conversationService.addMessage(
                     conversationId,
                     "assistant",
@@ -2669,6 +3446,7 @@ ANVÄNDARFRÅGA:
       let toolResult: any;
       let responseText = "";
       let toolStructuredData: Record<string, unknown> | null = null;
+      let nonStreamMetadata: Record<string, unknown> | null = null;
       let toolExecutionFailed = false;
       const shouldFormatCurrentToolResponse =
         shouldFormatAccountingToolResponse(tool);
@@ -2812,14 +3590,39 @@ ANVÄNDARFRÅGA:
             }
             break;
           }
-          case "create_invoice":
-            return new Response(JSON.stringify({ type: "json", data: args }), {
-              status: 200,
-              headers: {
-                ...responseHeaders,
-                "Content-Type": "application/json",
+          case "create_invoice": {
+            toolResult = await callFortnoxWrite(
+              "createInvoice",
+              {
+                invoice: {
+                  CustomerNumber: args.CustomerNumber,
+                  InvoiceRows: args.InvoiceRows || [],
+                  InvoiceDate: (args as any).InvoiceDate ||
+                    new Date().toISOString().slice(0, 10),
+                  DueDate: (args as any).DueDate || undefined,
+                  Comments: (args as any).Comments || undefined,
+                },
               },
+              "create_invoice",
+              String(args.CustomerNumber),
+            );
+            const cInv = (toolResult as any)?.Invoice || toolResult;
+            responseText = `Kundfaktura skapad som utkast (nr ${cInv.InvoiceNumber || "tilldelas"}) i Fortnox.`;
+            void auditService.log({
+              userId,
+              companyId: resolvedCompanyId || undefined,
+              actorType: "ai",
+              action: "create",
+              resourceType: "invoice",
+              resourceId: String(cInv.InvoiceNumber || ""),
+              newState: toolResult,
             });
+            toolStructuredData = {
+              toolArgs: args as Record<string, unknown>,
+              toolResult: toolResult as Record<string, unknown>,
+            };
+            break;
+          }
           case "get_customers":
             toolResult = await fortnoxService.getCustomers();
             responseText = `Här är dina kunder: ${
@@ -2884,6 +3687,41 @@ ANVÄNDARFRÅGA:
             };
             break;
           }
+          case "get_invoice": {
+            const invNum = Number(args.invoice_number);
+            toolResult = await fortnoxService.getInvoice(invNum);
+            const inv = (toolResult as any).Invoice || toolResult;
+            responseText = `Faktura ${inv.InvoiceNumber}:\n` +
+              `- Kund: ${inv.CustomerName || "—"} (${inv.CustomerNumber})\n` +
+              `- Datum: ${inv.InvoiceDate}\n` +
+              `- Förfallodatum: ${inv.DueDate}\n` +
+              `- Belopp: ${inv.Total} kr (varav moms ${inv.TotalVAT} kr)\n` +
+              `- Netto: ${inv.Net} kr\n` +
+              `- Bokförd: ${inv.Booked ? "Ja" : "Nej"}\n` +
+              `- Status: ${inv.Cancelled ? "Makulerad" : inv.Booked ? "Bokförd" : "Utkast"}`;
+            toolStructuredData = {
+              toolArgs: args as Record<string, unknown>,
+              toolResult: toolResult as Record<string, unknown>,
+            };
+            break;
+          }
+          case "get_supplier_invoice": {
+            const siNum = Number(args.given_number);
+            toolResult = await fortnoxService.getSupplierInvoice(siNum);
+            const si = (toolResult as any).SupplierInvoice || toolResult;
+            responseText = `Leverantörsfaktura ${si.GivenNumber}:\n` +
+              `- Leverantör: ${si.SupplierName || "—"} (${si.SupplierNumber})\n` +
+              `- Fakturanr: ${si.InvoiceNumber || "—"}\n` +
+              `- Datum: ${si.InvoiceDate}\n` +
+              `- Förfallodatum: ${si.DueDate}\n` +
+              `- Belopp: ${si.Total} kr (varav moms ${si.VAT || 0} kr)\n` +
+              `- Bokförd: ${si.Booked ? "Ja" : "Nej"}`;
+            toolStructuredData = {
+              toolArgs: args as Record<string, unknown>,
+              toolResult: toolResult as Record<string, unknown>,
+            };
+            break;
+          }
           case "create_supplier": {
             const csArgs = args as CreateSupplierArgs;
             toolResult = await callFortnoxWrite(
@@ -2920,11 +3758,38 @@ ANVÄNDARFRÅGA:
           }
           case "create_supplier_invoice": {
             const siArgs = args as CreateSupplierInvoiceArgs;
+            const isRC = siArgs.is_reverse_charge === true;
+
             const vatMultiplier = 1 + (siArgs.vat_rate / 100);
-            const netAmount =
-              Math.round((siArgs.total_amount / vatMultiplier) * 100) / 100;
-            const vatAmount =
-              Math.round((siArgs.total_amount - netAmount) * 100) / 100;
+            const netAmount = isRC
+              ? siArgs.total_amount
+              : Math.round((siArgs.total_amount / vatMultiplier) * 100) / 100;
+            const vatAmount = isRC
+              ? 0
+              : (typeof siArgs.vat_amount === "number"
+                ? siArgs.vat_amount
+                : Math.round(
+                  (siArgs.total_amount - netAmount) * 100,
+                ) / 100);
+            const rcVat = isRC
+              ? Math.round(
+                siArgs.total_amount * (siArgs.vat_rate / 100) * 100,
+              ) / 100
+              : 0;
+
+            // For reverse charge: Fortnox auto-creates VAT rows (2645/2614)
+            const fortnoxRows = isRC
+              ? [
+                { Account: siArgs.account, Debit: netAmount, Credit: 0 },
+                { Account: 2440, Debit: 0, Credit: netAmount },
+              ]
+              : [
+                { Account: siArgs.account, Debit: netAmount, Credit: 0 },
+                { Account: 2640, Debit: vatAmount, Credit: 0 },
+                { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
+              ];
+
+            const vatType = isRC ? "EUINTERNAL" : "NORMAL";
 
             toolResult = await callFortnoxWrite(
               "exportSupplierInvoice",
@@ -2939,23 +3804,50 @@ ANVÄNDARFRÅGA:
                       10,
                     ),
                   Total: siArgs.total_amount,
-                  VAT: vatAmount,
-                  VATType: "NORMAL",
+                  VAT: isRC ? 0 : vatAmount,
+                  VATType: vatType,
+                  Currency: siArgs.currency || "SEK",
                   AccountingMethod: "ACCRUAL",
-                  SupplierInvoiceRows: [
-                    { Account: siArgs.account, Debit: netAmount, Credit: 0 },
-                    { Account: 2640, Debit: vatAmount, Credit: 0 },
-                    { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
-                  ],
+                  SupplierInvoiceRows: fortnoxRows,
                 },
               },
               "export_supplier_invoice",
               siArgs.invoice_number || String(siArgs.supplier_number),
             );
-            toolStructuredData = {
-              toolArgs: siArgs as Record<string, unknown>,
-              toolResult: toolResult as Record<string, unknown>,
-              postingRows: [
+
+            // Chat display rows: show all rows including RC VAT for transparency
+            const displayRows = isRC
+              ? [
+                {
+                  account: siArgs.account,
+                  accountName: siArgs.description,
+                  debit: netAmount,
+                  credit: 0,
+                  comment: "Kostnadsrad (omvänd skattskyldighet)",
+                },
+                {
+                  account: 2645,
+                  accountName: "Ingående moms omvänd",
+                  debit: rcVat,
+                  credit: 0,
+                  comment: `Omvänd skattskyldighet ${siArgs.vat_rate}%`,
+                },
+                {
+                  account: 2614,
+                  accountName: "Utgående moms omvänd",
+                  debit: 0,
+                  credit: rcVat,
+                  comment: `Omvänd skattskyldighet ${siArgs.vat_rate}%`,
+                },
+                {
+                  account: 2440,
+                  accountName: "Leverantörsskulder",
+                  debit: 0,
+                  credit: netAmount,
+                  comment: "Total leverantörsskuld (exkl. moms)",
+                },
+              ]
+              : [
                 {
                   account: siArgs.account,
                   accountName: siArgs.description,
@@ -2977,10 +3869,16 @@ ANVÄNDARFRÅGA:
                   credit: siArgs.total_amount,
                   comment: "Total leverantörsskuld",
                 },
-              ],
+              ];
+
+            toolStructuredData = {
+              toolArgs: siArgs as Record<string, unknown>,
+              toolResult: toolResult as Record<string, unknown>,
+              postingRows: displayRows,
             };
+            const rcNote = isRC ? " (omvänd skattskyldighet)" : "";
             responseText =
-              `Leverantörsfaktura skapad i Fortnox!\n- Belopp: ${siArgs.total_amount} kr (${netAmount} + ${vatAmount} moms)\n- Konto: ${siArgs.account} (${siArgs.description})\n- Förfallodatum: ${
+              `Leverantörsfaktura skapad i Fortnox!${rcNote}\n- Belopp: ${siArgs.total_amount} kr${isRC ? "" : ` (${netAmount} + ${vatAmount} moms)`}\n- Konto: ${siArgs.account} (${siArgs.description})\n- Förfallodatum: ${
                 siArgs.due_date || "30 dagar"
               }`;
             void auditService.log({
@@ -3087,6 +3985,109 @@ ANVÄNDARFRÅGA:
               resourceType: "supplier_invoice",
               resourceId: bsiArgs.invoice_number,
             });
+            break;
+          }
+          case "propose_action_plan": {
+            // Non-streaming path: save plan to metadata, return summary
+            const planArgs = args as {
+              summary?: string;
+              actions?: Array<Record<string, unknown>>;
+              assumptions?: string[];
+            };
+            const planId = crypto.randomUUID();
+            const actionPlan = {
+              type: "action_plan",
+              plan_id: planId,
+              status: "pending",
+              summary: planArgs.summary || "Handlingsplan",
+              actions: (planArgs.actions || []).map((a: any, i: number) => ({
+                id: `${planId}-${i}`,
+                action_type: a.action_type,
+                description: a.description,
+                parameters: a.parameters || {},
+                posting_rows: a.posting_rows || [],
+                confidence: a.confidence ?? 0.8,
+                status: "pending",
+              })),
+              assumptions: planArgs.assumptions || [],
+            };
+            nonStreamMetadata = actionPlan;
+            const actionsDesc = actionPlan.actions
+              .map((a: any, i: number) => `${i + 1}. ${a.description}`)
+              .join("\n");
+            responseText =
+              `Jag har förberett en handlingsplan: "${actionPlan.summary}"\n\n${actionsDesc}\n\nGodkänn, ändra eller avbryt planen.`;
+            logger.info("Action plan proposed (non-stream)", {
+              planId,
+              actionCount: actionPlan.actions.length,
+            });
+            break;
+          }
+          case "register_payment": {
+            const payArgs = args as {
+              payment_type?: string;
+              invoice_number?: string;
+              amount?: number;
+              payment_date?: string;
+            };
+            const paymentDate = payArgs.payment_date ||
+              new Date().toISOString().slice(0, 10);
+            const invoiceNum = payArgs.invoice_number || "";
+            const payAmount = payArgs.amount || 0;
+
+            if (payArgs.payment_type === "supplier") {
+              toolResult = await callFortnoxWrite(
+                "registerSupplierInvoicePayment",
+                {
+                  payment: {
+                    InvoiceNumber: invoiceNum,
+                    Amount: payAmount,
+                    PaymentDate: paymentDate,
+                  },
+                },
+                "register_supplier_invoice_payment",
+                invoiceNum,
+              );
+              void auditService.log({
+                userId,
+                companyId: resolvedCompanyId || undefined,
+                actorType: "ai",
+                action: "create",
+                resourceType: "supplier_invoice_payment",
+                resourceId: invoiceNum,
+                newState: toolResult,
+              });
+              responseText =
+                `Betalning på ${payAmount} kr registrerad för leverantörsfaktura ${invoiceNum} (${paymentDate}).`;
+            } else {
+              toolResult = await callFortnoxWrite(
+                "registerInvoicePayment",
+                {
+                  payment: {
+                    InvoiceNumber: Number(invoiceNum),
+                    Amount: payAmount,
+                    PaymentDate: paymentDate,
+                  },
+                },
+                "register_invoice_payment",
+                invoiceNum,
+              );
+              void auditService.log({
+                userId,
+                companyId: resolvedCompanyId || undefined,
+                actorType: "ai",
+                action: "create",
+                resourceType: "invoice_payment",
+                resourceId: invoiceNum,
+                newState: toolResult,
+              });
+              responseText =
+                `Betalning på ${payAmount} kr registrerad för kundfaktura ${invoiceNum} (${paymentDate}).`;
+            }
+            toolStructuredData = {
+              toolArgs: payArgs as Record<string, unknown>,
+              toolResult: (toolResult || {}) as Record<string, unknown>,
+            };
             break;
           }
           case "learn_accounting_pattern": {
@@ -3376,6 +4377,7 @@ ANVÄNDARFRÅGA:
         const messageMetadata = {
           ...(usedMemories.length > 0 ? { usedMemories } : {}),
           ...(skillDraft ? { skillDraft } : {}),
+          ...(nonStreamMetadata ? nonStreamMetadata : {}),
         };
         await conversationService.addMessage(
           conversationId,
@@ -3432,6 +4434,9 @@ ANVÄNDARFRÅGA:
         data: responseText,
         usedMemories: usedMemories.length > 0 ? usedMemories : undefined,
         skillDraft: skillDraft ?? undefined,
+        actionPlan: nonStreamMetadata?.type === "action_plan"
+          ? nonStreamMetadata
+          : undefined,
       }),
       {
         headers: { ...responseHeaders, "Content-Type": "application/json" },

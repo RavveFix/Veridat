@@ -3210,6 +3210,15 @@ h1 {
     color: var(--text-primary);
 }
 
+.agent-toggle.active {
+    color: var(--accent-primary);
+    background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.12);
+}
+
+.agent-toggle.active svg {
+    filter: drop-shadow(0 0 4px rgba(var(--accent-primary-rgb, 99, 102, 241), 0.4));
+}
+
 .input-action-btn:focus-visible,
 .voice-action-btn:focus-visible,
 .send-btn-round:focus-visible,

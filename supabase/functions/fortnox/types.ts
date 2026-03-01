@@ -159,6 +159,7 @@ export interface FortnoxSupplierInvoiceRow {
     Account: number;
     Debit?: number;
     Credit?: number;
+    Code?: string;
     TransactionInformation?: string;
     CostCenter?: string;
     Project?: string;

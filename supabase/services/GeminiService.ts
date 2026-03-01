@@ -90,6 +90,29 @@ Du kan läsa och analysera uppladdade dokument (PDF, bilder) som fakturor, kvitt
 2. **Agera**: Använd tillgängliga verktyg (tools) för att hämta data eller utföra åtgärder i Fortnox.
 3. **Svara**: Ge ett tydligt och trevligt svar på svenska baserat på resultatet.
 
+## Autonomt agentbeteende:
+
+1. **Proaktiv dokumentanalys**: När en fil laddas upp, analysera ALLTID och ge ett komplett konteringsförslag via propose_action_plan-verktyget. Vänta inte på att användaren frågar — föreslå kontering direkt.
+
+2. **Godkännande före åtgärd**: Använd ALLTID propose_action_plan istället för att direkt anropa create_supplier_invoice, create_invoice, export_journal_to_fortnox eller book_supplier_invoice. Visa förslaget med konteringstabell och vänta på användarens godkännande.
+
+3. **Mönsteranvändning**: Referera till inlärda mönster proaktivt. Exempel: "Baserat på 7 tidigare transaktioner bokför ni alltid Telia på konto 6212 — stämmer det?" Om du inte har mönster, fråga användaren om rätt konto.
+
+4. **Kedjade operationer**: Efter varje slutförd åtgärd, föreslå nästa logiska steg:
+   - Skapad leverantörsfaktura → "Vill du att jag bokför den?"
+   - Bokförd faktura → "Vill du registrera betalningen?"
+   - Uppladdad fil → fullständig analys + konteringsförslag
+
+5. **Konteringstabell**: Visa ALLTID en debet/kredit-tabell i propose_action_plan med posting_rows:
+   - BAS-kontonummer + kontonamn
+   - Belopp med 2 decimaler
+   - Momssats och momsbelopp separat
+   - Kommentar per rad
+
+6. **Fortnox-data proaktivt**: Hämta data från Fortnox (get_suppliers, get_vouchers etc.) för att berika förslag. Kontrollera t.ex. om leverantören redan finns innan du föreslår att skapa en ny.
+
+7. **Faktura-bokföring**: När användaren nämner en faktura (t.ex. "faktura 24"), hämta ALLTID fakturan med get_invoice eller get_supplier_invoice först. Analysera belopp, moms, och kundinfo. Föreslå sedan bokföring via propose_action_plan med korrekt debet/kredit.
+
 ## VIKTIGT — Intern process:
 Visa ALDRIG din interna tankeprocess, verktygsval eller exekveringsplan för användaren.
 Skriv ALDRIG saker som "Wait, I have a tool...", "Let's use...", "Execution:", "Let me search..." eller liknande.
@@ -120,10 +143,14 @@ Du lär känna varje företag över tid. När du har kontext om företaget:
 - **get_articles**: Hämtar en lista på artiklar från Fortnox. Returnerar beskrivning, artikelnummer och pris.
 - **get_suppliers**: Hämtar en lista på leverantörer från Fortnox. Returnerar namn och leverantörsnummer.
 - **get_vouchers**: Hämtar verifikationer från Fortnox. Kan filtreras per räkenskapsår och serie.
+- **get_invoice**: Hämtar en specifik kundfaktura från Fortnox med fakturanummer. Returnerar kund, belopp, moms, status.
+- **get_supplier_invoice**: Hämtar en specifik leverantörsfaktura från Fortnox med löpnummer. Returnerar leverantör, belopp, moms, status.
 - **create_supplier**: Skapar en ny leverantör i Fortnox med namn, organisationsnummer och kontaktuppgifter.
 - **create_supplier_invoice**: Skapar en leverantörsfaktura i Fortnox med kontering och momsbehandling.
 - **export_journal_to_fortnox**: Exporterar ett lokalt verifikat till Fortnox som en verifikation.
 - **book_supplier_invoice**: Bokför en befintlig leverantörsfaktura i Fortnox.
+- **propose_action_plan**: Skapar en handlingsplan med konteringsförslag som visas för användaren med debet/kredit-tabell. Användaren kan godkänna, ändra eller avbryta planen. Använd ALLTID detta istället för att direkt skapa fakturor eller verifikat.
+- **register_payment**: Registrerar en betalning för en kund- eller leverantörsfaktura i Fortnox.
 
 ## Arbetsflöde för Fakturering:
 1. Om användaren vill skapa en faktura men inte anger kundnummer eller artikelnummer:
@@ -328,26 +355,55 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
    - Inhyrd personal, bemanningsföretag → **6800**
    - OBS: 6520 = Ritnings-/kopieringskostnader — INTE redovisning!
    - Använd ALDRIG 6550 eller 6580 för redovisning/bokföring — det ska vara **6530**.
-   - EU-inköp varor → **4515** + omvänd moms (2614/2645)
-   - Import tjänster (utanför Sverige) → **4531** + omvänd skattskyldighet
    - Dröjsmålsränta → **8420** (INTE 8400 som är vanlig ränta)
+
+   ## ⚠️ OBLIGATORISK MOMSANALYS — UTFÖR ALLTID FÖRE KONTOVAL:
+
+   **Steg 1:** Extrahera momsbelopp och momssats från fakturan/kvittot.
+   **Steg 2:** Kontrollera valuta — är fakturan i SEK eller utländsk valuta?
+   **Steg 3:** Fatta beslut enligt nedanstående beslutsträd:
+
+   **A) Fakturan visar explicit svensk moms (t.ex. "Moms 25%", "VAT 25%", momsbelopp > 0):**
+      → Använd STANDARD ingående moms (2641 för 25%, 2640 generellt)
+      → Använd ALDRIG omvänd skattskyldighet (2614/2645) i detta fall
+      → Detta gäller OAVSETT leverantörens hemvist (även Google Ireland, AWS EMEA, OpenAI, etc.)
+      → Många utländska bolag är momsregistrerade i Sverige och debiterar svensk moms
+
+   **B) Fakturan anger uttryckligen "Reverse Charge", "Omvänd skattskyldighet",
+      eller visar 0% moms från utländsk leverantör:**
+      → EU-varuinköp: konto **4515** + omvänd moms (debet 2645, kredit 2614)
+      → EU-tjänsteinköp: konto **4531** + omvänd skattskyldighet (debet 2645, kredit 2615)
+      → Sätt is_reverse_charge = true vid create_supplier_invoice
+
+   **C) Fakturan saknar momsspecifikation (momsbelopp ej angivet):**
+      → Fråga användaren: "Jag kan inte se momsbeloppet på fakturan.
+         Finns det en momsrad? Är leverantören momsregistrerad i Sverige?"
+      → Gör ALDRIG antaganden om omvänd skattskyldighet utan att fråga
 
 3. **Ge komplett bokföringsförslag:**
 
-   **Exempel på bokföring med 25% moms:**
+   **Exempel — utländsk leverantör MED svensk moms (vanligt!):**
+   Google Ireland Ltd fakturerar Google Workspace, 1 250 kr inkl 25% moms:
+   Debet: 6540 IT-tjänster                              1 000,00 SEK
+   Debet: 2641 Ingående moms 25%                          250,00 SEK
+       Kredit: 2440 Leverantörsskulder                            1 250,00 SEK
+   (Google Ireland är momsregistrerat i Sverige — INTE omvänd skattskyldighet)
 
-   Debet: [Kostnadskonto] (t.ex. 6540 IT-tjänster)     1 000,00 SEK
-   Debet: 2641 (Ingående moms, 25%)                      250,00 SEK
-       Kredit: 2440 (Leverantörsskulder)                           1 250,00 SEK
+   **Exempel — utländsk leverantör UTAN moms (omvänd skattskyldighet):**
+   Stripe Payments Europe Ltd, 1 000 kr, 0% moms, "Reverse Charge":
+   Debet: 6560 Serviceavgifter                           1 000,00 SEK
+   Debet: 2645 Ingående moms omvänd                        250,00 SEK
+       Kredit: 2614 Utgående moms omvänd                          250,00 SEK
+       Kredit: 2440 Leverantörsskulder                            1 000,00 SEK
 
-   **Vid momsfri faktura (0% moms):**
-
+   **Vid momsfri faktura (0% moms, inrikes):**
    Debet: [Kostnadskonto]                              X,XX SEK
        Kredit: 2440 (Leverantörsskulder)                     X,XX SEK
 
-   **Vid omvänd skattskyldighet (EU-handel):**
-   - Notera att särskilda regler kan gälla
-   - Föreslå konsultering av revisor för komplexa fall
+   **Valutahantering:**
+   - Om fakturan är i utländsk valuta (USD, EUR, etc.): ange valutan
+   - Gissa ALDRIG växelkurser — be användaren bekräfta beloppet i SEK från bankutdraget
+   - Föreslå att kontrollera bankens växelkurs vid betalning
 
 4. **Presentera strukturerat svar:**
    - 📋 **Fakturasammanfattning**: Leverantör, belopp, förfallodatum
@@ -602,6 +658,34 @@ const tools: Tool[] = [
                 }
             },
             {
+                name: "get_invoice",
+                description: "Hämtar en specifik kundfaktura från Fortnox med fakturanummer. Använd för att se detaljer om en befintlig faktura innan bokföring.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        invoice_number: {
+                            type: SchemaType.STRING,
+                            description: "Fakturanumret i Fortnox (t.ex. '24')"
+                        }
+                    },
+                    required: ["invoice_number"]
+                }
+            },
+            {
+                name: "get_supplier_invoice",
+                description: "Hämtar en specifik leverantörsfaktura från Fortnox med löpnummer. Använd för att se detaljer om en befintlig leverantörsfaktura innan bokföring.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        given_number: {
+                            type: SchemaType.STRING,
+                            description: "Löpnumret i Fortnox (t.ex. '15')"
+                        }
+                    },
+                    required: ["given_number"]
+                }
+            },
+            {
                 name: "create_supplier",
                 description: "Skapar en ny leverantör i Fortnox. Använd när en leverantör saknas och användaren vill lägga till den.",
                 parameters: {
@@ -656,9 +740,21 @@ const tools: Tool[] = [
                         due_date: {
                             type: SchemaType.STRING,
                             description: "Förfallodatum (YYYY-MM-DD)"
+                        },
+                        vat_amount: {
+                            type: SchemaType.NUMBER,
+                            description: "Momsbelopp extraherat direkt från fakturan. Ange 0 om ingen moms debiteras."
+                        },
+                        is_reverse_charge: {
+                            type: SchemaType.BOOLEAN,
+                            description: "True om fakturan ska bokföras med omvänd skattskyldighet (ingen moms debiterad av utländsk leverantör). False för normal moms."
+                        },
+                        currency: {
+                            type: SchemaType.STRING,
+                            description: "Valutakod (t.ex. 'SEK', 'EUR', 'USD'). Standard: SEK."
                         }
                     },
-                    required: ["supplier_number", "total_amount", "vat_rate", "account", "description"]
+                    required: ["supplier_number", "total_amount", "vat_rate", "vat_amount", "is_reverse_charge", "account", "description"]
                 }
             },
             {
@@ -687,6 +783,108 @@ const tools: Tool[] = [
                         }
                     },
                     required: ["invoice_number"]
+                }
+            },
+            {
+                name: "propose_action_plan",
+                description: "Skapar en handlingsplan med konteringsförslag som kräver användarens godkännande innan den utförs i Fortnox. Använd ALLTID detta verktyg istället för att direkt anropa create_supplier_invoice, create_invoice, export_journal_to_fortnox eller book_supplier_invoice. Visa förslaget för användaren och vänta på godkännande.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        summary: {
+                            type: SchemaType.STRING,
+                            description: "Kort sammanfattning av vad planen gör (t.ex. 'Bokför leverantörsfaktura från Telia på 1 250 kr')"
+                        },
+                        actions: {
+                            type: SchemaType.ARRAY,
+                            description: "Lista på åtgärder som ska utföras efter godkännande",
+                            items: {
+                                type: SchemaType.OBJECT,
+                                properties: {
+                                    action_type: {
+                                        type: SchemaType.STRING,
+                                        description: "Typ av åtgärd: 'create_supplier_invoice', 'create_invoice', 'export_journal_to_fortnox', 'book_supplier_invoice', 'create_supplier', 'register_payment'"
+                                    },
+                                    description: {
+                                        type: SchemaType.STRING,
+                                        description: "Beskrivning av åtgärden på svenska"
+                                    },
+                                    parameters: {
+                                        type: SchemaType.OBJECT,
+                                        description: "Parametrar som ska skickas till åtgärden (samma som respektive verktyg kräver)"
+                                    },
+                                    posting_rows: {
+                                        type: SchemaType.ARRAY,
+                                        description: "Konteringsrader med debet/kredit",
+                                        items: {
+                                            type: SchemaType.OBJECT,
+                                            properties: {
+                                                account: {
+                                                    type: SchemaType.STRING,
+                                                    description: "BAS-kontonummer (t.ex. '6212')"
+                                                },
+                                                accountName: {
+                                                    type: SchemaType.STRING,
+                                                    description: "Kontonamn (t.ex. 'Mobiltelefon')"
+                                                },
+                                                debit: {
+                                                    type: SchemaType.NUMBER,
+                                                    description: "Debetbelopp (0 om kredit)"
+                                                },
+                                                credit: {
+                                                    type: SchemaType.NUMBER,
+                                                    description: "Kreditbelopp (0 om debet)"
+                                                },
+                                                comment: {
+                                                    type: SchemaType.STRING,
+                                                    description: "Kommentar (t.ex. 'Moms 25%')"
+                                                }
+                                            },
+                                            required: ["account", "accountName", "debit", "credit"]
+                                        }
+                                    },
+                                    confidence: {
+                                        type: SchemaType.NUMBER,
+                                        description: "Konfidensgrad 0-1 för förslaget"
+                                    }
+                                },
+                                required: ["action_type", "description", "parameters"]
+                            }
+                        },
+                        assumptions: {
+                            type: SchemaType.ARRAY,
+                            description: "Antaganden som gjorts (t.ex. 'Momssats 25% baserat på fakturan')",
+                            items: { type: SchemaType.STRING }
+                        }
+                    },
+                    required: ["summary", "actions"]
+                }
+            },
+            {
+                name: "register_payment",
+                description: "Registrerar en betalning för en kund- eller leverantörsfaktura i Fortnox.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        payment_type: {
+                            type: SchemaType.STRING,
+                            description: "Typ av betalning: 'customer' för kundfaktura, 'supplier' för leverantörsfaktura",
+                            enum: ["customer", "supplier"]
+                        },
+                        invoice_number: {
+                            type: SchemaType.STRING,
+                            description: "Fakturanummer i Fortnox"
+                        },
+                        amount: {
+                            type: SchemaType.NUMBER,
+                            description: "Betalningsbelopp"
+                        },
+                        payment_date: {
+                            type: SchemaType.STRING,
+                            description: "Betalningsdatum (YYYY-MM-DD). Om inte angivet används dagens datum."
+                        }
+                    },
+                    required: ["payment_type", "invoice_number", "amount"]
                 }
             },
             {
@@ -796,9 +994,12 @@ export type CreateSupplierInvoiceArgs = {
     invoice_number?: string;
     total_amount: number;
     vat_rate: number;
+    vat_amount: number;
+    is_reverse_charge: boolean;
     account: number;
     description: string;
     due_date?: string;
+    currency?: string;
     [key: string]: unknown;
 };
 

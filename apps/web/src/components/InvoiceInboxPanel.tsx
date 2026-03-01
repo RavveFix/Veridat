@@ -1344,7 +1344,8 @@ REGLER (BAS 2024):
 - Bemanningsföretag/inhyrd personal → 6800
 - Swish/Klarna/Stripe → 6560 (INTE 6570)
 - Dröjsmålsränta → 8420 (INTE 8400)
-- EU-varuinköp → 4515 + omvänd moms
+- EU-varuinköp UTAN svensk moms → 4515 + omvänd moms (2614/2645). Om svensk moms debiteras → standard ingående moms (2641)
+- Kontrollera ALLTID momsbeloppet på fakturan före kontoval — utländska bolag kan vara momsregistrerade i Sverige
 - OBS: 6520 = Ritningskostnader — INTE redovisning!
 
 Föreslå korrekt kontering med debet/kredit.`;
