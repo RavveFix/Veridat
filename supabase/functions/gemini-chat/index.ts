@@ -1692,10 +1692,10 @@ Deno.serve(async (req: Request) => {
       );
       effectiveModel = "gemini-3-flash-preview";
     }
-    // Force Pro for agent mode — tool-calling reliability is critical
+    // Agent mode uses forceToolCall (mode: "ANY") to guarantee propose_action_plan
+    // No model override needed — Flash is fast enough with forced tool calling
     if (isAgentMode) {
-      effectiveModel = "gemini-3.1-pro-preview";
-      logger.info("Agent mode: forcing Pro model for reliable tool calls");
+      logger.info("Agent mode: using forceToolCall for reliable tool calls", { model: effectiveModel || "default" });
     }
 
     const rateLimiter = new RateLimiterService(
@@ -2607,8 +2607,15 @@ Deno.serve(async (req: Request) => {
           return fetch(fortnoxUrl, {
             method: "POST", headers: fortnoxHeaders, signal: ctrl.signal,
             body: JSON.stringify(body),
-          }).then(r => { clearTimeout(timer); return r.ok ? r.json() : null; })
-            .catch(() => { clearTimeout(timer); return null; });
+          }).then(async (r) => {
+            clearTimeout(timer);
+            if (!r.ok) {
+              const errText = await r.text().catch(() => "");
+              logger.warn("Agent pre-fetch failed", { status: r.status, action: body.action, error: errText.slice(0, 200) });
+              return null;
+            }
+            return r.json();
+          }).catch(() => { clearTimeout(timer); return null; });
         };
 
         // Fetch agent context (batch, smart) + invoice in parallel
