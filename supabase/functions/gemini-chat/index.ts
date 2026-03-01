@@ -2663,17 +2663,17 @@ Deno.serve(async (req: Request) => {
           }).catch(() => { clearTimeout(timer); return null; });
         };
 
-        // Fetch agent context (batch, smart) + invoice in parallel
+        // Fetch agent context — always include all data in agent mode
+        // (follow-up messages like "10 timmar á 1500 kr" lack keywords but need full context)
         const invoiceRef = extractInvoiceReference(message);
-        const needs = detectAgentNeeds(message);
         const [agentCtx, invoiceData] = await Promise.all([
           fetchWithTimeout({
             action: "getAgentContext",
             companyId: resolvedCompanyId,
             payload: {
-              includeCustomers: needs.needsCustomers,
-              includeSuppliers: needs.needsSuppliers,
-              includeArticles: needs.needsArticles,
+              includeCustomers: true,
+              includeSuppliers: true,
+              includeArticles: true,
             },
           }),
           invoiceRef ? fetchWithTimeout({
