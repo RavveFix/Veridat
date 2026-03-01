@@ -2249,14 +2249,54 @@ Deno.serve(async (req: Request) => {
                       break;
                     }
                     case "create_invoice": {
+                      // Resolve CustomerNumber — try params first, then fallback to name lookup
+                      let custNum = params.CustomerNumber || params.customer_number;
+                      if (!custNum && resolvedCompanyId) {
+                        // Fetch customer list and match by name from action/plan text
+                        try {
+                          const custResp = await fetch(`${supabaseUrl}/functions/v1/fortnox`, {
+                            method: "POST",
+                            headers: { Authorization: authHeader, "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "getCustomers", companyId: resolvedCompanyId }),
+                          });
+                          if (custResp.ok) {
+                            const custData = await custResp.json();
+                            const customers = (custData?.Customers || []) as Array<{ CustomerNumber: string; Name: string }>;
+                            const searchText = ((action.description || "") + " " + (plan.summary || "")).toLowerCase();
+                            const match = customers.find((c: any) => searchText.includes(c.Name.toLowerCase()));
+                            if (match) {
+                              custNum = match.CustomerNumber;
+                              logger.info("CustomerNumber resolved from name lookup", { name: match.Name, number: custNum });
+                            }
+                          }
+                        } catch (lookupErr) {
+                          logger.warn("Customer name lookup failed", lookupErr);
+                        }
+                      }
+
+                      // Build InvoiceRows — use params or construct from posting_rows revenue lines
+                      let invoiceRows = params.InvoiceRows || params.invoice_rows;
+                      if ((!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) && action.posting_rows?.length) {
+                        // Use revenue posting rows (3xxx accounts) to build invoice rows
+                        const revenueRows = action.posting_rows.filter((r: any) => {
+                          const acct = Number(r.account);
+                          return acct >= 3000 && acct <= 3999;
+                        });
+                        if (revenueRows.length > 0) {
+                          invoiceRows = revenueRows.map((r: any) => ({
+                            Description: r.comment || r.accountName || action.description,
+                            Price: Number(r.credit) || Number(r.debit) || 0,
+                            DeliveredQuantity: 1,
+                          }));
+                        }
+                      }
+
                       const result = await callFortnoxWrite(
                         "createInvoice",
                         {
                           invoice: {
-                            CustomerNumber: params.CustomerNumber ||
-                              params.customer_number,
-                            InvoiceRows: params.InvoiceRows ||
-                              params.invoice_rows || [],
+                            CustomerNumber: custNum,
+                            InvoiceRows: invoiceRows || [],
                             InvoiceDate: params.InvoiceDate ||
                               params.invoice_date ||
                               new Date().toISOString().slice(0, 10),
@@ -2267,9 +2307,7 @@ Deno.serve(async (req: Request) => {
                           },
                         },
                         "create_invoice",
-                        String(
-                          params.CustomerNumber || params.customer_number,
-                        ),
+                        String(custNum || ""),
                       );
                       const inv = (result as any)?.Invoice || result;
                       resultText = `Kundfaktura skapad som utkast (nr ${
@@ -2585,10 +2623,13 @@ Deno.serve(async (req: Request) => {
         `1. Anropa propose_action_plan som ditt ENDA svar — ingen text före eller efter\n` +
         `2. Inkludera ALLTID posting_rows med account (nummer), accountName, debit, credit\n` +
         `3. Använd BARA konton från [KONTOPLAN]. Saknas kontoplanen → standard BAS-konton\n` +
-        `4. Använd kundnummer från [KUNDER] och leverantörsnummer från [LEVERANTÖRER] om tillgängligt\n` +
-        `5. Använd artikelnummer från [ARTIKLAR] för fakturarader om relevant\n` +
-        `6. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice"\n` +
-        `7. KUNDFAKTUROR/VERIFIKAT: använd "book_invoice" med posting_rows\n\n`;
+        `4. KUNDFAKTUROR: action_type = "create_invoice", parameters MÅSTE innehålla:\n` +
+        `   - CustomerNumber: kundnumret från [KUNDER] (matcha namn → nummer)\n` +
+        `   - InvoiceRows: [{ Description: "beskrivning", Price: belopp_exkl_moms, DeliveredQuantity: 1 }]\n` +
+        `   - Inkludera ÄVEN posting_rows för konteringsförhandsvisning\n` +
+        `5. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice" med parameters: { SupplierNumber: leverantörsnumret från [LEVERANTÖRER] }\n` +
+        `6. VERIFIKAT/JOURNALPOSTER: action_type = "book_invoice" med posting_rows\n` +
+        `7. Använd artikelnummer från [ARTIKLAR] i InvoiceRows om relevant\n\n`;
 
       // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
       let invoiceContext = "";
