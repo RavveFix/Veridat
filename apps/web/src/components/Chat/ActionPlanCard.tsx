@@ -49,20 +49,30 @@ const formatAmount = (amount: number): string => {
 };
 
 const ACTION_TYPE_LABELS: Record<string, string> = {
-    create_supplier_invoice: 'Skapa leverantorsfaktura',
+    create_supplier_invoice: 'Skapa leverantörsfaktura',
     create_invoice: 'Skapa kundfaktura',
     export_journal_to_fortnox: 'Exportera verifikat',
-    book_supplier_invoice: 'Bokfor faktura',
-    create_supplier: 'Skapa leverantor',
+    book_invoice: 'Bokför verifikat',
+    book_supplier_invoice: 'Bokför faktura',
+    create_supplier: 'Skapa leverantör',
     register_payment: 'Registrera betalning',
 };
 
 const STATUS_LABELS: Record<string, string> = {
-    pending: 'Vantar pa godkannande',
-    approved: 'Godkand',
+    pending: 'Väntar på godkännande',
+    approved: 'Godkänd',
     rejected: 'Avbruten',
-    executed: 'Utford',
-    partial: 'Delvis utford',
+    executed: 'Utförd',
+    partial: 'Delvis utförd',
+};
+
+const friendlyError = (error: string): string => {
+    if (error.includes('CustomerNumber')) return 'Kundnummer saknas — kontrollera att kunden finns i Fortnox';
+    if (error.includes('SupplierNumber')) return 'Leverantörsnummer saknas';
+    if (error.includes('InvoiceRows')) return 'Fakturarader saknas';
+    if (error.includes('rate limit')) return 'För många anrop — försök igen om en stund';
+    if (error.includes('token')) return 'Fortnox-anslutningen har gått ut — återanslut i inställningar';
+    return error;
 };
 
 const FLEX_CENTER_STYLE = {
@@ -154,6 +164,11 @@ export const ActionPlanCard: FunctionComponent<ActionPlanCardProps> = ({
                 <div class="action-plan-title-area">
                     <span class="action-plan-title">
                         {isPending ? 'Handlingsplan' : STATUS_LABELS[plan.status] || plan.status}
+                        {plan.actions[0]?.confidence != null && (
+                            <span class={`confidence-pill ${plan.actions[0].confidence >= 0.8 ? 'high' : plan.actions[0].confidence >= 0.5 ? 'medium' : 'low'}`}>
+                                {Math.round(plan.actions[0].confidence * 100)}% säkerhet
+                            </span>
+                        )}
                     </span>
                     <span class="action-plan-subtitle">{plan.summary}</span>
                 </div>
@@ -245,15 +260,28 @@ export const ActionPlanCard: FunctionComponent<ActionPlanCardProps> = ({
             )}
 
             {/* Execution Results */}
-            {plan.execution_results && plan.execution_results.length > 0 && (
-                <div class="action-plan-results">
-                    {plan.execution_results.map((result) => (
-                        <div key={result.action_id} class={`result-item ${result.success ? 'success' : 'error'}`}>
-                            {result.success ? result.result : `Fel: ${result.error}`}
-                        </div>
-                    ))}
-                </div>
-            )}
+            {plan.execution_results && plan.execution_results.length > 0 && (() => {
+                const successCount = plan.execution_results!.filter(r => r.success).length;
+                const errors = plan.execution_results!.filter(r => !r.success);
+                const successes = plan.execution_results!.filter(r => r.success);
+                return (
+                    <div class="action-plan-results">
+                        <span class="results-summary">
+                            {successCount} av {plan.execution_results!.length} åtgärder lyckades
+                        </span>
+                        {errors.map((result) => (
+                            <div key={result.action_id} class="result-item error">
+                                {friendlyError(result.error || 'Okänt fel')}
+                            </div>
+                        ))}
+                        {successes.map((result) => (
+                            <div key={result.action_id} class="result-item success">
+                                {result.result}
+                            </div>
+                        ))}
+                    </div>
+                );
+            })()}
 
             {/* Actions */}
             {isPending && (
@@ -263,12 +291,19 @@ export const ActionPlanCard: FunctionComponent<ActionPlanCardProps> = ({
                         onClick={handleApprove}
                         disabled={responding}
                     >
-                        <span style={FLEX_CENTER_STYLE}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                                <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                            {responding ? 'Utfor...' : 'Godkann'}
-                        </span>
+                        {responding ? (
+                            <span style={FLEX_CENTER_STYLE}>
+                                <span class="btn-spinner-small" />
+                                Utför...
+                            </span>
+                        ) : (
+                            <span style={FLEX_CENTER_STYLE}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                Godkänn
+                            </span>
+                        )}
                     </button>
                     <button
                         class="action-plan-btn reject"
