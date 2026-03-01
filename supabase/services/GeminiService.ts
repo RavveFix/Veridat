@@ -1094,7 +1094,7 @@ export const sendMessageToGemini = async (
     history?: Array<{ role: string, content: string }>,
     apiKey?: string,
     modelOverride?: string,
-    options?: { disableTools?: boolean }
+    options?: { disableTools?: boolean; forceToolCall?: string }
 ): Promise<GeminiResponse> => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -1113,6 +1113,12 @@ export const sendMessageToGemini = async (
             model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
             tools: options?.disableTools ? undefined : tools,
+            toolConfig: options?.forceToolCall ? {
+                functionCallingConfig: {
+                    mode: "ANY" as any,
+                    allowedFunctionNames: [options.forceToolCall],
+                },
+            } : undefined,
         });
 
         // Build conversation contents from history
@@ -1274,7 +1280,7 @@ export const sendMessageStreamToGemini = async (
     history?: Array<{ role: string, content: string }>,
     apiKey?: string,
     modelOverride?: string,
-    options?: { disableTools?: boolean }
+    options?: { disableTools?: boolean; forceToolCall?: string }
 ) => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -1284,11 +1290,17 @@ export const sendMessageStreamToGemini = async (
         // Model priority: explicit override > env variable > default
         const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-preview";
         logger.info(`Using Gemini model (streaming): ${modelName}`);
-        
+
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
             tools: options?.disableTools ? undefined : tools,
+            toolConfig: options?.forceToolCall ? {
+                functionCallingConfig: {
+                    mode: "ANY" as any,
+                    allowedFunctionNames: [options.forceToolCall],
+                },
+            } : undefined,
         });
 
         const contents = [];

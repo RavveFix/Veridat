@@ -86,6 +86,7 @@ const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
     'getVATReport',
     'getFinancialStatements',
     'getAccounts',
+    'getAgentContext',
 ]);
 
 function shouldFailClosedOnRateLimiterError(action: string): boolean {
@@ -1337,6 +1338,23 @@ Deno.serve(async (req: Request) => {
             case 'getAccounts': {
                 const financialYear = typeof payload?.financialYear === 'number' ? payload.financialYear : undefined;
                 result = await requireFortnoxService().getAccounts(financialYear);
+                break;
+            }
+
+            case 'getAgentContext': {
+                const svc = requireFortnoxService();
+                const fetches: Promise<any>[] = [svc.getAccounts().catch(() => ({ Accounts: [] }))];
+                const keys = ['Accounts'];
+                if (payload?.includeCustomers) { fetches.push(svc.getCustomers().catch(() => ({ Customers: [] }))); keys.push('Customers'); }
+                if (payload?.includeSuppliers) { fetches.push(svc.getSuppliers().catch(() => ({ Suppliers: [] }))); keys.push('Suppliers'); }
+                if (payload?.includeArticles) { fetches.push(svc.getArticles().catch(() => ({ Articles: [] }))); keys.push('Articles'); }
+                const results = await Promise.all(fetches);
+                result = {
+                    Accounts: (results[0] as any).Accounts || [],
+                    Customers: keys.includes('Customers') ? (results[keys.indexOf('Customers')] as any).Customers || [] : [],
+                    Suppliers: keys.includes('Suppliers') ? (results[keys.indexOf('Suppliers')] as any).Suppliers || [] : [],
+                    Articles: keys.includes('Articles') ? (results[keys.indexOf('Articles')] as any).Articles || [] : [],
+                };
                 break;
             }
 

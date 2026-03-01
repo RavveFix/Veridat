@@ -466,7 +466,7 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             setThinkingTimeout(false);
             const timer = setTimeout(() => {
                 setThinkingTimeout(true);
-            }, 30000);
+            }, 120000);
             return () => clearTimeout(timer);
         } else {
             setThinkingTimeout(false);

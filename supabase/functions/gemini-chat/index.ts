@@ -827,6 +827,15 @@ function extractInvoiceReference(message: string): { type: "supplier" | "custome
   return null;
 }
 
+function detectAgentNeeds(message: string): { needsCustomers: boolean; needsSuppliers: boolean; needsArticles: boolean } {
+  const m = message.toLowerCase();
+  return {
+    needsCustomers: /kund|faktura|invoice/.test(m) && !/leverantör/.test(m),
+    needsSuppliers: /leverantör|supplier|lev\.?faktura/.test(m),
+    needsArticles: /artikel|produkt|vara|article/.test(m),
+  };
+}
+
 function shouldSkipHistorySearch(message: string): boolean {
   const normalized = message.toLowerCase();
   const explicitHistory =
@@ -1682,6 +1691,11 @@ Deno.serve(async (req: Request) => {
         { userId, requestedModel: model },
       );
       effectiveModel = "gemini-3-flash-preview";
+    }
+    // Force Pro for agent mode — tool-calling reliability is critical
+    if (isAgentMode) {
+      effectiveModel = "gemini-3.1-pro-preview";
+      logger.info("Agent mode: forcing Pro model for reliable tool calls");
     }
 
     const rateLimiter = new RateLimiterService(
@@ -2563,21 +2577,25 @@ Deno.serve(async (req: Request) => {
         `${buildSkillAssistSystemPrompt()}\n\nAnvändarens önskemål:\n${message}`;
     } else if (isAgentMode) {
       finalMessage =
-        `[AGENT-LÄGE AKTIVT]\n` +
-        `KRITISKT: Du MÅSTE anropa propose_action_plan som ditt ENDA verktygsanrop.\n` +
-        `- Anropa INTE andra verktyg (getCustomers, get_invoice, etc.) innan propose_action_plan\n` +
-        `- Basera förslaget på informationen i meddelandet och din kunskap om BAS-kontoplanen\n` +
-        `- Inkludera ALLTID posting_rows med account (nummer), accountName, debit, credit\n` +
-        `- Svara ALDRIG med markdown-tabeller — BARA propose_action_plan\n` +
-        `- Använd BARA konton från [KONTOPLAN] nedan. Om kontoplanen saknas, använd standard BAS-konton.\n` +
-        `- För LEVERANTÖRSFAKTUROR:\n` +
-        `  * Om fakturan REDAN FINNS i Fortnox (se [FAKTURADATA]): använd "book_supplier_invoice" med parameters: { invoice_number: löpnumret }\n` +
-        `  * Om fakturan INTE finns: använd "create_supplier_invoice" med parameters: supplier_number, total_amount, vat_rate, account, description\n` +
-        `- För KUNDFAKTUROR/VERIFIKAT: använd action_type "book_invoice" med posting_rows\n\n`;
+        `[AGENT-LÄGE — TOOL-ONLY]\n` +
+        `DU FÅR ABSOLUT INTE svara med text. Anropa ENBART propose_action_plan.\n` +
+        `Om du svarar med text istället för tool call misslyckas systemet.\n` +
+        `Svara ALLTID på svenska. Visa ALDRIG intern tankeprocess.\n\n` +
+        `Regler:\n` +
+        `1. Anropa propose_action_plan som ditt ENDA svar — ingen text före eller efter\n` +
+        `2. Inkludera ALLTID posting_rows med account (nummer), accountName, debit, credit\n` +
+        `3. Använd BARA konton från [KONTOPLAN]. Saknas kontoplanen → standard BAS-konton\n` +
+        `4. Använd kundnummer från [KUNDER] och leverantörsnummer från [LEVERANTÖRER] om tillgängligt\n` +
+        `5. Använd artikelnummer från [ARTIKLAR] för fakturarader om relevant\n` +
+        `6. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice"\n` +
+        `7. KUNDFAKTUROR/VERIFIKAT: använd "book_invoice" med posting_rows\n\n`;
 
-      // Pre-fetch company chart of accounts + invoice data from Fortnox
+      // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
       let invoiceContext = "";
       let accountsContext = "";
+      let customersContext = "";
+      let suppliersContext = "";
+      let articlesContext = "";
       if (resolvedCompanyId) {
         const fortnoxHeaders = { Authorization: authHeader, "Content-Type": "application/json" };
         const fortnoxUrl = `${supabaseUrl}/functions/v1/fortnox`;
@@ -2593,10 +2611,19 @@ Deno.serve(async (req: Request) => {
             .catch(() => { clearTimeout(timer); return null; });
         };
 
-        // Fetch chart of accounts + invoice in parallel (both with 5s timeout)
+        // Fetch agent context (batch, smart) + invoice in parallel
         const invoiceRef = extractInvoiceReference(message);
-        const [accountsData, invoiceData] = await Promise.all([
-          fetchWithTimeout({ action: "getAccounts", companyId: resolvedCompanyId, payload: {} }),
+        const needs = detectAgentNeeds(message);
+        const [agentCtx, invoiceData] = await Promise.all([
+          fetchWithTimeout({
+            action: "getAgentContext",
+            companyId: resolvedCompanyId,
+            payload: {
+              includeCustomers: needs.needsCustomers,
+              includeSuppliers: needs.needsSuppliers,
+              includeArticles: needs.needsArticles,
+            },
+          }),
           invoiceRef ? fetchWithTimeout({
             action: invoiceRef.type === "supplier" ? "getSupplierInvoice" : "getInvoice",
             companyId: resolvedCompanyId,
@@ -2607,12 +2634,41 @@ Deno.serve(async (req: Request) => {
         ]);
 
         // Build compact chart of accounts (comma-separated, only bookkeeping-relevant)
-        if (accountsData?.Accounts) {
-          const active = (accountsData.Accounts as Array<{ Number: number; Description: string; Active: boolean }>)
-            .filter((a) => a.Active && a.Number >= 1000 && a.Number <= 8999)
-            .map((a) => `${a.Number} ${a.Description}`);
+        if (agentCtx?.Accounts) {
+          const active = (agentCtx.Accounts as Array<{ Number: number; Description: string; Active: boolean }>)
+            .filter((a: any) => a.Active && a.Number >= 1000 && a.Number <= 8999)
+            .map((a: any) => `${a.Number} ${a.Description}`);
           if (active.length > 0) {
             accountsContext = `[KONTOPLAN — ${active.length} konton]\n` + active.join(", ") + "\n\n";
+          }
+        }
+
+        // Build compact customer list
+        if (agentCtx?.Customers) {
+          const list = (agentCtx.Customers as Array<{ CustomerNumber: string; Name: string; Active?: boolean }>)
+            .filter((c: any) => c.Active !== false)
+            .map((c: any) => `${c.CustomerNumber} ${c.Name}`);
+          if (list.length > 0) {
+            customersContext = `[KUNDER — ${list.length} st]\n` + list.join(", ") + "\n\n";
+          }
+        }
+
+        // Build compact supplier list
+        if (agentCtx?.Suppliers) {
+          const list = (agentCtx.Suppliers as Array<{ SupplierNumber: string; Name: string; Active?: boolean }>)
+            .filter((s: any) => s.Active !== false)
+            .map((s: any) => `${s.SupplierNumber} ${s.Name}`);
+          if (list.length > 0) {
+            suppliersContext = `[LEVERANTÖRER — ${list.length} st]\n` + list.join(", ") + "\n\n";
+          }
+        }
+
+        // Build compact article list
+        if (agentCtx?.Articles) {
+          const list = (agentCtx.Articles as Array<{ ArticleNumber: string; Description: string; SalesPrice?: number }>)
+            .map((a: any) => `${a.ArticleNumber} ${a.Description}${a.SalesPrice ? ` (${a.SalesPrice} kr)` : ""}`);
+          if (list.length > 0) {
+            articlesContext = `[ARTIKLAR — ${list.length} st]\n` + list.join(", ") + "\n\n";
           }
         }
 
@@ -2636,7 +2692,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      finalMessage += accountsContext + invoiceContext + `Användarens meddelande:\n${message}`;
+      finalMessage += accountsContext + customersContext + suppliersContext + articlesContext + invoiceContext + `Användarens meddelande:\n${message}`;
     }
 
     if (!isSkillAssist && !isAgentMode && !vatReportContext && conversationId) {
@@ -2947,7 +3003,7 @@ ANVÄNDARFRÅGA:
           history,
           undefined,
           effectiveModel,
-          { disableTools },
+          { disableTools, forceToolCall: isAgentMode ? "propose_action_plan" : undefined },
         );
         logger.debug("Gemini stream created successfully");
         const encoder = new TextEncoder();

@@ -29,9 +29,9 @@ const MODELS: Record<ModelType, ModelInfo> = {
     pro: {
         id: 'pro',
         name: 'Pro',
-        displayName: 'Gemini 3 Pro',
+        displayName: 'Gemini 3.1 Pro',
         description: 'Djupare analys',
-        apiModel: 'gemini-3-pro-preview'
+        apiModel: 'gemini-3.1-pro-preview'
     }
 };
 
