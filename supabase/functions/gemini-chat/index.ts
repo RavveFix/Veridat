@@ -2038,10 +2038,11 @@ Deno.serve(async (req: Request) => {
                     );
                     const result = await response.json().catch(() => ({}));
                     if (!response.ok) {
+                      const detail = typeof result?.detail === "string" ? ` (${result.detail})` : "";
                       throw new Error(
-                        typeof result?.error === "string"
+                        (typeof result?.error === "string"
                           ? result.error
-                          : `Fortnox write failed (${response.status})`,
+                          : `Fortnox write failed (${response.status})`) + detail,
                       );
                     }
                     return (result || {}) as Record<string, unknown>;
@@ -2153,14 +2154,31 @@ Deno.serve(async (req: Request) => {
                         `Leverantör skapad: ${supplier.Name || params.name} (nr ${supplier.SupplierNumber || "tilldelas"})`;
                       break;
                     }
+                    case "book_invoice":
                     case "export_journal_to_fortnox": {
+                      // Build voucher from posting_rows if available
+                      const postingRows = action.posting_rows || [];
+                      const voucherRows = postingRows.length > 0
+                        ? postingRows.map((r: any) => ({
+                            Account: Number(r.account),
+                            Debit: Number(r.debit) || 0,
+                            Credit: Number(r.credit) || 0,
+                            Description: r.comment || r.accountName || action.description,
+                          }))
+                        : (params.voucher?.VoucherRows || []);
+                      const voucherDesc = action.description || params.voucher?.Description || "Verifikat från Veridat";
                       const result = await callFortnoxWrite(
                         "exportVoucher",
                         {
-                          voucher: params.voucher || params,
+                          voucher: {
+                            Description: voucherDesc,
+                            TransactionDate: (params.transaction_date as string) || new Date().toISOString().slice(0, 10),
+                            VoucherSeries: (params.voucher_series as string) || "A",
+                            VoucherRows: voucherRows,
+                          },
                         },
-                        "export_journal_to_fortnox",
-                        String(params.journal_entry_id || ""),
+                        "export_voucher",
+                        String(action.id || ""),
                       );
                       const voucher = (result as any).Voucher || result;
                       resultText =
@@ -2536,11 +2554,19 @@ Deno.serve(async (req: Request) => {
         `${buildSkillAssistSystemPrompt()}\n\nAnvändarens önskemål:\n${message}`;
     } else if (isAgentMode) {
       finalMessage =
-        `[AGENT-LÄGE AKTIVT] Användaren har aktiverat agent-läge. Du ska:\n` +
-        `1. ALLTID föreslå konkreta åtgärder via propose_action_plan med debet/kredit-poster\n` +
-        `2. Vara proaktiv — analysera och föreslå utan att bli tillfrågad\n` +
-        `3. Kedja operationer — efter en åtgärd, föreslå nästa steg\n` +
-        `4. Hämta fakturor/verifikat automatiskt för att ge fullständiga förslag\n\n` +
+        `[AGENT-LÄGE AKTIVT]\n` +
+        `KRITISKT: Du MÅSTE anropa propose_action_plan som ditt ENDA verktygsanrop.\n` +
+        `- Anropa INTE andra verktyg (getCustomers, get_invoice, etc.) innan propose_action_plan\n` +
+        `- Basera förslaget på informationen i meddelandet och din kunskap om BAS-kontoplanen\n` +
+        `- Inkludera ALLTID posting_rows med account (nummer), accountName, debit, credit\n` +
+        `- Svara ALDRIG med markdown-tabeller — BARA propose_action_plan\n` +
+        `- Använd STANDARD BAS-konton som garanterat finns i alla kontoplaner:\n` +
+        `  * Intäkter: 3001 (Försäljning varor/tjänster), INTE 3041/3042/3011\n` +
+        `  * Kundfordringar: 1510\n` +
+        `  * Leverantörsskulder: 2440\n` +
+        `  * Utgående moms 25%: 2611, 12%: 2621, 6%: 2631\n` +
+        `  * Ingående moms: 2641\n` +
+        `  * Bank/kassa: 1930 (bank), 1910 (kassa)\n\n` +
         `Användarens meddelande:\n${message}`;
     }
 
@@ -2791,7 +2817,7 @@ ANVÄNDARFRÅGA:
     }
 
     const accountingTemplateEnabled = ACCOUNTING_RESPONSE_TEMPLATE_ENABLED &&
-      !isSkillAssist;
+      !isSkillAssist && !isAgentMode;
     const accountingIntent = accountingTemplateEnabled && isAccountingIntent({
       message,
       vatReportContext,
@@ -2835,8 +2861,8 @@ ANVÄNDARFRÅGA:
     );
     const geminiFileData = primaryFile ||
       (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
-    const disableTools = isSkillAssist || shouldSkipHistorySearch(message) ||
-      hasFileAttachment;
+    const disableTools = isSkillAssist || (!isAgentMode && (shouldSkipHistorySearch(message) ||
+      hasFileAttachment));
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
 

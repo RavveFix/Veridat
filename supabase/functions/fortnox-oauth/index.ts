@@ -353,7 +353,7 @@ async function handleInitiate(
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('access_type', 'offline');
 
-    logger.info('Generated Fortnox authorization URL', { userId, companyId, redirectUri });
+    logger.info('Generated Fortnox authorization URL', { userId, companyId, redirectUri, scopes: FORTNOX_SCOPES, fullUrl: authUrl.toString() });
 
     return new Response(
         JSON.stringify({

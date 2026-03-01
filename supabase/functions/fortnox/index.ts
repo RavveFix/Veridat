@@ -2498,6 +2498,7 @@ Deno.serve(async (req: Request) => {
             return new Response(
                 JSON.stringify({
                     error: error.userMessage,
+                    detail: error.message,
                     errorCode: error.name,
                     retryable: error.retryable,
                 }),
