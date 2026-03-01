@@ -818,6 +818,15 @@ function detectHistoryIntent(
   return { search, recent };
 }
 
+function extractInvoiceReference(message: string): { type: "supplier" | "customer"; number: number } | null {
+  const n = message.toLowerCase();
+  const supplierMatch = n.match(/leverantörs?faktura\s+(?:nr\.?\s*)?(\d+)/);
+  if (supplierMatch) return { type: "supplier", number: Number(supplierMatch[1]) };
+  const customerMatch = n.match(/(?:kund)?faktura\s+(?:nr\.?\s*)?(\d+)/);
+  if (customerMatch) return { type: "customer", number: Number(customerMatch[1]) };
+  return null;
+}
+
 function shouldSkipHistorySearch(message: string): boolean {
   const normalized = message.toLowerCase();
   const explicitHistory =
@@ -2072,7 +2081,7 @@ Deno.serve(async (req: Request) => {
                             InvoiceNumber: params.invoice_number || "",
                             InvoiceDate: params.invoice_date ||
                               new Date().toISOString().slice(0, 10),
-                            DueDate: params.due_date || "",
+                            DueDate: params.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
                             Total: totalAmt,
                             Currency: params.currency || "SEK",
                             VATType: isRC ? "EUINTERNAL" : undefined,
@@ -2566,8 +2575,54 @@ Deno.serve(async (req: Request) => {
         `  * Leverantörsskulder: 2440\n` +
         `  * Utgående moms 25%: 2611, 12%: 2621, 6%: 2631\n` +
         `  * Ingående moms: 2641\n` +
-        `  * Bank/kassa: 1930 (bank), 1910 (kassa)\n\n` +
-        `Användarens meddelande:\n${message}`;
+        `  * Bank/kassa: 1930 (bank), 1910 (kassa)\n` +
+        `  * Kontorsmaterial: 6110, Förbrukningsinventarier: 5410\n` +
+        `  * Konsulttjänster: 6550, Lokalhyra: 5010\n` +
+        `- För LEVERANTÖRSFAKTUROR:\n` +
+        `  * Om fakturan REDAN FINNS i Fortnox (se [FAKTURADATA]): använd "book_supplier_invoice" med parameters: { invoice_number: löpnumret }\n` +
+        `  * Om fakturan INTE finns: använd "create_supplier_invoice" med parameters: supplier_number, total_amount, vat_rate, account, description\n` +
+        `- För KUNDFAKTUROR/VERIFIKAT: använd action_type "book_invoice" med posting_rows\n\n`;
+
+      // Pre-fetch invoice data from Fortnox if user references a specific invoice
+      let invoiceContext = "";
+      if (resolvedCompanyId) {
+        const invoiceRef = extractInvoiceReference(message);
+        if (invoiceRef) {
+          try {
+            const fnAction = invoiceRef.type === "supplier" ? "getSupplierInvoice" : "getInvoice";
+            const fnPayload = invoiceRef.type === "supplier"
+              ? { givenNumber: invoiceRef.number }
+              : { invoiceNumber: invoiceRef.number };
+            const resp = await fetch(`${supabaseUrl}/functions/v1/fortnox`, {
+              method: "POST",
+              headers: { Authorization: authHeader, "Content-Type": "application/json" },
+              body: JSON.stringify({ action: fnAction, companyId: resolvedCompanyId, payload: fnPayload }),
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              const inv = data.SupplierInvoice || data.Invoice;
+              if (inv) {
+                invoiceContext =
+                  `[FAKTURADATA FRÅN FORTNOX]\n` +
+                  `Typ: ${invoiceRef.type === "supplier" ? "Leverantörsfaktura" : "Kundfaktura"}\n` +
+                  `Nummer: ${inv.GivenNumber || inv.DocumentNumber}\n` +
+                  `${invoiceRef.type === "supplier" ? "Leverantör" : "Kund"}: ${inv.SupplierName || inv.CustomerName} (nr ${inv.SupplierNumber || inv.CustomerNumber})\n` +
+                  `Fakturanummer: ${inv.InvoiceNumber || ""}\n` +
+                  `Total: ${inv.Total} kr\n` +
+                  `Moms: ${inv.VAT || inv.TotalVAT || 0} kr\n` +
+                  `Datum: ${inv.InvoiceDate}\n` +
+                  `Förfallodatum: ${inv.DueDate}\n` +
+                  `Status: ${inv.Booked ? "Bokförd" : "Ej bokförd"}\n` +
+                  `Använd dessa EXAKTA belopp i ditt förslag.\n\n`;
+              }
+            }
+          } catch (e) {
+            logger.warn("Agent invoice pre-fetch failed", { error: e });
+          }
+        }
+      }
+
+      finalMessage += invoiceContext + `Användarens meddelande:\n${message}`;
     }
 
     if (!isSkillAssist && !isAgentMode && !vatReportContext && conversationId) {
