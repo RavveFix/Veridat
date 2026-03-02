@@ -2276,16 +2276,21 @@ Deno.serve(async (req: Request) => {
                         }
                       }
 
-                      // Build InvoiceRows — use params or construct from posting_rows revenue lines
-                      let invoiceRows = params.InvoiceRows || params.invoice_rows;
+                      // Build InvoiceRows — try multiple sources
+                      let invoiceRows = params.InvoiceRows || params.invoice_rows || params.invoiceRows || params.rows;
+                      logger.info("create_invoice params", {
+                        paramKeys: Object.keys(params),
+                        hasInvoiceRows: !!invoiceRows,
+                        hasPostingRows: !!action.posting_rows?.length,
+                        description: action.description?.slice(0, 100),
+                      });
+
+                      // Fallback 1: Build from posting_rows revenue lines
                       if ((!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) && action.posting_rows?.length) {
-                        // Use revenue posting rows (3xxx accounts) to build invoice rows
-                        // parseInt handles accounts like "3041_8" → 3041
                         const revenueRows = action.posting_rows.filter((r: any) => {
                           const acct = parseInt(String(r.account), 10);
                           return !isNaN(acct) && acct >= 3000 && acct <= 3999;
                         });
-                        // Fallback: if no 3xxx rows found, use any credit rows
                         const sourceRows = revenueRows.length > 0
                           ? revenueRows
                           : action.posting_rows.filter((r: any) => Number(r.credit) > 0);
@@ -2295,10 +2300,38 @@ Deno.serve(async (req: Request) => {
                             Price: Number(r.credit) || Number(r.debit) || 0,
                             DeliveredQuantity: 1,
                           }));
-                          logger.info("InvoiceRows built from posting_rows fallback", {
-                            rowCount: invoiceRows.length,
-                            source: revenueRows.length > 0 ? "3xxx_accounts" : "credit_rows",
-                          });
+                          logger.info("InvoiceRows from posting_rows", { rowCount: invoiceRows.length });
+                        }
+                      }
+
+                      // Fallback 2: Parse amount from description/summary and build minimal row
+                      if (!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) {
+                        const text = `${action.description || ""} ${plan.summary || ""}`;
+                        // Match patterns like "5 timmar á 2000 kr", "5 timmar à 2 000", "5 h á 2000"
+                        const qtyPriceMatch = text.match(/(\d+)\s*(?:timmar|tim|st|h)\s*[áàa@]\s*([\d\s]+)\s*kr/i);
+                        // Match patterns like "10 000 kr", "12500 kr"
+                        const totalMatch = text.match(/([\d\s]+)\s*kr/i);
+
+                        if (qtyPriceMatch) {
+                          const qty = parseInt(qtyPriceMatch[1], 10);
+                          const unitPrice = parseInt(qtyPriceMatch[2].replace(/\s/g, ""), 10);
+                          invoiceRows = [{
+                            Description: action.description || plan.summary || "Konsulttjänster",
+                            Price: unitPrice,
+                            DeliveredQuantity: qty,
+                          }];
+                          logger.info("InvoiceRows from qty×price parse", { qty, unitPrice });
+                        } else if (totalMatch) {
+                          const total = parseInt(totalMatch[1].replace(/\s/g, ""), 10);
+                          // Check if "inkl. moms" → extract netto (÷1.25 for 25% moms)
+                          const isInkl = /inkl/i.test(text);
+                          const nettoAmount = isInkl ? Math.round(total / 1.25) : total;
+                          invoiceRows = [{
+                            Description: action.description || plan.summary || "Konsulttjänster",
+                            Price: nettoAmount,
+                            DeliveredQuantity: 1,
+                          }];
+                          logger.info("InvoiceRows from total parse", { total, nettoAmount, isInkl });
                         }
                       }
 
