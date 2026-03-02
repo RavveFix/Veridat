@@ -2296,12 +2296,16 @@ Deno.serve(async (req: Request) => {
                         if (qtyPriceMatch) {
                           const qty = parseInt(qtyPriceMatch[1], 10);
                           const unitPrice = parseInt(qtyPriceMatch[2].replace(/\s/g, ""), 10);
+                          // Use posting_row comment (short) or extract service type from description
+                          const rowComment = (action.posting_rows || []).find((r: any) => r.comment)?.comment;
+                          const serviceMatch = (action.description || "").match(/för\s+\d+\s+\w+\s+(.+?)(?:\s+[áàa@]|\s*$)/i);
+                          const desc = rowComment || (serviceMatch ? serviceMatch[1] : null) || "Konsulttjänster";
                           invoiceRows = [{
-                            Description: action.description || plan.summary || "Konsulttjänster",
+                            Description: desc,
                             Price: unitPrice,
                             DeliveredQuantity: qty,
                           }];
-                          logger.info("InvoiceRows from qty×price parse", { qty, unitPrice });
+                          logger.info("InvoiceRows from qty×price parse", { qty, unitPrice, desc });
                         }
                       }
 
