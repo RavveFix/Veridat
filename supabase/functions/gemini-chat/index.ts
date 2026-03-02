@@ -2285,7 +2285,27 @@ Deno.serve(async (req: Request) => {
                         description: action.description?.slice(0, 100),
                       });
 
-                      // Fallback 1: Build from posting_rows revenue lines
+                      // Fallback 1: Parse qty×price from description/posting_row comments (best quality — preserves quantity)
+                      if (!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) {
+                        // Collect all text sources: description, summary, posting_row comments
+                        const allComments = (action.posting_rows || []).map((r: any) => r.comment || "").join(" ");
+                        const text = `${action.description || ""} ${plan.summary || ""} ${allComments}`;
+                        // Match patterns like "5 timmar á 2000 kr", "5 timmar à 2 000", "5 h á 2000"
+                        const qtyPriceMatch = text.match(/(\d+)\s*(?:timmar|tim|st|h)\s*[áàa@×x]\s*([\d\s]+)\s*kr/i);
+
+                        if (qtyPriceMatch) {
+                          const qty = parseInt(qtyPriceMatch[1], 10);
+                          const unitPrice = parseInt(qtyPriceMatch[2].replace(/\s/g, ""), 10);
+                          invoiceRows = [{
+                            Description: action.description || plan.summary || "Konsulttjänster",
+                            Price: unitPrice,
+                            DeliveredQuantity: qty,
+                          }];
+                          logger.info("InvoiceRows from qty×price parse", { qty, unitPrice });
+                        }
+                      }
+
+                      // Fallback 2: Build from posting_rows revenue lines (no qty info — uses total as price)
                       if ((!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) && action.posting_rows?.length) {
                         const revenueRows = action.posting_rows.filter((r: any) => {
                           const acct = parseInt(String(r.account), 10);
@@ -2304,26 +2324,12 @@ Deno.serve(async (req: Request) => {
                         }
                       }
 
-                      // Fallback 2: Parse amount from description/summary and build minimal row
+                      // Fallback 3: Parse total amount from text
                       if (!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) {
                         const text = `${action.description || ""} ${plan.summary || ""}`;
-                        // Match patterns like "5 timmar á 2000 kr", "5 timmar à 2 000", "5 h á 2000"
-                        const qtyPriceMatch = text.match(/(\d+)\s*(?:timmar|tim|st|h)\s*[áàa@]\s*([\d\s]+)\s*kr/i);
-                        // Match patterns like "10 000 kr", "12500 kr"
                         const totalMatch = text.match(/([\d\s]+)\s*kr/i);
-
-                        if (qtyPriceMatch) {
-                          const qty = parseInt(qtyPriceMatch[1], 10);
-                          const unitPrice = parseInt(qtyPriceMatch[2].replace(/\s/g, ""), 10);
-                          invoiceRows = [{
-                            Description: action.description || plan.summary || "Konsulttjänster",
-                            Price: unitPrice,
-                            DeliveredQuantity: qty,
-                          }];
-                          logger.info("InvoiceRows from qty×price parse", { qty, unitPrice });
-                        } else if (totalMatch) {
+                        if (totalMatch) {
                           const total = parseInt(totalMatch[1].replace(/\s/g, ""), 10);
-                          // Check if "inkl. moms" → extract netto (÷1.25 for 25% moms)
                           const isInkl = /inkl/i.test(text);
                           const nettoAmount = isInkl ? Math.round(total / 1.25) : total;
                           invoiceRows = [{
