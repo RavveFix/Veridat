@@ -2285,21 +2285,30 @@ Deno.serve(async (req: Request) => {
                         description: action.description?.slice(0, 100),
                       });
 
-                      // Fallback 1: Parse qty×price from description/posting_row comments (best quality — preserves quantity)
+                      // Helper: extract clean service description for invoice line
+                      const cleanDesc = (text: string): string => {
+                        let d = text
+                          .replace(/^skapa\s+(kund)?faktura\s+till\s+.+?\s+(för|på)\s+/i, "")
+                          .replace(/\d[\d\s]*(?:timmar|tim|st|h)\s*[áàa@×x]\s*[\d\s]+\s*kr/gi, "")
+                          .replace(/[\d\s]+kr\s*(inkl\.?\s*moms|exkl\.?\s*moms)?/gi, "")
+                          .replace(/^(för|på)\s+/i, "")
+                          .replace(/\.\s*$/, "")
+                          .replace(/,\s*$/, "")
+                          .trim();
+                        if (d) d = d.charAt(0).toUpperCase() + d.slice(1);
+                        return d || "Konsulttjänster";
+                      };
+
+                      // Fallback 1: Parse qty×price from description/posting_row comments
                       if (!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) {
-                        // Collect all text sources: description, summary, posting_row comments
                         const allComments = (action.posting_rows || []).map((r: any) => r.comment || "").join(" ");
                         const text = `${action.description || ""} ${plan.summary || ""} ${allComments}`;
-                        // Match patterns like "5 timmar á 2000 kr", "5 timmar à 2 000", "5 h á 2000"
                         const qtyPriceMatch = text.match(/(\d+)\s*(?:timmar|tim|st|h)\s*[áàa@×x]\s*([\d\s]+)\s*kr/i);
 
                         if (qtyPriceMatch) {
                           const qty = parseInt(qtyPriceMatch[1], 10);
                           const unitPrice = parseInt(qtyPriceMatch[2].replace(/\s/g, ""), 10);
-                          // Use posting_row comment (short) or extract service type from description
-                          const rowComment = (action.posting_rows || []).find((r: any) => r.comment)?.comment;
-                          const serviceMatch = (action.description || "").match(/för\s+\d+\s+\w+\s+(.+?)(?:\s+[áàa@]|\s*$)/i);
-                          const desc = rowComment || (serviceMatch ? serviceMatch[1] : null) || "Konsulttjänster";
+                          const desc = cleanDesc(action.description || plan.summary || "");
                           invoiceRows = [{
                             Description: desc,
                             Price: unitPrice,
@@ -2309,7 +2318,7 @@ Deno.serve(async (req: Request) => {
                         }
                       }
 
-                      // Fallback 2: Build from posting_rows revenue lines (no qty info — uses total as price)
+                      // Fallback 2: Build from posting_rows revenue lines
                       if ((!invoiceRows || (Array.isArray(invoiceRows) && invoiceRows.length === 0)) && action.posting_rows?.length) {
                         const revenueRows = action.posting_rows.filter((r: any) => {
                           const acct = parseInt(String(r.account), 10);
@@ -2320,7 +2329,7 @@ Deno.serve(async (req: Request) => {
                           : action.posting_rows.filter((r: any) => Number(r.credit) > 0);
                         if (sourceRows.length > 0) {
                           invoiceRows = sourceRows.map((r: any) => ({
-                            Description: r.comment || r.accountName || action.description,
+                            Description: cleanDesc(r.comment || r.accountName || action.description || ""),
                             Price: Number(r.credit) || Number(r.debit) || 0,
                             DeliveredQuantity: 1,
                           }));
@@ -2337,7 +2346,7 @@ Deno.serve(async (req: Request) => {
                           const isInkl = /inkl/i.test(text);
                           const nettoAmount = isInkl ? Math.round(total / 1.25) : total;
                           invoiceRows = [{
-                            Description: action.description || plan.summary || "Konsulttjänster",
+                            Description: cleanDesc(action.description || plan.summary || ""),
                             Price: nettoAmount,
                             DeliveredQuantity: 1,
                           }];
@@ -2681,8 +2690,11 @@ Deno.serve(async (req: Request) => {
         `3. Använd BARA konton från [KONTOPLAN]. Saknas kontoplanen → standard BAS-konton\n` +
         `4. KUNDFAKTUROR: action_type = "create_invoice", parameters MÅSTE innehålla:\n` +
         `   - CustomerNumber: kundnumret från [KUNDER] (matcha namn → nummer)\n` +
-        `   - InvoiceRows: [{ Description: "beskrivning", Price: enhetspris_exkl_moms, DeliveredQuantity: antal }]\n` +
-        `     VIKTIGT: Price = à-pris per enhet, INTE totalbelopp. Exempel: 5 timmar á 2000 kr → Price: 2000, DeliveredQuantity: 5\n` +
+        `   - InvoiceRows: [{ Description: "kort benämning", Price: à_pris_per_enhet, DeliveredQuantity: antal }]\n` +
+        `     Price = à-pris per enhet exkl. moms, INTE totalbelopp. Exempel: 5 timmar á 2000 kr → Price: 2000, DeliveredQuantity: 5\n` +
+        `     Description = kort och professionell benämning (max 50 tecken), BARA tjänstetyp/vara:\n` +
+        `     BRA: "Konsulttjänster", "Webbutveckling", "Programmering elbilsladdning"\n` +
+        `     FEL: "Skapa kundfaktura till Testföretag AB för 5 timmar konsulttjänster"\n` +
         `   - Inkludera ÄVEN posting_rows för konteringsförhandsvisning\n` +
         `5. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice" med parameters: { SupplierNumber: leverantörsnumret från [LEVERANTÖRER] }\n` +
         `6. VERIFIKAT/JOURNALPOSTER: action_type = "book_invoice" med posting_rows\n` +

@@ -811,7 +811,34 @@ const tools: Tool[] = [
                                     },
                                     parameters: {
                                         type: SchemaType.OBJECT,
-                                        description: "Parametrar som ska skickas till åtgärden (samma som respektive verktyg kräver)"
+                                        description: "Parametrar för åtgärden",
+                                        properties: {
+                                            CustomerNumber: {
+                                                type: SchemaType.STRING,
+                                                description: "Fortnox kundnummer (obligatoriskt för create_invoice)"
+                                            },
+                                            InvoiceRows: {
+                                                type: SchemaType.ARRAY,
+                                                description: "Fakturarader (obligatoriskt för create_invoice)",
+                                                items: {
+                                                    type: SchemaType.OBJECT,
+                                                    properties: {
+                                                        Description: { type: SchemaType.STRING, description: "Kort benämning, t.ex. 'Konsulttjänster' eller 'Webbutveckling' — max 50 tecken" },
+                                                        Price: { type: SchemaType.NUMBER, description: "À-pris per enhet exkl. moms (INTE totalbelopp)" },
+                                                        DeliveredQuantity: { type: SchemaType.NUMBER, description: "Antal enheter (t.ex. 5 för 5 timmar)" }
+                                                    },
+                                                    required: ["Description", "Price", "DeliveredQuantity"]
+                                                }
+                                            },
+                                            SupplierNumber: {
+                                                type: SchemaType.STRING,
+                                                description: "Fortnox leverantörsnummer (för leverantörsfakturor)"
+                                            },
+                                            invoice_number: {
+                                                type: SchemaType.STRING,
+                                                description: "Löpnummer för befintlig faktura (för book_supplier_invoice)"
+                                            }
+                                        }
                                     },
                                     posting_rows: {
                                         type: SchemaType.ARRAY,
