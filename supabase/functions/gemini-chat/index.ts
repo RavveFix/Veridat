@@ -2801,7 +2801,10 @@ Deno.serve(async (req: Request) => {
         `5. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice" med parameters: { SupplierNumber: leverantörsnumret från [LEVERANTÖRER] }\n` +
         `6. VERIFIKAT/JOURNALPOSTER: action_type = "book_invoice" med posting_rows\n` +
         `7. Använd artikelnummer från [ARTIKLAR] i InvoiceRows om relevant\n` +
-        `8. NY KUND: Om kunden INTE finns i [KUNDER], lägg till en SEPARAT åtgärd med action_type "create_customer" FÖRE create_invoice, med parameters: { Name: "Kundnamn" }. Systemet slår automatiskt upp organisationsnummer och adress från allabolag.se vid skapandet.\n\n`;
+        `8. NY KUND: Om kunden INTE finns i [KUNDER], kontrollera [FÖRETAGSUPPSLAG] om det finns.\n` +
+        `   - Om [FÖRETAGSUPPSLAG] visar träffar → använd create_customer med orgnr, adress, postnr, stad från uppslaget FÖRE create_invoice.\n` +
+        `   - Om [FÖRETAGSUPPSLAG] visar "Inga träffar" → anropa request_clarification och berätta att företaget inte hittades på allabolag.se. Fråga om användaren menade ett annat namn.\n` +
+        `   - Om [FÖRETAGSUPPSLAG] saknas → skapa kunden med bara namnet (systemet slår upp automatiskt vid skapandet).\n\n`;
 
       // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
       let invoiceContext = "";
@@ -2809,6 +2812,7 @@ Deno.serve(async (req: Request) => {
       let customersContext = "";
       let suppliersContext = "";
       let articlesContext = "";
+      let companyLookupContext = "";
       if (resolvedCompanyId) {
         const fortnoxHeaders = { Authorization: authHeader, "Content-Type": "application/json" };
         const fortnoxUrl = `${supabaseUrl}/functions/v1/fortnox`;
@@ -2892,6 +2896,30 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        // Pre-lookup unknown companies on allabolag.se
+        if (message) {
+          const companyNamePattern = /\b([A-ZÅÄÖ][A-ZÅÄÖa-zåäöé&\-]*(?:\s+[A-ZÅÄÖa-zåäöé&\-]+)*\s+(?:AB|HB|KB|Aktiebolag|Handelsbolag))\b/gi;
+          const mentionedCompanies = [...new Set(
+            (message.match(companyNamePattern) || []).map((n: string) => n.trim())
+          )];
+          const existingNames = agentCtx?.Customers
+            ? (agentCtx.Customers as Array<{ Name: string }>).map((c: any) => c.Name.toLowerCase())
+            : [];
+          const unknownCompanies = mentionedCompanies.filter(
+            (name: string) => !existingNames.some((existing: string) =>
+              existing.includes(name.toLowerCase()) || name.toLowerCase().includes(existing)
+            )
+          );
+          if (unknownCompanies.length > 0) {
+            try {
+              const lookupResult = await lookupCompanyOnAllabolag(unknownCompanies[0]);
+              companyLookupContext = `[FÖRETAGSUPPSLAG — "${unknownCompanies[0]}"]\n${lookupResult}\n\n`;
+            } catch (err) {
+              logger.warn("Pre-lookup failed", { company: unknownCompanies[0], error: err });
+            }
+          }
+        }
+
         // Build invoice context
         if (invoiceData) {
           const inv = invoiceData.SupplierInvoice || invoiceData.Invoice;
@@ -2912,7 +2940,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      finalMessage += accountsContext + customersContext + suppliersContext + articlesContext + invoiceContext + `Användarens meddelande:\n${message}`;
+      finalMessage += accountsContext + customersContext + suppliersContext + articlesContext + invoiceContext + companyLookupContext + `Användarens meddelande:\n${message}`;
     }
 
     if (!isSkillAssist && !isAgentMode && !vatReportContext && conversationId) {
