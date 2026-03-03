@@ -420,6 +420,7 @@ class ChatServiceClass {
                                 }
                                 // Dispatch agent step updates for AgentActivityFeed
                                 if (data.agentStep) {
+                                    console.log('[AgentStep]', data.agentStep.label, data.agentStep.status);
                                     window.dispatchEvent(new CustomEvent('chat-agent-step', {
                                         detail: data.agentStep
                                     }));
