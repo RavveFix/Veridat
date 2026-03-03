@@ -301,6 +301,8 @@ export const MemoryIndicator: FunctionComponent = () => {
                 onClick={() => setIsOpen((prev) => !prev)}
                 aria-expanded={isOpen}
                 aria-haspopup="dialog"
+                data-tooltip={memoryCount > 0 ? `${memoryCount} sparade minnen` : 'Inga minnen ännu'}
+                aria-label={memoryCount > 0 ? `${memoryCount} sparade minnen` : 'Inga minnen ännu'}
             >
                 {isGenerating ? (
                     <span class="memory-spinner" aria-hidden="true" />
