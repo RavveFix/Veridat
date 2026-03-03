@@ -2775,6 +2775,11 @@ Deno.serve(async (req: Request) => {
     // Inject VAT Report Context if available OR fetch from DB
     let finalMessage = message;
 
+    // Declare prefetchSteps in outer scope so ReadableStream can access them
+    // (populated inside isAgentMode block, empty array otherwise)
+    const prefetchSteps: Array<{ id: string; type: string; tool: string; label: string; status: string; startedAt: number; completedAt: number | null; resultSummary: string | null }> = [];
+    let prefetchStepCounter = 0;
+
     if (isSkillAssist) {
       finalMessage =
         `${buildSkillAssistSystemPrompt()}\n\nAnvändarens önskemål:\n${message}`;
@@ -2808,8 +2813,6 @@ Deno.serve(async (req: Request) => {
 
       // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
       // Buffer agent steps during pre-fetch (stream doesn't exist yet)
-      const prefetchSteps: Array<{ id: string; type: string; tool: string; label: string; status: string; startedAt: number; completedAt: number | null; resultSummary: string | null }> = [];
-      let prefetchStepCounter = 0;
       const bufferStep = (tool: string, label: string) => {
         const id = `prefetch-${++prefetchStepCounter}`;
         const step = { id, type: 'tool_call', tool, label, status: 'running', startedAt: Date.now(), completedAt: null as number | null, resultSummary: null as string | null };
