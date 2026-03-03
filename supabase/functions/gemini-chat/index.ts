@@ -2807,6 +2807,20 @@ Deno.serve(async (req: Request) => {
         `   - Om [FÖRETAGSUPPSLAG] saknas → skapa kunden med bara namnet (systemet slår upp automatiskt vid skapandet).\n\n`;
 
       // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
+      // Buffer agent steps during pre-fetch (stream doesn't exist yet)
+      const prefetchSteps: Array<{ id: string; type: string; tool: string; label: string; status: string; startedAt: number; completedAt: number | null; resultSummary: string | null }> = [];
+      let prefetchStepCounter = 0;
+      const bufferStep = (tool: string, label: string) => {
+        const id = `prefetch-${++prefetchStepCounter}`;
+        const step = { id, type: 'tool_call', tool, label, status: 'running', startedAt: Date.now(), completedAt: null as number | null, resultSummary: null as string | null };
+        prefetchSteps.push(step);
+        return (summary?: string, failed = false) => {
+          step.status = failed ? 'failed' : 'completed';
+          step.completedAt = Date.now();
+          step.resultSummary = summary ?? null;
+        };
+      };
+
       let invoiceContext = "";
       let accountsContext = "";
       let customersContext = "";
@@ -2838,6 +2852,8 @@ Deno.serve(async (req: Request) => {
         // Fetch agent context — always include all data in agent mode
         // (follow-up messages like "10 timmar á 1500 kr" lack keywords but need full context)
         const invoiceRef = extractInvoiceReference(message);
+        const doneCtx = bufferStep('getAgentContext', 'Hämtar företagsdata');
+        const doneInv = invoiceRef ? bufferStep('getInvoice', 'Hämtar faktura') : null;
         const [agentCtx, invoiceData] = await Promise.all([
           fetchWithTimeout({
             action: "getAgentContext",
@@ -2856,6 +2872,17 @@ Deno.serve(async (req: Request) => {
               : { invoiceNumber: invoiceRef.number },
           }) : null,
         ]);
+
+        // Mark pre-fetch steps as complete
+        {
+          const parts: string[] = [];
+          if (agentCtx?.Customers) parts.push(`${(agentCtx.Customers as any[]).length} kunder`);
+          if (agentCtx?.Suppliers) parts.push(`${(agentCtx.Suppliers as any[]).length} leverantörer`);
+          if (agentCtx?.Articles) parts.push(`${(agentCtx.Articles as any[]).length} artiklar`);
+          if (agentCtx?.Accounts) parts.push(`${(agentCtx.Accounts as any[]).filter((a: any) => a.Active).length} konton`);
+          doneCtx(parts.length > 0 ? parts.join(', ') : undefined, !agentCtx);
+        }
+        if (doneInv) doneInv(invoiceData ? 'Hittad' : undefined, !invoiceData && !!invoiceRef);
 
         // Build compact chart of accounts (comma-separated, only bookkeeping-relevant)
         if (agentCtx?.Accounts) {
@@ -2911,11 +2938,14 @@ Deno.serve(async (req: Request) => {
             )
           );
           if (unknownCompanies.length > 0) {
+            const doneLookup = bufferStep('company_lookup', `Söker ${unknownCompanies[0]} på allabolag.se`);
             try {
               const lookupResult = await lookupCompanyOnAllabolag(unknownCompanies[0]);
               companyLookupContext = `[FÖRETAGSUPPSLAG — "${unknownCompanies[0]}"]\n${lookupResult}\n\n`;
+              doneLookup('Hittad');
             } catch (err) {
               logger.warn("Pre-lookup failed", { company: unknownCompanies[0], error: err });
+              doneLookup('Misslyckades', true);
             }
           }
         }
@@ -3269,6 +3299,16 @@ ANVÄNDARFRÅGA:
         const responseStream = new ReadableStream({
           async start(controller) {
             try {
+              // Emit buffered pre-fetch steps at stream start
+              for (const step of prefetchSteps) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: step })}\n\n`));
+              }
+              // Emit "analyzing" step while Gemini processes
+              if (prefetchSteps.length > 0) {
+                const analyzeStep = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'running', startedAt: Date.now(), completedAt: null, resultSummary: null };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: analyzeStep })}\n\n`));
+              }
+
               for await (const chunk of stream) {
                 // Check for tool calls first
                 const functionCalls = chunk.functionCalls();
@@ -3286,6 +3326,12 @@ ANVÄNDARFRÅGA:
                   }\n\n`;
                   controller.enqueue(encoder.encode(sseData));
                 }
+              }
+
+              // Mark "analyzing" step as complete
+              if (prefetchSteps.length > 0) {
+                const doneAnalyze = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'completed', startedAt: 0, completedAt: Date.now(), resultSummary: toolCallDetected ? 'Plan klar' : null };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: doneAnalyze })}\n\n`));
               }
 
               if (toolCallDetected) {
