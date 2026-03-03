@@ -204,11 +204,11 @@ function summarizeCustomerInvoices(
 }
 
 const INVOICE_TABLE_STYLE = { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' } as const;
-const TABLE_HEADER_LEFT_STYLE = { textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' } as const;
-const TABLE_HEADER_RIGHT_STYLE = { textAlign: 'right', padding: '0.4rem 0.5rem', color: 'var(--text-secondary)' } as const;
-const TABLE_CELL_STYLE = { padding: '0.35rem 0.5rem' } as const;
-const TABLE_CELL_NOWRAP_STYLE = { padding: '0.35rem 0.5rem', whiteSpace: 'nowrap' } as const;
-const TABLE_CELL_RIGHT_STYLE = { padding: '0.35rem 0.5rem', textAlign: 'right' } as const;
+const TABLE_HEADER_LEFT_STYLE = { textAlign: 'left', padding: '0.5rem 0.6rem', color: 'var(--text-secondary)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--glass-border)' } as const;
+const TABLE_HEADER_RIGHT_STYLE = { textAlign: 'right', padding: '0.5rem 0.6rem', color: 'var(--text-secondary)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--glass-border)' } as const;
+const TABLE_CELL_STYLE = { padding: '0.5rem 0.6rem' } as const;
+const TABLE_CELL_NOWRAP_STYLE = { padding: '0.5rem 0.6rem', whiteSpace: 'nowrap' } as const;
+const TABLE_CELL_RIGHT_STYLE = { padding: '0.5rem 0.6rem', textAlign: 'right' } as const;
 const TABLE_EMPTY_CELL_STYLE = { padding: '0.8rem', color: 'var(--text-secondary)' } as const;
 const TABLE_ACTIONS_WRAP_STYLE = { display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', flexWrap: 'wrap' } as const;
 const TOOLBAR_BUTTON_BASE_STYLE = {
@@ -258,10 +258,10 @@ const FORTNOX_TABLE_CARD_STYLE = {
 const FORTNOX_TABLE_HEADER_STYLE = { display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' } as const;
 const FORTNOX_TABLE_TITLE_WRAP_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.35rem' } as const;
 const FORTNOX_TITLE_ROW_STYLE = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' } as const;
-const FORTNOX_SECTION_TITLE_STYLE = { margin: 0 } as const;
+const FORTNOX_SECTION_TITLE_STYLE = { margin: 0, textTransform: 'none', letterSpacing: 'normal', fontSize: '0.9rem' } as const;
 const FORTNOX_TABLE_SUBTEXT_STYLE = { fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
 const FORTNOX_TOOLBAR_GROUP_STYLE = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } as const;
-const SEGMENTED_CONTROL_STYLE = { display: 'inline-flex', borderRadius: '10px', border: '1px solid var(--glass-border)', background: 'rgba(255, 255, 255, 0.03)', overflow: 'hidden' } as const;
+const SEGMENTED_CONTROL_STYLE = { display: 'inline-flex', borderRadius: '10px', border: '1px solid var(--glass-border)', background: 'rgba(255, 255, 255, 0.05)', overflow: 'hidden', padding: '2px' } as const;
 const REFRESH_ICON_STYLE = { width: '32px', height: '32px', borderRadius: '50%', border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 } as const;
 const FORTNOX_ERROR_BOX_STYLE = {
     padding: '0.6rem 0.8rem',
@@ -364,8 +364,8 @@ const FORTNOX_COPILOT_CARD_STYLE = {
 } as const;
 const FORTNOX_COPILOT_SUBTEXT_STYLE = { fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
 const INVOICE_VIEW_OPTIONS: OptionItem<InvoiceView>[] = [
-    { id: 'supplier', label: 'Leverantörer' },
-    { id: 'customer', label: 'Kunder' },
+    { id: 'supplier', label: 'Lev.fakturor' },
+    { id: 'customer', label: 'Kundfakturor' },
 ];
 const SUPPLIER_FILTER_OPTIONS: OptionItem<SupplierFilterMode>[] = [
     { id: 'all', label: 'Alla' },
@@ -380,8 +380,8 @@ const CUSTOMER_FILTER_OPTIONS: OptionItem<CustomerFilterMode>[] = [
 ];
 const SUPPLIER_BASE_COLUMNS: TableColumn[] = [
     { key: 'invoice', label: 'Faktura' },
-    { key: 'supplier', label: 'Lev.nr' },
-    { key: 'dueDate', label: 'Förfallo' },
+    { key: 'supplier', label: 'Leverantör' },
+    { key: 'dueDate', label: 'Förfaller' },
     { key: 'total', label: 'Belopp', align: 'right' },
     { key: 'balance', label: 'Rest', align: 'right' },
     { key: 'status', label: 'Status' }
@@ -390,8 +390,8 @@ const TRACE_ACTION_COLUMN: TableColumn = { key: 'trace', label: 'Kontering', ali
 const SUPPLIER_ACTION_COLUMN: TableColumn = { key: 'action', label: 'Åtgärd', align: 'right' };
 const CUSTOMER_COLUMNS: TableColumn[] = [
     { key: 'invoice', label: 'Faktura' },
-    { key: 'customer', label: 'Kund.nr' },
-    { key: 'dueDate', label: 'Förfallo' },
+    { key: 'customer', label: 'Kund' },
+    { key: 'dueDate', label: 'Förfaller' },
     { key: 'total', label: 'Belopp', align: 'right' },
     { key: 'balance', label: 'Rest', align: 'right' },
     { key: 'status', label: 'Status' }
@@ -458,15 +458,17 @@ function getSelectorButtonStyle(isActive: boolean, activeBackground: string, act
 
 function getSegmentButtonStyle(isActive: boolean) {
     return {
-        height: '34px',
-        padding: '0 0.9rem',
+        height: '32px',
+        padding: '0 1rem',
         border: 'none',
-        borderRadius: 0,
+        borderRadius: '8px',
         fontSize: '0.78rem',
         fontWeight: 600,
-        background: isActive ? 'rgba(14, 165, 233, 0.18)' : 'transparent',
+        background: isActive ? 'rgba(14, 165, 233, 0.2)' : 'transparent',
         color: isActive ? '#0ea5e9' : 'var(--text-secondary)',
         cursor: 'pointer',
+        transition: 'all 0.15s ease',
+        boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
     } as const;
 }
 
@@ -522,8 +524,8 @@ function getInvoiceSectionTitle(isSupplierView: boolean): string {
 
 function getInvoiceSectionDescription(isSupplierView: boolean): string {
     return isSupplierView
-        ? 'Filtrera och följ upp leverantörsfakturor i Fortnox.'
-        : 'Filtrera och följ upp kundfakturor i Fortnox.';
+        ? 'Från Fortnox'
+        : 'Från Fortnox';
 }
 
 function isSupplierActionLoading(actionLoadingId: string | null, givenNumber: number | string): boolean {

@@ -31,10 +31,14 @@ export const AgentActivityFeed: FunctionComponent<AgentActivityFeedProps> = ({
 }) => {
     const [collapsed, setCollapsed] = useState(false);
 
+    console.log('[AgentActivityFeed] render', { stepsCount: steps.length, isStreaming, collapsed });
+
     // Auto-collapse when text streaming starts and all steps are done
     useEffect(() => {
         if (isStreaming && steps.length > 0 && steps.every(s => s.status !== 'running')) {
-            setCollapsed(true);
+            // Delay auto-collapse so user sees the feed
+            const timer = setTimeout(() => setCollapsed(true), 3000);
+            return () => clearTimeout(timer);
         }
     }, [isStreaming, steps]);
 
