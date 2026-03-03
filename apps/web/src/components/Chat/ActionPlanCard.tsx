@@ -1,6 +1,7 @@
 import { FunctionComponent } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { BorderBeam } from '@/registry/magicui/border-beam';
+import { ConfidenceIndicator } from './ThinkingSteps';
 
 export interface PostingRow {
     account: string;
@@ -166,9 +167,10 @@ export const ActionPlanCard: FunctionComponent<ActionPlanCardProps> = ({
                     <span class="action-plan-title">
                         {isPending ? 'Handlingsplan' : STATUS_LABELS[plan.status] || plan.status}
                         {plan.actions[0]?.confidence != null && (
-                            <span class={`confidence-pill ${plan.actions[0].confidence >= 0.8 ? 'high' : plan.actions[0].confidence >= 0.5 ? 'medium' : 'low'}`}>
-                                {Math.round(plan.actions[0].confidence * 100)}% säkerhet
-                            </span>
+                            <ConfidenceIndicator
+                                confidence={Math.round(plan.actions[0].confidence * 100)}
+                                showLabel={false}
+                            />
                         )}
                     </span>
                     <span class="action-plan-subtitle">{plan.summary}</span>

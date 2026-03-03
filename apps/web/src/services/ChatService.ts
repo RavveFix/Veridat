@@ -380,6 +380,17 @@ class ChatServiceClass {
                                     usedMemories?: UsedMemory[];
                                     actionPlan?: Record<string, unknown>;
                                     actionStatus?: Record<string, unknown>;
+                                    agentStep?: {
+                                        id: string;
+                                        type: string;
+                                        tool: string;
+                                        label: string;
+                                        status: 'running' | 'completed' | 'failed';
+                                        startedAt: number;
+                                        completedAt: number | null;
+                                        resultSummary: string | null;
+                                    };
+                                    clarification?: { message: string; missing_fields: string[] };
                                 };
                                 if (data.text) {
                                     fullText += data.text;
@@ -391,6 +402,9 @@ class ChatServiceClass {
                                 // Capture used memories for transparency
                                 if (data.usedMemories && Array.isArray(data.usedMemories)) {
                                     usedMemories = data.usedMemories;
+                                    window.dispatchEvent(new CustomEvent('chat-used-memories', {
+                                        detail: data.usedMemories
+                                    }));
                                 }
                                 // Dispatch action plan for ActionPlanCard rendering
                                 if (data.actionPlan) {
@@ -402,6 +416,18 @@ class ChatServiceClass {
                                 if (data.actionStatus) {
                                     window.dispatchEvent(new CustomEvent('chat-action-status', {
                                         detail: data.actionStatus
+                                    }));
+                                }
+                                // Dispatch agent step updates for AgentActivityFeed
+                                if (data.agentStep) {
+                                    window.dispatchEvent(new CustomEvent('chat-agent-step', {
+                                        detail: data.agentStep
+                                    }));
+                                }
+                                // Dispatch clarification for AIQuestionCard
+                                if (data.clarification) {
+                                    window.dispatchEvent(new CustomEvent('chat-clarification', {
+                                        detail: data.clarification
                                     }));
                                 }
                             } catch {

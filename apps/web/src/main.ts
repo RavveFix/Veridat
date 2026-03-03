@@ -29,6 +29,7 @@ import './styles/components/voice-input.css';
 import './styles/components/ui.css';
 import './styles/components/artifact-cards.css';
 import './styles/components/memory.css';
+import './styles/components/tooltip.css';
 import './styles/components/excel-artifact.css';
 import './styles/components/thinking-steps.css';
 import './styles/components/fortnox-sidebar.css';
@@ -41,6 +42,7 @@ import './styles/components/integrations.css';
 import './styles/components/fortnox-workspace.css';
 import './styles/components/app-sidebar.css';
 import './styles/components/page-wrapper.css';
+import './styles/components/agent-activity.css';
 
 logger.debug('main.ts module loading...');
 
@@ -116,17 +118,20 @@ const handleDebugGridToggle = (event: KeyboardEvent) => {
 };
 
 const initDebugGrid = () => {
-    applyDebugGrid();
-    window.addEventListener('resize', updateDebugGridVars);
-    window.addEventListener('keydown', handleDebugGridToggle);
+    if (!import.meta.env.DEV) return;
 
     const gridButton = document.getElementById('grid-toggle-btn');
     if (gridButton) {
+        gridButton.style.display = '';
         gridButton.addEventListener('click', () => {
             const enabled = !document.body.classList.contains('debug-grid');
             setDebugGrid(enabled);
         });
     }
+
+    applyDebugGrid();
+    window.addEventListener('resize', updateDebugGridVars);
+    window.addEventListener('keydown', handleDebugGridToggle);
 };
 
 if (document.readyState === 'loading') {

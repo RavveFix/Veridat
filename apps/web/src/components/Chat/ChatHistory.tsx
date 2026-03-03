@@ -11,6 +11,9 @@ import { StreamingText } from './StreamingText';
 import { UpgradeModal } from '../UpgradeModal';
 import { ThinkingAnimation } from './ThinkingAnimation';
 import { SmartActions } from './SmartActions';
+import { AgentActivityFeed } from './AgentActivityFeed';
+import type { AgentStep } from './AgentActivityFeed';
+import { AIQuestionCard } from './ThinkingSteps';
 import type { DetectedEntity } from '../../services/EntityDetectionService';
 
 type Message = Database['public']['Tables']['messages']['Row'];
@@ -47,6 +50,9 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
     const [streamingMetadata, setStreamingMetadata] = useState<Record<string, unknown> | null>(null);
     const [detectedEntities, setDetectedEntities] = useState<DetectedEntity[]>([]);
+    const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+    const [usedMemories, setUsedMemories] = useState<Array<{ id: string; category: string; preview: string }>>([]);
+    const [clarification, setClarification] = useState<{ message: string; missing_fields: string[] } | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const currentChannelRef = useRef<RealtimeChannel | null>(null);
@@ -74,6 +80,9 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         setStreamingMessage(null);
         setStreamingMetadata(null);
         setDetectedEntities([]);
+        setAgentSteps([]);
+        setUsedMemories([]);
+        setClarification(null);
 
         if (!isCreatingConversation) {
             setOptimisticMessages([]);
@@ -349,9 +358,11 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             setIsThinking(false); // Hide typing indicator once text starts
 
             if (e.detail.isNewResponse) {
-                // New response - reset buffer, memories, and update immediately
+                // New response - reset buffer, memories, agent steps, and update immediately
                 streamingBufferRef.current = e.detail.chunk;
                 setStreamingMessage(e.detail.chunk);
+                setAgentSteps([]);
+                setUsedMemories([]);
             } else {
                 // Append to buffer
                 streamingBufferRef.current += e.detail.chunk;
@@ -428,6 +439,39 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
         return () => {
             window.removeEventListener('chat-action-plan', handleActionPlan as EventListener);
             window.removeEventListener('chat-action-status', handleActionStatus as EventListener);
+        };
+    }, []);
+
+    // Handle agent step events from SSE stream
+    useEffect(() => {
+        const handleAgentStep = (e: CustomEvent) => {
+            const step = e.detail;
+            setAgentSteps(prev => {
+                const idx = prev.findIndex(s => s.id === step.id);
+                if (idx >= 0) {
+                    const updated = [...prev];
+                    updated[idx] = step;
+                    return updated;
+                }
+                return [...prev, step];
+            });
+        };
+
+        const handleUsedMemories = (e: CustomEvent) => {
+            setUsedMemories(e.detail || []);
+        };
+
+        const handleClarification = (e: CustomEvent) => {
+            setClarification(e.detail);
+        };
+
+        window.addEventListener('chat-agent-step', handleAgentStep as EventListener);
+        window.addEventListener('chat-used-memories', handleUsedMemories as EventListener);
+        window.addEventListener('chat-clarification', handleClarification as EventListener);
+        return () => {
+            window.removeEventListener('chat-agent-step', handleAgentStep as EventListener);
+            window.removeEventListener('chat-used-memories', handleUsedMemories as EventListener);
+            window.removeEventListener('chat-clarification', handleClarification as EventListener);
         };
     }, []);
 
@@ -663,6 +707,32 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
 
                     {streamingMessage ? (
                         <div class="bubble thinking-bubble streaming-bubble">
+                            {agentSteps.length > 0 && (
+                                <AgentActivityFeed
+                                    steps={agentSteps}
+                                    usedMemories={usedMemories}
+                                    isStreaming={!!streamingMessage}
+                                />
+                            )}
+                            {clarification && (
+                                <AIQuestionCard
+                                    question={{
+                                        id: 'clarification',
+                                        question: clarification.message,
+                                        options: clarification.missing_fields.map((f, i) => ({
+                                            id: `field-${i}`,
+                                            label: f,
+                                        })),
+                                        allowFreeText: true,
+                                        placeholder: 'Ange den saknade informationen...',
+                                    }}
+                                    onAnswer={(_id, answer) => {
+                                        const text = Array.isArray(answer) ? answer.join(', ') : answer;
+                                        setClarification(null);
+                                        window.dispatchEvent(new CustomEvent('chat-submit-message', { detail: { text } }));
+                                    }}
+                                />
+                            )}
                             {streamingMetadata?.type === 'action_plan' ? (
                                 <>
                                     {streamingMessage && (

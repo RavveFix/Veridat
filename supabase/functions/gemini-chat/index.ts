@@ -3492,9 +3492,20 @@ ANVÄNDARFRÅGA:
                       summary: actionPlan.summary,
                     });
                   } else if (toolName === "request_clarification") {
-                    // AI needs more info before creating a plan — stream as text
+                    // AI needs more info before creating a plan
                     const clarArgs = toolArgs as { message?: string; missing_fields?: string[] };
                     const clarText = clarArgs.message || "Jag behöver mer information för att kunna skapa en handlingsplan.";
+
+                    // Send structured clarification event for AIQuestionCard
+                    const clarificationEvent = {
+                      clarification: {
+                        message: clarText,
+                        missing_fields: clarArgs.missing_fields || [],
+                      }
+                    };
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(clarificationEvent)}\n\n`));
+
+                    // Also send as text for fallback display
                     const sseData = `data: ${JSON.stringify({ text: clarText })}\n\n`;
                     controller.enqueue(encoder.encode(sseData));
                     toolResponseText = clarText;
