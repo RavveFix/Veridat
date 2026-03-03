@@ -16,6 +16,7 @@ import type { InvoiceInboxRecord } from '../types/finance';
 import { getFortnoxList, getFortnoxObject } from '../utils/fortnoxResponse';
 import { InvoicePostingReviewDrawer } from './InvoicePostingReviewDrawer';
 import { getInvoicePostingReviewEnabled, invoicePostingReviewService, type InvoicePostingTrace } from '../services/InvoicePostingReviewService';
+import { markdownToHtml } from '../utils/markdownParser';
 import { ReceiptInboxTab } from './ReceiptInboxTab';
 
 // =============================================================================
@@ -571,13 +572,22 @@ function getInvoicePillStyle(background: string, color: string) {
     } as const;
 }
 
-function getActionButtonStyle(color: string, disabled = false) {
-    return {
+type ActionButtonVariant = 'primary' | 'secondary' | 'ghost';
+
+function getActionButtonStyle(color: string, disabled = false, variant: ActionButtonVariant = 'secondary') {
+    const base = {
         ...ACTION_BUTTON_BASE_STYLE,
-        color,
         cursor: disabled ? 'wait' : 'pointer',
         opacity: disabled ? 0.6 : 1,
-    } as const;
+    };
+    switch (variant) {
+        case 'primary':
+            return { ...base, background: color, color: '#fff', border: 'none' } as const;
+        case 'ghost':
+            return { ...base, color, border: 'none', background: 'transparent' } as const;
+        default:
+            return { ...base, color, border: `1px solid ${color}40`, background: 'transparent' } as const;
+    }
 }
 
 function filterItemsByStatus(items: InvoiceInboxItem[], statusFilter: InvoiceStatusFilter): InvoiceInboxItem[] {
@@ -1711,6 +1721,7 @@ function InvoiceCardActions({
                     color="#8b5cf6"
                     disabled={isExtracting}
                     onClick={onExtract}
+                    variant="primary"
                 />
             )}
 
@@ -1719,6 +1730,7 @@ function InvoiceCardActions({
                 color="#8b5cf6"
                 disabled={isReviewing}
                 onClick={onReview}
+                variant="primary"
             />
 
             {invoicePostingReviewEnabled && item.fortnoxGivenNumber && (
@@ -1734,6 +1746,7 @@ function InvoiceCardActions({
                 label={isEditing ? 'Stäng' : 'Redigera'}
                 color="var(--text-secondary)"
                 onClick={onEdit}
+                variant="ghost"
             />
 
             {item.status === 'ny' && (
@@ -1784,6 +1797,7 @@ function InvoiceCardActions({
                 <ActionButton
                     label="Ta bort"
                     color="#ef4444"
+                    variant="ghost"
                     onClick={() => {
                         if (window.confirm(`Ta bort faktura "${item.supplierName || item.fileName}"?`)) {
                             onRemove();
@@ -1955,7 +1969,10 @@ function InvoiceCard({
             {item.aiReviewNote && (
                 <div style={INVOICE_CARD_AI_REVIEW_STYLE}>
                     <span style={INVOICE_CARD_AI_REVIEW_LABEL_STYLE}>AI-granskning: </span>
-                    {item.aiReviewNote}
+                    <div
+                        className="ai-review-markdown"
+                        dangerouslySetInnerHTML={{ __html: markdownToHtml(item.aiReviewNote) }}
+                    />
                 </div>
             )}
 
@@ -2042,13 +2059,14 @@ function EditForm({
 }
 
 function ActionButton({
-    label, color, disabled, onClick, testId,
+    label, color, disabled, onClick, testId, variant,
 }: {
     label: string;
     color: string;
     disabled?: boolean;
     onClick: () => void;
     testId?: string;
+    variant?: ActionButtonVariant;
 }) {
     return (
         <button
@@ -2056,7 +2074,7 @@ function ActionButton({
             onClick={onClick}
             disabled={disabled}
             data-testid={testId}
-            style={getActionButtonStyle(color, disabled)}
+            style={getActionButtonStyle(color, disabled, variant)}
         >
             {label}
         </button>

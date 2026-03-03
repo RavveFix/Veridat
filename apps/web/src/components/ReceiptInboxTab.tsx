@@ -11,6 +11,7 @@ import { companyService } from '../services/CompanyService';
 import { fileService } from '../services/FileService';
 import { financeAgentService } from '../services/FinanceAgentService';
 import { logger } from '../services/LoggerService';
+import { markdownToHtml } from '../utils/markdownParser';
 import type { ReceiptInboxRecord, ReceiptStatus, ReceiptFortnoxSyncStatus } from '../types/finance';
 
 // =============================================================================
@@ -833,16 +834,19 @@ function FilterBtn({ label, count, color, active, onClick }: {
     );
 }
 
-function ActionBtn({ label, color, disabled, onClick }: {
-    label: string; color: string; disabled?: boolean; onClick: () => void;
+type ActionBtnVariant = 'primary' | 'secondary' | 'ghost';
+
+function ActionBtn({ label, color, disabled, onClick, variant = 'secondary' }: {
+    label: string; color: string; disabled?: boolean; onClick: () => void; variant?: ActionBtnVariant;
 }) {
+    const base = { ...ACTION_BTN_BASE, cursor: disabled ? 'wait' : 'pointer', opacity: disabled ? 0.6 : 1 } as Record<string, unknown>;
+    const style = variant === 'primary'
+        ? { ...base, background: color, color: '#fff', border: 'none' }
+        : variant === 'ghost'
+            ? { ...base, color, border: 'none', background: 'transparent' }
+            : { ...base, color, border: `1px solid ${color}40`, background: 'transparent' };
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            style={{ ...ACTION_BTN_BASE, color, cursor: disabled ? 'wait' : 'pointer', opacity: disabled ? 0.6 : 1 }}
-        >
+        <button type="button" onClick={onClick} disabled={disabled} style={style}>
             {label}
         </button>
     );
@@ -939,17 +943,20 @@ function ReceiptCard({
             {item.aiReviewNote && (
                 <div style={AI_REVIEW}>
                     <span style={AI_REVIEW_LABEL}>AI-granskning: </span>
-                    {item.aiReviewNote}
+                    <div
+                        className="ai-review-markdown"
+                        dangerouslySetInnerHTML={{ __html: markdownToHtml(item.aiReviewNote) }}
+                    />
                 </div>
             )}
 
             {/* Actions */}
             <div style={CARD_ACTIONS}>
                 {!item.aiExtracted && item.status === 'ny' && (
-                    <ActionBtn label={isExtracting ? 'Extraherar...' : 'AI-extrahera'} color="#8b5cf6" disabled={isExtracting} onClick={onExtract} />
+                    <ActionBtn label={isExtracting ? 'Extraherar...' : 'AI-extrahera'} color="#8b5cf6" disabled={isExtracting} onClick={onExtract} variant="primary" />
                 )}
-                <ActionBtn label={isReviewing ? 'Granskar...' : 'AI-granska'} color="#8b5cf6" disabled={isReviewing} onClick={onReview} />
-                <ActionBtn label={isEditing ? 'Stäng' : 'Redigera'} color="var(--text-secondary)" onClick={onEdit} />
+                <ActionBtn label={isReviewing ? 'Granskar...' : 'AI-granska'} color="#8b5cf6" disabled={isReviewing} onClick={onReview} variant="primary" />
+                <ActionBtn label={isEditing ? 'Stäng' : 'Redigera'} color="var(--text-secondary)" onClick={onEdit} variant="ghost" />
 
                 {item.status === 'ny' && (
                     <ActionBtn label="Markera som granskad" color={STATUS_CONFIG.granskad.color} onClick={() => onSetStatus('granskad')} />
@@ -962,6 +969,7 @@ function ReceiptCard({
                 <ActionBtn
                     label="Ta bort"
                     color="#ef4444"
+                    variant="ghost"
                     onClick={() => {
                         if (window.confirm(`Ta bort kvitto "${displayName}"?`)) onRemove();
                     }}

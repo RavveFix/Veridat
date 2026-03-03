@@ -257,9 +257,12 @@ const FORTNOX_TABLE_CARD_STYLE = {
 } as const;
 const FORTNOX_TABLE_HEADER_STYLE = { display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' } as const;
 const FORTNOX_TABLE_TITLE_WRAP_STYLE = { display: 'flex', flexDirection: 'column', gap: '0.35rem' } as const;
+const FORTNOX_TITLE_ROW_STYLE = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' } as const;
 const FORTNOX_SECTION_TITLE_STYLE = { margin: 0 } as const;
 const FORTNOX_TABLE_SUBTEXT_STYLE = { fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
 const FORTNOX_TOOLBAR_GROUP_STYLE = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } as const;
+const SEGMENTED_CONTROL_STYLE = { display: 'inline-flex', borderRadius: '10px', border: '1px solid var(--glass-border)', background: 'rgba(255, 255, 255, 0.03)', overflow: 'hidden' } as const;
+const REFRESH_ICON_STYLE = { width: '32px', height: '32px', borderRadius: '50%', border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 } as const;
 const FORTNOX_ERROR_BOX_STYLE = {
     padding: '0.6rem 0.8rem',
     borderRadius: '8px',
@@ -453,12 +456,25 @@ function getSelectorButtonStyle(isActive: boolean, activeBackground: string, act
     } as const;
 }
 
-function getRefreshButtonStyle(isLoading: boolean) {
+function getSegmentButtonStyle(isActive: boolean) {
     return {
-        ...TOOLBAR_BUTTON_BASE_STYLE,
-        background: 'transparent',
-        color: 'var(--text-secondary)',
-        cursor: isLoading ? 'wait' : 'pointer'
+        height: '34px',
+        padding: '0 0.9rem',
+        border: 'none',
+        borderRadius: 0,
+        fontSize: '0.78rem',
+        fontWeight: 600,
+        background: isActive ? 'rgba(14, 165, 233, 0.18)' : 'transparent',
+        color: isActive ? '#0ea5e9' : 'var(--text-secondary)',
+        cursor: 'pointer',
+    } as const;
+}
+
+function getRefreshIconStyle(isLoading: boolean) {
+    return {
+        ...REFRESH_ICON_STYLE,
+        cursor: isLoading ? 'wait' : 'pointer',
+        opacity: isLoading ? 0.6 : 1,
     } as const;
 }
 
@@ -1223,24 +1239,32 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                 <div className="panel-card panel-card--no-hover fortnox-workspace-table-card" style={FORTNOX_TABLE_CARD_STYLE}>
                     <div style={FORTNOX_TABLE_HEADER_STYLE}>
                         <div style={FORTNOX_TABLE_TITLE_WRAP_STYLE}>
-                            <div className="panel-section-title" style={FORTNOX_SECTION_TITLE_STYLE}>
-                                {getInvoiceSectionTitle(isSupplierView)}
+                            <div style={FORTNOX_TITLE_ROW_STYLE}>
+                                <div className="panel-section-title" style={FORTNOX_SECTION_TITLE_STYLE}>
+                                    {getInvoiceSectionTitle(isSupplierView)}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={refreshActiveView}
+                                    disabled={activeLoading}
+                                    data-testid="fortnox-refresh-button"
+                                    title="Uppdatera"
+                                    style={getRefreshIconStyle(activeLoading)}
+                                >
+                                    {activeLoading ? '⏳' : '↻'}
+                                </button>
                             </div>
                             <div style={FORTNOX_TABLE_SUBTEXT_STYLE}>
                                 {getInvoiceSectionDescription(isSupplierView)}
                             </div>
-                            <div style={FORTNOX_TOOLBAR_GROUP_STYLE}>
+                            <div style={SEGMENTED_CONTROL_STYLE}>
                                 {INVOICE_VIEW_OPTIONS.map((viewOption) => (
                                     <button
                                         key={viewOption.id}
                                         type="button"
                                         onClick={() => setInvoiceView(viewOption.id)}
                                         data-testid={`fortnox-view-${viewOption.id}`}
-                                        style={getSelectorButtonStyle(
-                                            viewOption.id === invoiceView,
-                                            'rgba(14, 165, 233, 0.18)',
-                                            '#0ea5e9'
-                                        )}
+                                        style={getSegmentButtonStyle(viewOption.id === invoiceView)}
                                     >
                                         {viewOption.label}
                                     </button>
@@ -1264,15 +1288,6 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                                     {option.label}
                                 </button>
                             ))}
-                            <button
-                                type="button"
-                                onClick={refreshActiveView}
-                                disabled={activeLoading}
-                                data-testid="fortnox-refresh-button"
-                                style={getRefreshButtonStyle(activeLoading)}
-                            >
-                                {activeLoading ? 'Hämtar...' : 'Uppdatera'}
-                            </button>
                         </div>
                     </div>
 
