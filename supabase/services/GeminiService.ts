@@ -554,6 +554,20 @@ const tools: Tool[] = [
                 }
             },
             {
+                name: "company_lookup",
+                description: "Slå upp ett svenskt företag på allabolag.se för att hämta organisationsnummer, adress och annan information. Använd ALLTID detta verktyg INNAN du skapar en ny kund (create_customer) i en handlingsplan.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        company_name: {
+                            type: SchemaType.STRING,
+                            description: "Företagsnamn att söka efter (t.ex. 'Volvo AB')"
+                        }
+                    },
+                    required: ["company_name"]
+                }
+            },
+            {
                 name: "create_invoice",
                 description: "Skapar ett fakturautkast i Fortnox. Använd detta när användaren vill fakturera.",
                 parameters: {
@@ -803,7 +817,7 @@ const tools: Tool[] = [
                                 properties: {
                                     action_type: {
                                         type: SchemaType.STRING,
-                                        description: "Typ av åtgärd: 'create_supplier_invoice', 'create_invoice', 'export_journal_to_fortnox', 'book_supplier_invoice', 'create_supplier', 'register_payment'"
+                                        description: "Typ av åtgärd: 'create_supplier_invoice', 'create_invoice', 'export_journal_to_fortnox', 'book_supplier_invoice', 'create_supplier', 'create_customer', 'register_payment'"
                                     },
                                     description: {
                                         type: SchemaType.STRING,
@@ -833,6 +847,10 @@ const tools: Tool[] = [
                                             SupplierNumber: {
                                                 type: SchemaType.STRING,
                                                 description: "Fortnox leverantörsnummer (för leverantörsfakturor)"
+                                            },
+                                            Name: {
+                                                type: SchemaType.STRING,
+                                                description: "Namn på kund/leverantör (obligatoriskt för create_customer)"
                                             },
                                             invoice_number: {
                                                 type: SchemaType.STRING,

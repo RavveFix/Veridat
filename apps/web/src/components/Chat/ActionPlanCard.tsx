@@ -55,6 +55,7 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
     book_invoice: 'Bokför verifikat',
     book_supplier_invoice: 'Bokför faktura',
     create_supplier: 'Skapa leverantör',
+    create_customer: 'Skapa kund',
     register_payment: 'Registrera betalning',
 };
 

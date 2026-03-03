@@ -68,6 +68,12 @@ export interface FortnoxCustomerListResponse extends FortnoxResponse<FortnoxCust
     Customers: FortnoxCustomer[];
 }
 
+export interface FortnoxCustomerResponse extends FortnoxResponse<FortnoxCustomer> {
+    Customer: FortnoxCustomer & {
+        CustomerNumber: string;
+    };
+}
+
 export interface FortnoxArticleListResponse extends FortnoxResponse<FortnoxArticle> {
     Articles: FortnoxArticle[];
 }

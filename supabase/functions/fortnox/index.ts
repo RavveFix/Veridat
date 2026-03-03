@@ -2,7 +2,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { FortnoxService } from "../../services/FortnoxService.ts";
-import { FortnoxInvoice, FortnoxVoucher, FortnoxSupplierInvoice, FortnoxSupplier, FortnoxInvoicePayment, FortnoxSupplierInvoicePayment } from "./types.ts";
+import { FortnoxInvoice, FortnoxVoucher, FortnoxSupplierInvoice, FortnoxSupplier, FortnoxCustomer, FortnoxInvoicePayment, FortnoxSupplierInvoicePayment } from "./types.ts";
 import {
     getCorsHeaders,
     createOptionsResponse,
@@ -51,11 +51,14 @@ const WRITE_ACTIONS_TO_OPERATION: Partial<Record<string, FortnoxOperation>> = {
     approveSupplierInvoicePayment: 'approve_supplier_invoice_payment',
     createSupplier: 'create_supplier',
     findOrCreateSupplier: 'create_supplier',
+    createCustomer: 'create_customer',
+    findOrCreateCustomer: 'create_customer',
 };
 
 const FAIL_CLOSED_RATE_LIMIT_ACTIONS = new Set<string>([
     ...Object.keys(WRITE_ACTIONS_TO_OPERATION),
     'findOrCreateSupplier',
+    'findOrCreateCustomer',
     'sync_profile',
 ]);
 
@@ -82,6 +85,7 @@ const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
     'getSupplier',
     'createSupplier',
     'findOrCreateSupplier',
+    'createCustomer',
     'sync_profile',
     'getVATReport',
     'getFinancialStatements',
@@ -2002,6 +2006,39 @@ Deno.serve(async (req: Request) => {
                     if (syncId) {
                         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
                         await auditService.failFortnoxSync(syncId!, 'SUPPLIER_CREATE_ERROR', errorMessage, undefined, requestMeta);
+                    }
+                    throw error;
+                }
+                break;
+            }
+
+            case 'createCustomer': {
+                const customerDataRaw = requireRecord(payload?.customer, 'payload.customer');
+                requireString(customerDataRaw.Name, 'payload.customer.Name');
+                const customerData = customerDataRaw as unknown as FortnoxCustomer;
+                const write = await prepareWriteAction(
+                    'create_customer',
+                    { customer: customerDataRaw },
+                    action
+                );
+                if (write.cachedResult) {
+                    result = write.cachedResult;
+                    break;
+                }
+                syncId = write.syncId;
+                try {
+                    result = await requireFortnoxService().findOrCreateCustomer(customerData);
+                    await auditService.completeFortnoxSync(syncId!, {
+                        fortnoxDocumentNumber: (result as any).Customer?.CustomerNumber,
+                        responsePayload: result as unknown as Record<string, unknown>,
+                    }, requestMeta);
+                    logger.info('Customer created/found successfully', {
+                        customerNumber: (result as any).Customer?.CustomerNumber,
+                    });
+                } catch (error) {
+                    if (syncId) {
+                        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                        await auditService.failFortnoxSync(syncId!, 'CUSTOMER_CREATE_ERROR', errorMessage, undefined, requestMeta);
                     }
                     throw error;
                 }

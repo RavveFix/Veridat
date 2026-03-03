@@ -1193,6 +1193,57 @@ interface VATReportContext {
  * Execute a Fortnox tool call server-side (used by streaming path).
  * Returns the response text, or null if the tool is unrecognized.
  */
+
+async function lookupCompanyOnAllabolag(companyName: string): Promise<string> {
+  if (!companyName) return "Företagsnamn saknas.";
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    try {
+      const searchUrl = `https://www.allabolag.se/find?what=${encodeURIComponent(companyName)}`;
+      const resp = await fetch(searchUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Veridat/1.0)" },
+        signal: controller.signal,
+      });
+      if (!resp.ok) {
+        return `Kunde inte söka på allabolag.se (status ${resp.status}). Skapa kunden utan uppslag.`;
+      }
+      const html = await resp.text();
+      const ndMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if (!ndMatch) {
+        return `Hittade ingen data på allabolag.se för "${companyName}". Skapa kunden utan uppslag.`;
+      }
+      let nextData;
+      try {
+        nextData = JSON.parse(ndMatch[1]);
+      } catch {
+        return `Kunde inte tolka data från allabolag.se. Skapa kunden utan uppslag.`;
+      }
+      const hits = nextData?.props?.pageProps?.hits
+        || nextData?.props?.pageProps?.searchResult?.hits
+        || [];
+      if (hits.length === 0) {
+        return `Inga träffar på allabolag.se för "${companyName}".`;
+      }
+      const results = hits.slice(0, 3).map((h: any) => {
+        const name = h.name || h.companyName || "";
+        const orgNr = h.orgnr || h.organisationNumber || "";
+        const address = h.address || h.visitingAddress || "";
+        const zipCode = h.zipCode || h.postalCode || "";
+        const city = h.city || h.town || "";
+        const status = h.status || h.companyStatus || "";
+        return `- ${name} (${orgNr}): ${address}, ${zipCode} ${city} [${status}]`;
+      }).join("\n");
+      return `Sökresultat från allabolag.se för "${companyName}":\n${results}\n\nAnvänd organisationsnummer, adress och stad från träffen ovan i create_customer-parametrarna.`;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch (err) {
+    logger.warn("Allabolag lookup failed", err);
+    return `Uppslag på allabolag.se misslyckades. Skapa kunden utan företagsuppgifter.`;
+  }
+}
+
 async function executeFortnoxTool(
   toolName: string,
   toolArgs: Record<string, unknown>,
@@ -1517,6 +1568,9 @@ async function executeFortnoxTool(
           newState: result,
         });
         return `Kundfaktura skapad som utkast (nr ${inv.InvoiceNumber || "tilldelas"}) i Fortnox.`;
+      }
+      case "company_lookup": {
+        return await lookupCompanyOnAllabolag((toolArgs as any).company_name);
       }
       default:
         return null;
@@ -2001,6 +2055,8 @@ Deno.serve(async (req: Request) => {
         const execStream = new ReadableStream({
           async start(controller) {
             try {
+              let createdCustomerNumber: string | undefined;
+
               for (let i = 0; i < actions.length; i++) {
                 let action = actions[i];
 
@@ -2251,8 +2307,8 @@ Deno.serve(async (req: Request) => {
                       break;
                     }
                     case "create_invoice": {
-                      // Resolve CustomerNumber — try params first, then fallback to name lookup
-                      let custNum = params.CustomerNumber || params.customer_number;
+                      // Resolve CustomerNumber — try params first, then createdCustomerNumber from prior action, then name lookup
+                      let custNum = params.CustomerNumber || params.customer_number || createdCustomerNumber;
                       if (!custNum && resolvedCompanyId) {
                         // Fetch customer list and match by name from action/plan text
                         try {
@@ -2385,6 +2441,28 @@ Deno.serve(async (req: Request) => {
                         resourceId: String(inv.InvoiceNumber || ""),
                         newState: result,
                       });
+                      break;
+                    }
+                    case "create_customer": {
+                      const result = await callFortnoxWrite(
+                        "createCustomer",
+                        {
+                          customer: {
+                            Name: params.name || params.Name,
+                            OrganisationNumber: params.org_number || params.OrganisationNumber || undefined,
+                            Email: params.email || params.Email || undefined,
+                            Address1: params.address || params.Address1 || undefined,
+                            ZipCode: params.zip_code || params.ZipCode || undefined,
+                            City: params.city || params.City || undefined,
+                          },
+                        },
+                        "create_customer",
+                        String(params.org_number || params.name || params.Name),
+                      );
+                      const customer = (result as any).Customer || result;
+                      createdCustomerNumber = customer.CustomerNumber;
+                      resultText =
+                        `Kund skapad: ${customer.Name || params.name || params.Name} (nr ${customer.CustomerNumber || "tilldelas"})`;
                       break;
                     }
                     default:
@@ -2689,7 +2767,7 @@ Deno.serve(async (req: Request) => {
         `2. Inkludera ALLTID posting_rows med account (nummer), accountName, debit, credit\n` +
         `3. Använd BARA konton från [KONTOPLAN]. Saknas kontoplanen → standard BAS-konton\n` +
         `4. KUNDFAKTUROR: action_type = "create_invoice", parameters MÅSTE innehålla:\n` +
-        `   - CustomerNumber: kundnumret från [KUNDER] (matcha namn → nummer)\n` +
+        `   - CustomerNumber: kundnumret från [KUNDER] (matcha namn → nummer). Om kunden INTE finns i [KUNDER] → lägg till en SEPARAT åtgärd med action_type "create_customer" FÖRE create_invoice, med parameters: { Name: "Kundnamn" }. Systemet kopplar ihop kundnumret automatiskt.\n` +
         `   - InvoiceRows: [{ Description: "kort benämning", Price: à_pris_per_enhet, DeliveredQuantity: antal }]\n` +
         `     Price = à-pris per enhet exkl. moms, INTE totalbelopp. Exempel: 5 timmar á 2000 kr → Price: 2000, DeliveredQuantity: 5\n` +
         `     Description = kort och professionell benämning (max 50 tecken), BARA tjänstetyp/vara:\n` +
@@ -2698,7 +2776,8 @@ Deno.serve(async (req: Request) => {
         `   - Inkludera ÄVEN posting_rows för konteringsförhandsvisning\n` +
         `5. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice" med parameters: { SupplierNumber: leverantörsnumret från [LEVERANTÖRER] }\n` +
         `6. VERIFIKAT/JOURNALPOSTER: action_type = "book_invoice" med posting_rows\n` +
-        `7. Använd artikelnummer från [ARTIKLAR] i InvoiceRows om relevant\n\n`;
+        `7. Använd artikelnummer från [ARTIKLAR] i InvoiceRows om relevant\n` +
+        `8. NY KUND: Om kunden INTE finns i [KUNDER], anropa FÖRST company_lookup med företagsnamnet. Använd sedan orgnr, adress, postnr och stad från resultatet i create_customer-parametrarna (Name, OrganisationNumber, Address1, ZipCode, City). Om company_lookup misslyckas, skapa kunden med bara namnet.\n\n`;
 
       // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
       let invoiceContext = "";
@@ -3866,6 +3945,18 @@ ANVÄNDARFRÅGA:
               responseText = followUp.text ||
                 "Jag kunde inte sammanställa ett svar från webbkällorna.";
             }
+            break;
+          }
+          case "company_lookup": {
+            const lookupResult = await lookupCompanyOnAllabolag((args as any).company_name);
+            const followUp = await sendMessageToGemini(
+              withAccountingContract(`FÖRETAGSUPPSLAG:\n${lookupResult}\n\nFortsätt svara på användarens fråga med denna information. Fråga: "${message}"`),
+              undefined,
+              history,
+              undefined,
+              undefined,
+            );
+            responseText = followUp.text || lookupResult;
             break;
           }
           case "create_invoice": {

@@ -6,7 +6,9 @@ import { classifyFortnoxError, FortnoxTimeoutError, FortnoxApiError } from './Fo
 import { retryWithBackoff } from './RetryService.ts';
 import { FortnoxRateLimitService } from './FortnoxRateLimitService.ts';
 import type {
+    FortnoxCustomer,
     FortnoxCustomerListResponse,
+    FortnoxCustomerResponse,
     FortnoxArticleListResponse,
     FortnoxInvoice,
     FortnoxInvoiceResponse,
@@ -500,6 +502,32 @@ export class FortnoxService {
 
     async getCustomers(): Promise<FortnoxCustomerListResponse> {
         return await this.request<FortnoxCustomerListResponse>('/customers');
+    }
+
+    async createCustomer(customerData: FortnoxCustomer): Promise<FortnoxCustomerResponse> {
+        logger.info('Creating customer in Fortnox', { name: customerData.Name });
+        return await this.request<FortnoxCustomerResponse>('/customers', {
+            method: 'POST',
+            body: JSON.stringify({ Customer: customerData })
+        });
+    }
+
+    async findOrCreateCustomer(customerData: FortnoxCustomer): Promise<FortnoxCustomerResponse> {
+        try {
+            const customers = await this.getCustomers();
+            const existing = customers.Customers?.find(
+                c => c.Name.toLowerCase() === customerData.Name.toLowerCase()
+            );
+            if (existing) {
+                logger.info('Found existing customer', { customerNumber: existing.CustomerNumber });
+                return { Customer: existing } as FortnoxCustomerResponse;
+            }
+        } catch (error) {
+            logger.warn('Could not search customers', {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+        return await this.createCustomer(customerData);
     }
 
     async getArticles(): Promise<FortnoxArticleListResponse> {
