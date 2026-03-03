@@ -2444,16 +2444,40 @@ Deno.serve(async (req: Request) => {
                       break;
                     }
                     case "create_customer": {
+                      // Auto-lookup company on allabolag.se if org number is missing
+                      const customerName = params.name || params.Name || "";
+                      let orgNr = params.org_number || params.OrganisationNumber;
+                      let address = params.address || params.Address1;
+                      let zipCode = params.zip_code || params.ZipCode;
+                      let city = params.city || params.City;
+
+                      if (!orgNr && customerName) {
+                        try {
+                          const lookupText = await lookupCompanyOnAllabolag(customerName);
+                          // Parse first result: "- Name (XXXXXX-XXXX): Address, ZipCode City [Status]"
+                          const lineMatch = lookupText.match(/^- .+?\((\d{6}-?\d{4})\):\s*(.+?),\s*(\d{3}\s?\d{2})\s+(.+?)\s*\[/m);
+                          if (lineMatch) {
+                            orgNr = orgNr || lineMatch[1];
+                            address = address || lineMatch[2].trim();
+                            zipCode = zipCode || lineMatch[3].trim();
+                            city = city || lineMatch[4].trim();
+                            logger.info("Company lookup enriched customer data", { customerName, orgNr, city });
+                          }
+                        } catch (lookupErr) {
+                          logger.warn("Company lookup failed during create_customer, proceeding without", lookupErr);
+                        }
+                      }
+
                       const result = await callFortnoxWrite(
                         "createCustomer",
                         {
                           customer: {
-                            Name: params.name || params.Name,
-                            OrganisationNumber: params.org_number || params.OrganisationNumber || undefined,
+                            Name: customerName,
+                            OrganisationNumber: orgNr || undefined,
                             Email: params.email || params.Email || undefined,
-                            Address1: params.address || params.Address1 || undefined,
-                            ZipCode: params.zip_code || params.ZipCode || undefined,
-                            City: params.city || params.City || undefined,
+                            Address1: address || undefined,
+                            ZipCode: zipCode || undefined,
+                            City: city || undefined,
                           },
                         },
                         "create_customer",
@@ -2777,7 +2801,7 @@ Deno.serve(async (req: Request) => {
         `5. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice" med parameters: { SupplierNumber: leverantörsnumret från [LEVERANTÖRER] }\n` +
         `6. VERIFIKAT/JOURNALPOSTER: action_type = "book_invoice" med posting_rows\n` +
         `7. Använd artikelnummer från [ARTIKLAR] i InvoiceRows om relevant\n` +
-        `8. NY KUND: Om kunden INTE finns i [KUNDER], anropa FÖRST company_lookup med företagsnamnet. Använd sedan orgnr, adress, postnr och stad från resultatet i create_customer-parametrarna (Name, OrganisationNumber, Address1, ZipCode, City). Om company_lookup misslyckas, skapa kunden med bara namnet.\n\n`;
+        `8. NY KUND: Om kunden INTE finns i [KUNDER], lägg till en SEPARAT åtgärd med action_type "create_customer" FÖRE create_invoice, med parameters: { Name: "Kundnamn" }. Systemet slår automatiskt upp organisationsnummer och adress från allabolag.se vid skapandet.\n\n`;
 
       // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
       let invoiceContext = "";
