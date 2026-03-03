@@ -446,7 +446,6 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
     useEffect(() => {
         const handleAgentStep = (e: CustomEvent) => {
             const step = e.detail;
-            console.log('[ChatHistory] agentStep received:', step.id, step.label, step.status);
             setAgentSteps(prev => {
                 const idx = prev.findIndex(s => s.id === step.id);
                 if (idx >= 0) {
