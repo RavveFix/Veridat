@@ -358,11 +358,11 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
             setIsThinking(false); // Hide typing indicator once text starts
 
             if (e.detail.isNewResponse) {
-                // New response - reset buffer, memories, agent steps, and update immediately
+                // New response - reset buffer and update immediately
+                // Note: agentSteps/usedMemories are NOT cleared here — they arrive
+                // before text and would be wiped. They reset on conversation change (line 83).
                 streamingBufferRef.current = e.detail.chunk;
                 setStreamingMessage(e.detail.chunk);
-                setAgentSteps([]);
-                setUsedMemories([]);
             } else {
                 // Append to buffer
                 streamingBufferRef.current += e.detail.chunk;
@@ -756,6 +756,13 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                         </div>
                     ) : (
                         <div class="thinking-status" role="status" aria-live="polite">
+                            {agentSteps.length > 0 && (
+                                <AgentActivityFeed
+                                    steps={agentSteps}
+                                    usedMemories={usedMemories}
+                                    isStreaming={false}
+                                />
+                            )}
                             <ThinkingAnimation />
                         </div>
                     )}
