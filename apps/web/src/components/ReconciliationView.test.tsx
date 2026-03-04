@@ -137,11 +137,11 @@ describe('ReconciliationView', () => {
         await renderView({ onOpenBankImport });
 
         await waitForAssertion(() => {
-            expect(container.textContent).toContain('Inga bankimporter hittades');
+            expect(container.textContent).toContain('Ingen bankdata importerad');
             expect(container.querySelectorAll('[data-testid^="reconciliation-toggle-"]').length).toBe(0);
         });
 
-        await click(getButtonByText('Importera bankfil'));
+        await click(getButtonByText('Gå till Import'));
         expect(onOpenBankImport).toHaveBeenCalledTimes(1);
     });
 

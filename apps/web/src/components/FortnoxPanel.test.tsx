@@ -249,7 +249,7 @@ describe('FortnoxPanel', () => {
         await click(getByTestId('fortnox-filter-authorizepending'));
 
         await waitForAssertion(() => {
-            expect(container.textContent).toContain('Inga fakturor att visa.');
+            expect(container.textContent).toContain('Inga fakturor ännu');
         });
     });
 
