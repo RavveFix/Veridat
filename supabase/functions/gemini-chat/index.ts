@@ -3392,6 +3392,7 @@ ANVÄNDARFRÅGA:
                           history,
                           undefined,
                           effectiveModel,
+                          { disableTools: true },
                         );
                         toolResponseText = noResultsResponse.text ||
                           `Jag hittade tyvärr inget i tidigare konversationer som matchar "${searchQuery}".`;
@@ -3411,6 +3412,7 @@ ANVÄNDARFRÅGA:
                           history,
                           undefined,
                           effectiveModel,
+                          { disableTools: true },
                         );
                         toolResponseText = followUp.text ||
                           formatHistoryResponse(searchQuery, searchResults, []);
@@ -3969,6 +3971,9 @@ ANVÄNDARFRÅGA:
                 withAccountingContract(noResultsPrompt),
                 undefined,
                 history,
+                undefined,
+                undefined,
+                { disableTools: true },
               );
               responseText = noResultsResponse.text ||
                 `Jag hittade tyvärr inget i tidigare konversationer som matchar "${searchQuery}". Kan du förtydliga vad du letar efter?`;
@@ -3988,6 +3993,9 @@ ANVÄNDARFRÅGA:
                 withAccountingContract(contextPrompt),
                 undefined,
                 history,
+                undefined,
+                undefined,
+                { disableTools: true },
               );
               responseText = followUp.text ||
                 formatHistoryResponse(searchQuery, searchResults, []);
