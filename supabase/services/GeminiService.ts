@@ -817,7 +817,7 @@ const tools: Tool[] = [
                                 properties: {
                                     action_type: {
                                         type: SchemaType.STRING,
-                                        description: "Typ av åtgärd: 'create_supplier_invoice', 'create_invoice', 'export_journal_to_fortnox', 'book_supplier_invoice', 'create_supplier', 'create_customer', 'register_payment'"
+                                        description: "Typ av åtgärd: 'create_supplier_invoice', 'create_invoice', 'update_invoice', 'export_journal_to_fortnox', 'book_supplier_invoice', 'create_supplier', 'create_customer', 'register_payment'"
                                     },
                                     description: {
                                         type: SchemaType.STRING,
@@ -833,7 +833,7 @@ const tools: Tool[] = [
                                             },
                                             InvoiceRows: {
                                                 type: SchemaType.ARRAY,
-                                                description: "Fakturarader (obligatoriskt för create_invoice)",
+                                                description: "Fakturarader (obligatoriskt för create_invoice och update_invoice). Vid update_invoice: ALLA rader måste inkluderas.",
                                                 items: {
                                                     type: SchemaType.OBJECT,
                                                     properties: {
@@ -855,6 +855,10 @@ const tools: Tool[] = [
                                             invoice_number: {
                                                 type: SchemaType.STRING,
                                                 description: "Löpnummer för befintlig faktura (för book_supplier_invoice)"
+                                            },
+                                            DocumentNumber: {
+                                                type: SchemaType.NUMBER,
+                                                description: "Fortnox dokumentnummer för befintlig faktura (obligatoriskt för update_invoice)"
                                             }
                                         }
                                     },

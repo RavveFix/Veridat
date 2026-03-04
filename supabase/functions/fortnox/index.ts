@@ -53,6 +53,7 @@ const WRITE_ACTIONS_TO_OPERATION: Partial<Record<string, FortnoxOperation>> = {
     findOrCreateSupplier: 'create_supplier',
     createCustomer: 'create_customer',
     findOrCreateCustomer: 'create_customer',
+    updateInvoice: 'update_invoice',
 };
 
 const FAIL_CLOSED_RATE_LIMIT_ACTIONS = new Set<string>([
@@ -86,6 +87,7 @@ const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
     'createSupplier',
     'findOrCreateSupplier',
     'createCustomer',
+    'updateInvoice',
     'sync_profile',
     'getVATReport',
     'getFinancialStatements',
@@ -1325,6 +1327,61 @@ Deno.serve(async (req: Request) => {
                     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
                     if (syncId) {
                         await auditService.failFortnoxSync(syncId!, 'CREATE_INVOICE_ERROR', errorMessage, undefined, requestMeta);
+                    }
+                    throw error;
+                }
+                break;
+            }
+
+            case 'updateInvoice': {
+                const documentNumber = requireNumber(payload?.documentNumber, 'payload.documentNumber');
+                const invoiceUpdateData = requireRecord(
+                    isRecord(payload?.invoice) ? payload.invoice : payload,
+                    'payload.invoice'
+                );
+
+                // Verify invoice is not booked or cancelled
+                const currentInvoice = await requireFortnoxService().getInvoice(documentNumber);
+                const inv = currentInvoice.Invoice;
+                if (inv?.Booked) {
+                    throw new RequestValidationError(
+                        'INVOICE_BOOKED',
+                        'Fakturan är bokförd och kan inte ändras. Kreditera fakturan och skapa en ny istället.',
+                        { documentNumber }
+                    );
+                }
+                if (inv?.Cancelled) {
+                    throw new RequestValidationError(
+                        'INVOICE_CANCELLED',
+                        'Fakturan är makulerad och kan inte ändras.',
+                        { documentNumber }
+                    );
+                }
+
+                const write = await prepareWriteAction(
+                    'update_invoice',
+                    { documentNumber, invoice: invoiceUpdateData },
+                    action
+                );
+                if (write.cachedResult) {
+                    result = write.cachedResult;
+                    break;
+                }
+
+                syncId = write.syncId;
+                try {
+                    result = await requireFortnoxService().updateInvoice(
+                        documentNumber,
+                        invoiceUpdateData as unknown as Partial<FortnoxInvoice>
+                    );
+                    await auditService.completeFortnoxSync(syncId!, {
+                        fortnoxDocumentNumber: String(documentNumber),
+                        responsePayload: result as unknown as Record<string, unknown>,
+                    }, requestMeta);
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    if (syncId) {
+                        await auditService.failFortnoxSync(syncId!, 'UPDATE_INVOICE_ERROR', errorMessage, undefined, requestMeta);
                     }
                     throw error;
                 }

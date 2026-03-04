@@ -37,6 +37,7 @@ export type FortnoxOperation =
     | 'create_customer'
     | 'create_article'
     | 'update_voucher'
+    | 'update_invoice'
     | 'import_vouchers'
     | 'import_supplier_invoices';
 

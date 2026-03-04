@@ -58,6 +58,7 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
     create_supplier: 'Skapa leverantör',
     create_customer: 'Skapa kund',
     register_payment: 'Registrera betalning',
+    update_invoice: 'Uppdatera kundfaktura',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -93,6 +94,8 @@ const friendlyError = (error: string): string => {
     if (decoded.includes('rate limit')) return 'För många anrop — försök igen om en stund';
     if (decoded.includes('token')) return 'Fortnox-anslutningen har gått ut — återanslut i inställningar';
     if (/[Oo]giltig förfrågan/.test(decoded)) return 'Ogiltig förfrågan till Fortnox — kontrollera indata';
+    if (decoded.includes('INVOICE_BOOKED') || /bokförd.*kan inte ändras/.test(decoded)) return 'Fakturan är bokförd och kan inte ändras. Kreditera den och skapa en ny.';
+    if (decoded.includes('INVOICE_CANCELLED') || /makulerad.*kan inte ändras/.test(decoded)) return 'Fakturan är makulerad och kan inte ändras.';
     return decoded;
 };
 
@@ -270,6 +273,40 @@ export const ActionPlanCard: FunctionComponent<ActionPlanCardProps> = ({
                     </table>
                 </div>
             )}
+
+            {/* Invoice Rows for update_invoice */}
+            {plan.actions?.some(a => a.action_type === 'update_invoice') && (() => {
+                const updateAction = plan.actions.find(a => a.action_type === 'update_invoice');
+                if (!updateAction) return null;
+                const params = updateAction.parameters || {};
+                const rows = (params.InvoiceRows || params.invoice_rows || []) as Array<{
+                    Description?: string; Price?: number; DeliveredQuantity?: number;
+                }>;
+                if (rows.length === 0) return null;
+                return (
+                    <div class="action-plan-update-rows">
+                        <span class="update-rows-label">Uppdaterade fakturarader:</span>
+                        <table class="journal-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-name">Beskrivning</th>
+                                    <th class="col-amount">Antal</th>
+                                    <th class="col-amount">À-pris</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows.map((row, i) => (
+                                    <tr key={i}>
+                                        <td class="col-name">{row.Description || '\u2014'}</td>
+                                        <td class="col-amount">{row.DeliveredQuantity || 1}</td>
+                                        <td class="col-amount">{formatAmount(row.Price || 0)} kr</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                );
+            })()}
 
             {/* Assumptions */}
             {plan.assumptions && plan.assumptions.length > 0 && (

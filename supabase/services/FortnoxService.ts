@@ -603,6 +603,17 @@ export class FortnoxService {
         return await this.request<FortnoxInvoiceResponse>(`/invoices/${invoiceNumber}`);
     }
 
+    /**
+     * Update an existing customer invoice (must be unbooked/uncancelled)
+     * IMPORTANT: When updating InvoiceRows, ALL rows must be provided.
+     */
+    async updateInvoice(documentNumber: number, invoiceData: Partial<FortnoxInvoice>): Promise<FortnoxInvoiceResponse> {
+        return await this.request<FortnoxInvoiceResponse>(`/invoices/${documentNumber}`, {
+            method: 'PUT',
+            body: JSON.stringify({ Invoice: invoiceData }),
+        });
+    }
+
     // ========================================================================
     // VOUCHER METHODS (Verifikationer)
     // ========================================================================

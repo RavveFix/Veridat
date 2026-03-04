@@ -839,6 +839,18 @@ function extractInvoiceReference(message: string): { type: "supplier" | "custome
   return null;
 }
 
+function extractInvoiceByCustomerName(message: string): string | null {
+  const patterns = [
+    /(?:senaste|sista)\s+(?:kund)?fakturan?\s+(?:till|för)\s+([A-Za-zÅÄÖåäö&\-\s]+?)(?:\s*[,.]|\s*$|\s+och\s|\s+med\s|\s+på\s)/i,
+    /(?:ändra|uppdatera|justera)\s+(?:senaste\s+)?(?:kund)?fakturan?\s+(?:till|för)\s+([A-Za-zÅÄÖåäö&\-\s]+?)(?:\s*[,.]|\s*$|\s+och\s|\s+med\s|\s+på\s)/i,
+  ];
+  for (const pat of patterns) {
+    const match = message.match(pat);
+    if (match) return match[1].trim();
+  }
+  return null;
+}
+
 function detectAgentNeeds(message: string): { needsCustomers: boolean; needsSuppliers: boolean; needsArticles: boolean } {
   const m = message.toLowerCase();
   const isSupplierInvoice = /leverantörsfaktura|lev\.?faktura|supplier invoice/.test(m);
@@ -1580,6 +1592,37 @@ async function executeFortnoxTool(
           newState: result,
         });
         return `Kundfaktura skapad som utkast (nr ${inv.InvoiceNumber || "tilldelas"}) i Fortnox.`;
+      }
+      case "update_invoice": {
+        const uiArgs = toolArgs as Record<string, unknown>;
+        const docNum = Number(uiArgs.DocumentNumber || uiArgs.document_number);
+        if (!docNum) throw new Error("DocumentNumber saknas för update_invoice");
+
+        const invoiceUpdate: Record<string, unknown> = {};
+        if (uiArgs.InvoiceRows && Array.isArray(uiArgs.InvoiceRows)) invoiceUpdate.InvoiceRows = uiArgs.InvoiceRows;
+        if (uiArgs.DueDate) invoiceUpdate.DueDate = uiArgs.DueDate;
+        if (uiArgs.Comments) invoiceUpdate.Comments = uiArgs.Comments;
+        if (uiArgs.OurReference) invoiceUpdate.OurReference = uiArgs.OurReference;
+        if (uiArgs.YourReference) invoiceUpdate.YourReference = uiArgs.YourReference;
+        if (uiArgs.InvoiceDate) invoiceUpdate.InvoiceDate = uiArgs.InvoiceDate;
+
+        const result = await callFortnoxWrite(
+          "updateInvoice",
+          { documentNumber: docNum, invoice: invoiceUpdate },
+          "update_invoice",
+          String(docNum),
+        );
+        const updatedInv = (result as any)?.Invoice || result;
+        void auditService.log({
+          userId,
+          companyId: companyId || undefined,
+          actorType: "ai",
+          action: "update",
+          resourceType: "invoice",
+          resourceId: String(docNum),
+          newState: result,
+        });
+        return `Faktura ${docNum} har uppdaterats (ny total: ${updatedInv.Total || "?"} kr) i Fortnox.`;
       }
       case "company_lookup": {
         return await lookupCompanyOnAllabolag((toolArgs as any).company_name);
@@ -2465,6 +2508,50 @@ Deno.serve(async (req: Request) => {
                       });
                       break;
                     }
+                    case "update_invoice": {
+                      const docNum = Number(params.DocumentNumber || params.document_number);
+                      if (!docNum) {
+                        throw new Error("DocumentNumber saknas för update_invoice");
+                      }
+
+                      // Build update payload
+                      const invoiceUpdate: Record<string, unknown> = {};
+
+                      // InvoiceRows (must include ALL rows)
+                      const updateRows = params.InvoiceRows || params.invoice_rows || params.invoiceRows || params.rows;
+                      if (updateRows && Array.isArray(updateRows) && updateRows.length > 0) {
+                        invoiceUpdate.InvoiceRows = updateRows;
+                      }
+
+                      // Optional fields
+                      if (params.DueDate || params.due_date) invoiceUpdate.DueDate = params.DueDate || params.due_date;
+                      if (params.Comments || params.comments) invoiceUpdate.Comments = params.Comments || params.comments;
+                      if (params.OurReference || params.our_reference) invoiceUpdate.OurReference = params.OurReference || params.our_reference;
+                      if (params.YourReference || params.your_reference) invoiceUpdate.YourReference = params.YourReference || params.your_reference;
+                      if (params.InvoiceDate || params.invoice_date) invoiceUpdate.InvoiceDate = params.InvoiceDate || params.invoice_date;
+
+                      const result = await callFortnoxWrite(
+                        "updateInvoice",
+                        {
+                          documentNumber: docNum,
+                          invoice: invoiceUpdate,
+                        },
+                        "update_invoice",
+                        String(docNum),
+                      );
+                      const updatedInv = (result as any)?.Invoice || result;
+                      resultText = `Faktura ${docNum} har uppdaterats (ny total: ${updatedInv.Total || "?"} kr)`;
+                      void auditService.log({
+                        userId,
+                        companyId: resolvedCompanyId || undefined,
+                        actorType: "ai",
+                        action: "update",
+                        resourceType: "invoice",
+                        resourceId: String(docNum),
+                        newState: result,
+                      });
+                      break;
+                    }
                     case "create_customer": {
                       // Auto-lookup company on allabolag.se if org number is missing
                       const customerName = params.name || params.Name || "";
@@ -2850,7 +2937,16 @@ Deno.serve(async (req: Request) => {
         `8. NY KUND: Om kunden INTE finns i [KUNDER], kontrollera [FÖRETAGSUPPSLAG] om det finns.\n` +
         `   - Om [FÖRETAGSUPPSLAG] visar träffar → använd create_customer med orgnr, adress, postnr, stad från uppslaget FÖRE create_invoice.\n` +
         `   - Om [FÖRETAGSUPPSLAG] visar "Inga träffar" → anropa request_clarification och berätta att företaget inte hittades på allabolag.se. Fråga om användaren menade ett annat namn.\n` +
-        `   - Om [FÖRETAGSUPPSLAG] saknas → skapa kunden med bara namnet (systemet slår upp automatiskt vid skapandet).\n\n`;
+        `   - Om [FÖRETAGSUPPSLAG] saknas → skapa kunden med bara namnet (systemet slår upp automatiskt vid skapandet).\n` +
+        `9. ÄNDRA KUNDFAKTURA: action_type = "update_invoice". Kräver:\n` +
+        `   - DocumentNumber: fakturans dokumentnummer från [FAKTURADATA]\n` +
+        `   - InvoiceRows: ALLA rader för den uppdaterade fakturan (inte bara ändringar — Fortnox ersätter ALLA rader vid uppdatering)\n` +
+        `   - Valfria fält att ändra: DueDate, Comments, OurReference, YourReference\n` +
+        `   - Om [FAKTURADATA] visar "Bokförd" → använd request_clarification och förklara att bokförda fakturor inte kan ändras, man måste kreditera och skapa ny\n` +
+        `   - Om [FAKTURADATA] visar "Makulerad" → använd request_clarification och förklara att makulerade fakturor inte kan ändras\n` +
+        `   - Inkludera ALLTID posting_rows för konteringsförhandsvisning\n` +
+        `   - I description: beskriv VAD som ändras (t.ex. "Ändra pris på rad 1 från 1000 kr till 500 kr")\n` +
+        `   - I assumptions: inkludera "Nuvarande totalbelopp: X kr → Nytt totalbelopp: Y kr"\n\n`;
 
       // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
       let invoiceContext = "";
@@ -2883,10 +2979,11 @@ Deno.serve(async (req: Request) => {
 
         // Fetch agent context — always include all data in agent mode
         // (follow-up messages like "10 timmar á 1500 kr" lack keywords but need full context)
-        const invoiceRef = extractInvoiceReference(message);
+        let invoiceRef = extractInvoiceReference(message);
+        const customerNameRef = !invoiceRef ? extractInvoiceByCustomerName(message) : null;
         const doneCtx = bufferStep('getAgentContext', 'Hämtar företagsdata');
         const doneInv = invoiceRef ? bufferStep('getInvoice', 'Hämtar faktura') : null;
-        const [agentCtx, invoiceData] = await Promise.all([
+        const [agentCtx, initialInvoiceData] = await Promise.all([
           fetchWithTimeout({
             action: "getAgentContext",
             companyId: resolvedCompanyId,
@@ -2914,7 +3011,53 @@ Deno.serve(async (req: Request) => {
           if (agentCtx?.Accounts) parts.push(`${(agentCtx.Accounts as any[]).filter((a: any) => a.Active).length} konton`);
           doneCtx(parts.length > 0 ? parts.join(', ') : undefined, !agentCtx);
         }
-        if (doneInv) doneInv(invoiceData ? 'Hittad' : undefined, !invoiceData && !!invoiceRef);
+        if (doneInv) doneInv(initialInvoiceData ? 'Hittad' : undefined, !initialInvoiceData && !!invoiceRef);
+
+        // If user referenced invoice by customer name, look up latest unbooked invoice
+        let invoiceData = initialInvoiceData;
+        if (!invoiceData && customerNameRef && agentCtx?.Customers) {
+          const customers = agentCtx.Customers as Array<{ CustomerNumber: string; Name: string }>;
+          const match = customers.find((c: { Name: string }) =>
+            c.Name.toLowerCase().includes(customerNameRef.toLowerCase())
+          );
+          if (match) {
+            const doneCustInv = bufferStep('getInvoices', `Hämtar fakturor för ${match.Name}`);
+            try {
+              const invoiceList = await fetchWithTimeout({
+                action: "getInvoices",
+                companyId: resolvedCompanyId,
+                payload: { customerNumber: match.CustomerNumber },
+              });
+              const invoices = (invoiceList as any)?.Invoices;
+              if (Array.isArray(invoices) && invoices.length > 0) {
+                const unbooked = invoices.filter((i: any) => !i.Booked && !i.Cancelled);
+                const target = unbooked.length > 0 ? unbooked[0] : invoices[0];
+                const docNum = target.DocumentNumber || target.InvoiceNumber;
+                if (docNum) {
+                  const fullInvoice = await fetchWithTimeout({
+                    action: "getInvoice",
+                    companyId: resolvedCompanyId,
+                    payload: { invoiceNumber: docNum },
+                  });
+                  if (fullInvoice) {
+                    invoiceData = fullInvoice;
+                    invoiceRef = { type: "customer", number: docNum };
+                    doneCustInv('Hittad', false);
+                  } else {
+                    doneCustInv('Kunde inte hämta faktura', true);
+                  }
+                } else {
+                  doneCustInv('Ingen faktura hittad', true);
+                }
+              } else {
+                doneCustInv('Inga fakturor', true);
+              }
+            } catch (e) {
+              logger.warn("Customer invoice lookup failed", e);
+              doneCustInv('Misslyckades', true);
+            }
+          }
+        }
 
         // Build compact chart of accounts (comma-separated, only bookkeeping-relevant)
         if (agentCtx?.Accounts) {
@@ -2989,6 +3132,7 @@ Deno.serve(async (req: Request) => {
             invoiceContext =
               `[FAKTURADATA FRÅN FORTNOX]\n` +
               `Typ: ${invoiceRef!.type === "supplier" ? "Leverantörsfaktura" : "Kundfaktura"}\n` +
+              `DocumentNumber: ${inv.DocumentNumber}\n` +
               `Nummer: ${inv.GivenNumber || inv.DocumentNumber}\n` +
               `${invoiceRef!.type === "supplier" ? "Leverantör" : "Kund"}: ${inv.SupplierName || inv.CustomerName} (nr ${inv.SupplierNumber || inv.CustomerNumber})\n` +
               `Fakturanummer: ${inv.InvoiceNumber || ""}\n` +
@@ -2996,8 +3140,20 @@ Deno.serve(async (req: Request) => {
               `Moms: ${inv.VAT || inv.TotalVAT || 0} kr\n` +
               `Datum: ${inv.InvoiceDate}\n` +
               `Förfallodatum: ${inv.DueDate}\n` +
-              `Status: ${inv.Booked ? "Bokförd" : "Ej bokförd"}\n` +
-              `Använd dessa EXAKTA belopp i ditt förslag.\n\n`;
+              `Status: ${inv.Booked ? "Bokförd" : "Ej bokförd"}${inv.Cancelled ? ", Makulerad" : ""}\n` +
+              `Vår referens: ${inv.OurReference || "-"}\n` +
+              `Er referens: ${inv.YourReference || "-"}\n` +
+              `Kommentar: ${inv.Comments || "-"}\n`;
+
+            // Include InvoiceRows detail for update context
+            if (inv.InvoiceRows && Array.isArray(inv.InvoiceRows) && inv.InvoiceRows.length > 0) {
+              invoiceContext += `Fakturarader:\n`;
+              (inv.InvoiceRows as Array<{ Description?: string; DeliveredQuantity?: number; Price?: number; Total?: number }>).forEach((row, i) => {
+                invoiceContext += `  Rad ${i + 1}: "${row.Description || '-'}" | Antal: ${row.DeliveredQuantity || 1} | À-pris: ${row.Price || 0} kr | Total: ${row.Total || 0} kr\n`;
+              });
+            }
+
+            invoiceContext += `Använd dessa EXAKTA uppgifter i ditt förslag.\n\n`;
           }
         }
       }
@@ -4205,6 +4361,41 @@ ANVÄNDARFRÅGA:
               action: "create",
               resourceType: "invoice",
               resourceId: String(cInv.InvoiceNumber || ""),
+              newState: toolResult,
+            });
+            toolStructuredData = {
+              toolArgs: args as Record<string, unknown>,
+              toolResult: toolResult as Record<string, unknown>,
+            };
+            break;
+          }
+          case "update_invoice": {
+            const uDocNum = Number((args as any).DocumentNumber || (args as any).document_number);
+            if (!uDocNum) throw new Error("DocumentNumber saknas för update_invoice");
+
+            const uInvoiceUpdate: Record<string, unknown> = {};
+            if ((args as any).InvoiceRows && Array.isArray((args as any).InvoiceRows)) uInvoiceUpdate.InvoiceRows = (args as any).InvoiceRows;
+            if ((args as any).DueDate) uInvoiceUpdate.DueDate = (args as any).DueDate;
+            if ((args as any).Comments) uInvoiceUpdate.Comments = (args as any).Comments;
+            if ((args as any).OurReference) uInvoiceUpdate.OurReference = (args as any).OurReference;
+            if ((args as any).YourReference) uInvoiceUpdate.YourReference = (args as any).YourReference;
+            if ((args as any).InvoiceDate) uInvoiceUpdate.InvoiceDate = (args as any).InvoiceDate;
+
+            toolResult = await callFortnoxWrite(
+              "updateInvoice",
+              { documentNumber: uDocNum, invoice: uInvoiceUpdate },
+              "update_invoice",
+              String(uDocNum),
+            );
+            const uInv = (toolResult as any)?.Invoice || toolResult;
+            responseText = `Faktura ${uDocNum} har uppdaterats (ny total: ${uInv.Total || "?"} kr) i Fortnox.`;
+            void auditService.log({
+              userId,
+              companyId: resolvedCompanyId || undefined,
+              actorType: "ai",
+              action: "update",
+              resourceType: "invoice",
+              resourceId: String(uDocNum),
               newState: toolResult,
             });
             toolStructuredData = {
