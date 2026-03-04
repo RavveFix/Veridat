@@ -1170,7 +1170,7 @@ export const sendMessageToGemini = async (
         const genAI = new GoogleGenerativeAI(key);
 
         // Model priority: explicit override > env variable > default
-        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-preview";
+        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-lite-preview";
         logger.info(`Using Gemini model: ${modelName}`);
 
         const model = genAI.getGenerativeModel({
@@ -1320,6 +1320,14 @@ export const sendMessageToGemini = async (
                     text: "Jag kan hjälpa dig skapa en faktura, men jag saknar kundnummer och/eller fakturarader. Vilken kund (kundnummer) och vilka artiklar/antal ska faktureras?"
                 };
             }
+
+            // Pass through any other tool calls (agent mode tools, etc.)
+            return {
+                toolCall: {
+                    tool: functionCall.name as ToolCall['tool'],
+                    args: (functionCall.args || {}) as any
+                }
+            };
         }
 
         const text = response.text();
@@ -1354,7 +1362,7 @@ export const sendMessageStreamToGemini = async (
 
         const genAI = new GoogleGenerativeAI(key);
         // Model priority: explicit override > env variable > default
-        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-preview";
+        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-lite-preview";
         logger.info(`Using Gemini model (streaming): ${modelName}`);
 
         const model = genAI.getGenerativeModel({
@@ -1434,7 +1442,7 @@ export const generateConversationTitle = async (
 
         const genAI = new GoogleGenerativeAI(key);
         // Use flash model for speed and low cost
-        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-lite-preview" });
 
         const prompt = `Generera en kort svensk titel (max 5 ord) som sammanfattar denna konversation. Svara ENDAST med titeln, inget annat.
 

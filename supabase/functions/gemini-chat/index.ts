@@ -1738,21 +1738,48 @@ Deno.serve(async (req: Request) => {
     const plan = await getUserPlan(supabaseAdmin, userId);
     logger.debug("Resolved plan", { userId, plan });
 
-    // Validate model access based on plan
-    // Pro model requires Pro plan
-    let effectiveModel = model || undefined;
-    if (model?.includes("pro") && plan !== "pro") {
-      logger.info(
-        "User requested Pro model but has free plan, falling back to Flash",
-        { userId, requestedModel: model },
-      );
-      effectiveModel = "gemini-3-flash-preview";
+    // Model routing: resolve abstract tier ("standard"/"pro") to concrete model ID
+    // Flash-Lite for regular chat, Flash for agent mode, Pro for pro-plan users
+    const MODEL_MAP = {
+      standard: {
+        chat: "gemini-3-flash-lite-preview",
+        agent: "gemini-3-flash-preview",
+      },
+      pro: {
+        chat: "gemini-3.1-pro-preview",
+        agent: "gemini-3.1-pro-preview",
+      },
+    } as const;
+
+    function resolveModel(
+      tier: string | null | undefined,
+      agentMode: boolean,
+      userPlan: string,
+    ): string {
+      // Backwards compat: map legacy full model IDs to tier
+      let resolvedTier: "standard" | "pro" = "standard";
+      if (tier === "pro" || tier?.includes("pro")) {
+        resolvedTier = "pro";
+      } else if (tier === "standard" || !tier || tier?.includes("flash")) {
+        resolvedTier = "standard";
+      }
+
+      // Free users can't use pro
+      if (resolvedTier === "pro" && userPlan !== "pro") {
+        logger.info(
+          "User requested Pro model but has free plan, falling back to Standard",
+          { userId, requestedTier: tier },
+        );
+        resolvedTier = "standard";
+      }
+
+      const mode = agentMode ? "agent" : "chat";
+      const modelId = MODEL_MAP[resolvedTier][mode];
+      logger.info("Model resolved", { tier: resolvedTier, mode, modelId });
+      return modelId;
     }
-    // Agent mode uses forceToolCall (mode: "ANY") to guarantee propose_action_plan
-    // No model override needed — Flash is fast enough with forced tool calling
-    if (isAgentMode) {
-      logger.info("Agent mode: using forceToolCall for reliable tool calls", { model: effectiveModel || "default" });
-    }
+
+    const effectiveModel = resolveModel(model, isAgentMode, plan);
 
     const rateLimiter = new RateLimiterService(
       supabaseAdmin,
@@ -3321,7 +3348,19 @@ ANVÄNDARFRÅGA:
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: analyzeStep })}\n\n`));
               }
 
+              let chunkCount = 0;
+              let lastFinishReason: string | undefined;
+              let lastPromptFeedback: unknown = undefined;
+              const streamStartTime = Date.now();
+
               for await (const chunk of stream) {
+                chunkCount++;
+
+                // Capture diagnostics from chunk
+                const candidate = chunk.candidates?.[0];
+                if (candidate?.finishReason) lastFinishReason = candidate.finishReason;
+                if (chunk.promptFeedback) lastPromptFeedback = chunk.promptFeedback;
+
                 // Check for tool calls first
                 const functionCalls = chunk.functionCalls();
                 if (functionCalls && functionCalls.length > 0) {
@@ -3340,36 +3379,47 @@ ANVÄNDARFRÅGA:
                 }
               }
 
-              // Retry once if Gemini returned empty in agent mode
+              // Log stream diagnostics
+              const streamDuration = Date.now() - streamStartTime;
+              logger.info("Gemini stream diagnostics", {
+                chunkCount,
+                fullTextLength: fullText.length,
+                toolCallDetected: !!toolCallDetected,
+                toolCallName: toolCallDetected?.name || null,
+                streamDurationMs: streamDuration,
+                lastFinishReason: lastFinishReason || "none",
+                promptFeedback: lastPromptFeedback ? JSON.stringify(lastPromptFeedback) : null,
+                isAgentMode,
+              });
+
+              // Retry with mode:AUTO (no forceToolCall) + varied prompt if streaming returned empty
               if (!fullText && !toolCallDetected && isAgentMode) {
-                logger.warn("Gemini stream returned empty in agent mode, retrying");
+                const retryPrompt = finalMessage +
+                  `\n\n[RETRY-${Date.now()}] VIKTIGT: Du MÅSTE anropa propose_action_plan eller request_clarification. Svara ALDRIG med vanlig text.`;
+                logger.warn("Gemini stream empty in agent mode, retrying with mode:AUTO + varied prompt");
                 try {
-                  const retryStream = await sendMessageStreamToGemini(
-                    finalMessage,
+                  const retryResponse = await sendMessageToGemini(
+                    retryPrompt,
                     geminiFileData,
                     history,
                     undefined,
                     effectiveModel,
-                    { forceToolCall: ["propose_action_plan", "request_clarification"] },
+                    // No forceToolCall → mode:AUTO, model can choose tools or text
                   );
-                  for await (const chunk of retryStream) {
-                    const functionCalls = chunk.functionCalls();
-                    if (functionCalls && functionCalls.length > 0) {
-                      toolCallDetected = functionCalls[0];
-                      break;
-                    }
-                    const chunkText = chunk.text();
-                    if (chunkText) {
-                      fullText += chunkText;
-                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunkText })}\n\n`));
-                    }
+                  if (retryResponse.toolCall) {
+                    toolCallDetected = { name: retryResponse.toolCall.tool, args: retryResponse.toolCall.args };
+                    logger.info("mode:AUTO retry succeeded with tool call", { tool: retryResponse.toolCall.tool });
+                  } else if (retryResponse.text) {
+                    fullText = retryResponse.text;
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: retryResponse.text })}\n\n`));
+                    logger.info("mode:AUTO retry returned text instead of tool call", { textLength: retryResponse.text.length });
                   }
                 } catch (retryErr) {
-                  logger.error("Gemini retry also failed", retryErr);
+                  logger.error("mode:AUTO retry failed", retryErr);
                 }
               }
 
-              // Final fallback if retry also failed
+              // Final fallback if all retries failed
               if (!fullText && !toolCallDetected && isAgentMode) {
                 const fallbackText = 'Jag kunde inte bearbeta din förfrågan just nu. Försök igen.';
                 fullText = fallbackText;
