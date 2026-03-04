@@ -966,14 +966,16 @@ function ReceiptCard({
                     <ActionBtn label={isExporting ? 'Exporterar...' : 'Exportera till Fortnox'} color={STATUS_CONFIG.bokford.color} disabled={isExporting} onClick={onExport} />
                 )}
 
-                <ActionBtn
-                    label="Ta bort"
-                    color="#ef4444"
-                    variant="ghost"
-                    onClick={() => {
-                        if (window.confirm(`Ta bort kvitto "${displayName}"?`)) onRemove();
-                    }}
-                />
+                <div style={{ marginLeft: 'auto', borderLeft: '1px solid var(--glass-border)', paddingLeft: '0.5rem' }}>
+                    <ActionBtn
+                        label="Ta bort"
+                        color="#ef4444"
+                        variant="ghost"
+                        onClick={() => {
+                            if (window.confirm(`Ta bort kvitto "${displayName}"?`)) onRemove();
+                        }}
+                    />
+                </div>
             </div>
         </div>
     );

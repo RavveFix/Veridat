@@ -560,6 +560,7 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                     </h3>
                     <p style={MEMORY_SECTION_DESCRIPTION_STYLE}>
                         Strukturerade minnen per bolag och period. Godkänn eller pausa minnen som används av AI.
+                        {memories.length > 0 && ` (${memories.length} totalt)`}
                     </p>
                 </div>
                 <button
@@ -589,8 +590,11 @@ export function AccountingMemoryPanel({ userId, plan }: AccountingMemoryPanelPro
                     <div style={MEMORY_LIST_EMPTY_STYLE}>Laddar...</div>
                 )}
 
-                {!loading && filteredMemories.length === 0 && (
-                    <div style={MEMORY_LIST_EMPTY_STYLE}>Inga minnen hittades för filtret.</div>
+                {!loading && filteredMemories.length === 0 && memories.length > 0 && (
+                    <div style={MEMORY_LIST_EMPTY_STYLE}>Inga minnen matchade filtren.</div>
+                )}
+                {!loading && filteredMemories.length === 0 && memories.length === 0 && (
+                    <div style={MEMORY_LIST_EMPTY_STYLE}>Inga minnen hittades.</div>
                 )}
 
                 {filteredMemories.map((memory) => (

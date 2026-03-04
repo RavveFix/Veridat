@@ -2059,7 +2059,7 @@ const ComplianceStatusCard: FunctionComponent<ComplianceStatusCardProps> = ({ st
             </div>
             <div style={getComplianceValueStyle(stats.blockingAlerts)}>
                 {stats.blockingAlerts > 0
-                    ? `${stats.blockingAlerts} blockerande varningar`
+                    ? `${stats.blockingAlerts} blockerande ${stats.blockingAlerts === 1 ? 'varning' : 'varningar'}`
                     : 'Inga blockerande varningar'}
             </div>
             <div style={FINANCIAL_STATUS_SUBTEXT_STYLE}>

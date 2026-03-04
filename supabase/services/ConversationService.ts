@@ -225,9 +225,16 @@ export class ConversationService {
                 .limit(1);
 
             if (messages && messages.length > 0) {
-                const firstMessage = messages[0].content;
-                // Take first 50 chars as title
-                const title = firstMessage.substring(0, 50) + (firstMessage.length > 50 ? '...' : '');
+                const firstMessage = messages[0].content.trim();
+                // Don't use messages shorter than 3 chars as titles
+                if (firstMessage.length < 3) return;
+                // Word-boundary-aware truncation at 60 chars
+                let title = firstMessage;
+                if (title.length > 60) {
+                    const truncated = title.substring(0, 60);
+                    const lastSpace = truncated.lastIndexOf(' ');
+                    title = (lastSpace > 20 ? truncated.substring(0, lastSpace) : truncated) + '...';
+                }
                 await this.updateConversationTitle(conversationId, title);
             }
         } catch (error) {
