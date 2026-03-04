@@ -3147,6 +3147,12 @@ h1 {
     border-radius: 10px;
 }
 
+.suggestion-card .card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
 .suggestion-card.secondary {
     padding: 1rem 1.5rem;
     font-size: 0.95rem;
