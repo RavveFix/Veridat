@@ -40,7 +40,7 @@ export const UpgradeModal: FunctionComponent<UpgradeModalProps> = ({ onClose, re
                     <div class="upgrade-modal__benefit">
                         <div class="upgrade-modal__benefit-icon">✓</div>
                         <div class="upgrade-modal__benefit-text">
-                            <strong>Gemini 3 Pro</strong> – djupare analys och bättre svar
+                            <strong>Gemini 3.1 Pro</strong> – djupare analys och bättre svar
                         </div>
                     </div>
 

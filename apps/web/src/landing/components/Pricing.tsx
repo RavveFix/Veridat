@@ -20,7 +20,7 @@ export function Pricing() {
                             <p class="plan-desc">För dig som precis har startat eller vill testa kraften i AI.</p>
                         </div>
                         <ul class="plan-features">
-                            <li><span class="check-icon">✓</span> <strong>Gemini 3 Flash</strong></li>
+                            <li><span class="check-icon">✓</span> <strong>Standard AI</strong></li>
                             <li><span class="check-icon">✓</span> 10 förfrågningar per timme</li>
                             <li><span class="check-icon">✓</span> 50 förfrågningar per dag</li>
                             <li><span class="check-icon">✓</span> Manuell bilduppladdning</li>
@@ -42,7 +42,7 @@ export function Pricing() {
                             <p class="plan-desc">För det aktiva bolaget som vill ha en fullfjädrad AI-ekonom.</p>
                         </div>
                         <ul class="plan-features">
-                            <li><span class="check-icon highlight">✓</span> <strong>Gemini 3 Pro</strong></li>
+                            <li><span class="check-icon highlight">✓</span> <strong>Gemini 3.1 Pro</strong></li>
                             <li><span class="check-icon highlight">✓</span> <strong>40 förfrågningar</strong> per timme</li>
                             <li><span class="check-icon highlight">✓</span> <strong>200 förfrågningar</strong> per dag</li>
                             <li><span class="check-icon highlight">✓</span> <strong>Integration med Fortnox</strong></li>

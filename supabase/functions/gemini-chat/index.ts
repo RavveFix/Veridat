@@ -57,6 +57,18 @@ import { ExpensePatternService } from "../../services/ExpensePatternService.ts";
 
 const logger = createLogger("gemini-chat");
 const RATE_LIMIT_ENDPOINT = "ai";
+
+/** Model routing: abstract tier + mode → concrete Gemini model ID */
+const MODEL_MAP = {
+  standard: {
+    chat: "gemini-3-flash-lite-preview",
+    agent: "gemini-3-flash-preview",
+  },
+  pro: {
+    chat: "gemini-3.1-pro-preview",
+    agent: "gemini-3.1-pro-preview",
+  },
+} as const;
 type EdgeSupabaseClient = SupabaseClient<any, any, any, any, any>;
 
 const ACCOUNTING_TOOL_RESPONSE_NAMES = new Set([
@@ -1738,48 +1750,31 @@ Deno.serve(async (req: Request) => {
     const plan = await getUserPlan(supabaseAdmin, userId);
     logger.debug("Resolved plan", { userId, plan });
 
-    // Model routing: resolve abstract tier ("standard"/"pro") to concrete model ID
-    // Flash-Lite for regular chat, Flash for agent mode, Pro for pro-plan users
-    const MODEL_MAP = {
-      standard: {
-        chat: "gemini-3-flash-lite-preview",
-        agent: "gemini-3-flash-preview",
-      },
-      pro: {
-        chat: "gemini-3.1-pro-preview",
-        agent: "gemini-3.1-pro-preview",
-      },
-    } as const;
-
-    function resolveModel(
-      tier: string | null | undefined,
-      agentMode: boolean,
-      userPlan: string,
-    ): string {
+    // Resolve abstract tier ("standard"/"pro") to concrete model ID
+    const effectiveModel = (() => {
       // Backwards compat: map legacy full model IDs to tier
       let resolvedTier: "standard" | "pro" = "standard";
-      if (tier === "pro" || tier?.includes("pro")) {
+      if (model === "pro" || model?.includes("pro")) {
         resolvedTier = "pro";
-      } else if (tier === "standard" || !tier || tier?.includes("flash")) {
+      } else if (model === "standard" || !model || model?.includes("flash")) {
         resolvedTier = "standard";
       }
 
-      // Free users can't use pro
-      if (resolvedTier === "pro" && userPlan !== "pro") {
+      // Only pro and trial users can use pro
+      if (resolvedTier === "pro" && plan !== "pro" && plan !== "trial") {
         logger.info(
           "User requested Pro model but has free plan, falling back to Standard",
-          { userId, requestedTier: tier },
+          { userId, requestedTier: model },
         );
         resolvedTier = "standard";
       }
 
-      const mode = agentMode ? "agent" : "chat";
+      // skill_assist intentionally uses chat-tier models (Flash-Lite/Pro), not agent-tier
+      const mode = isAgentMode ? "agent" : "chat";
       const modelId = MODEL_MAP[resolvedTier][mode];
       logger.info("Model resolved", { tier: resolvedTier, mode, modelId });
       return modelId;
-    }
-
-    const effectiveModel = resolveModel(model, isAgentMode, plan);
+    })();
 
     const rateLimiter = new RateLimiterService(
       supabaseAdmin,
@@ -3868,7 +3863,7 @@ ANVÄNDARFRÅGA:
                     userId,
                     companyId: resolvedCompanyId || undefined,
                     aiProvider: "gemini",
-                    aiModel: effectiveModel || "gemini-3-flash-preview",
+                    aiModel: effectiveModel,
                     aiFunction: "chat_response",
                     inputData: {
                       message_preview: message.substring(0, 200),
@@ -3935,7 +3930,7 @@ ANVÄNDARFRÅGA:
         geminiFileData,
         history,
         undefined,
-        undefined,
+        effectiveModel,
         { disableTools },
       ));
 
@@ -4026,7 +4021,7 @@ ANVÄNDARFRÅGA:
                 geminiFileData,
                 history,
                 undefined,
-                undefined,
+                effectiveModel,
                 { disableTools: true },
               );
               responseText = directResponse.text ||
@@ -4051,7 +4046,7 @@ ANVÄNDARFRÅGA:
                 undefined,
                 history,
                 undefined,
-                undefined,
+                effectiveModel,
                 { disableTools: true },
               );
               responseText = noResultsResponse.text ||
@@ -4073,7 +4068,7 @@ ANVÄNDARFRÅGA:
                 undefined,
                 history,
                 undefined,
-                undefined,
+                effectiveModel,
                 { disableTools: true },
               );
               responseText = followUp.text ||
@@ -4088,7 +4083,7 @@ ANVÄNDARFRÅGA:
                 geminiFileData,
                 history,
                 undefined,
-                undefined,
+                effectiveModel,
                 { disableTools: true },
               );
               responseText = directResponse.text ||
@@ -4120,6 +4115,8 @@ ANVÄNDARFRÅGA:
                 withAccountingContract(contextPrompt),
                 undefined,
                 history,
+                undefined,
+                effectiveModel,
               );
               responseText = followUp.text ||
                 formatHistoryResponse(message, [], recentConversations);
@@ -4139,7 +4136,7 @@ ANVÄNDARFRÅGA:
                 undefined,
                 history,
                 undefined,
-                undefined,
+                effectiveModel,
                 { disableTools: true },
               );
               responseText = followUp.text ||
@@ -4154,7 +4151,7 @@ ANVÄNDARFRÅGA:
                 undefined,
                 history,
                 undefined,
-                undefined,
+                effectiveModel,
                 { disableTools: true },
               );
               responseText = followUp.text ||
@@ -4169,7 +4166,7 @@ ANVÄNDARFRÅGA:
               undefined,
               history,
               undefined,
-              undefined,
+              effectiveModel,
             );
             responseText = followUp.text || lookupResult;
             break;

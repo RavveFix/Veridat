@@ -54,6 +54,9 @@ class ModelServiceClass {
             if (saved && (saved === 'flash' || saved === 'pro')) {
                 this.currentModel = saved;
                 logger.debug('Loaded model preference', { model: saved });
+            } else {
+                // Persist default so localStorage always has the key
+                localStorage.setItem(STORAGE_KEY, this.currentModel);
             }
         } catch (error) {
             logger.warn('Failed to load model preference', { error });
