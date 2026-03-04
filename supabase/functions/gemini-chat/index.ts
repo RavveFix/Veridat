@@ -3340,7 +3340,36 @@ ANVÄNDARFRÅGA:
                 }
               }
 
-              // Fallback: if Gemini returned empty despite forceToolCall, send error text
+              // Retry once if Gemini returned empty in agent mode
+              if (!fullText && !toolCallDetected && isAgentMode) {
+                logger.warn("Gemini stream returned empty in agent mode, retrying");
+                try {
+                  const retryStream = await sendMessageStreamToGemini(
+                    finalMessage,
+                    geminiFileData,
+                    history,
+                    undefined,
+                    effectiveModel,
+                    { forceToolCall: ["propose_action_plan", "request_clarification"] },
+                  );
+                  for await (const chunk of retryStream) {
+                    const functionCalls = chunk.functionCalls();
+                    if (functionCalls && functionCalls.length > 0) {
+                      toolCallDetected = functionCalls[0];
+                      break;
+                    }
+                    const chunkText = chunk.text();
+                    if (chunkText) {
+                      fullText += chunkText;
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunkText })}\n\n`));
+                    }
+                  }
+                } catch (retryErr) {
+                  logger.error("Gemini retry also failed", retryErr);
+                }
+              }
+
+              // Final fallback if retry also failed
               if (!fullText && !toolCallDetected && isAgentMode) {
                 const fallbackText = 'Jag kunde inte bearbeta din förfrågan just nu. Försök igen.';
                 fullText = fallbackText;
