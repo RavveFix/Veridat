@@ -282,13 +282,6 @@ const INVOICE_STATUS_FILTER_ROW_STYLE = {
     flexWrap: 'wrap',
 } as const;
 
-const INVOICE_EMPTY_STATE_STYLE = {
-    textAlign: 'center',
-    color: 'var(--text-secondary)',
-    fontSize: '0.85rem',
-    border: '1px dashed var(--surface-border)',
-} as const;
-
 const INVOICE_LIST_GRID_STYLE = {
     display: 'grid',
     gap: '0.75rem',
@@ -770,6 +763,10 @@ export function InvoiceInboxPanel({ onBack, embedded }: InvoiceInboxPanelProps) 
 
     // Load from finance-agent
     useEffect(() => {
+        if (!companyId) {
+            setLoadingItems(false);
+            return;
+        }
         let cancelled = false;
         setLoadingItems(true);
         void (async () => {
@@ -1573,10 +1570,26 @@ Föreslå korrekt kontering med debet/kredit.`;
                     ))}
                 </div>
             ) : filtered.length === 0 ? (
-                <div className="panel-card panel-card--no-hover" style={INVOICE_EMPTY_STATE_STYLE}>
-                    {items.length === 0
-                        ? 'Inga fakturor än. Dra och släpp en PDF eller hämta från Fortnox.'
-                        : 'Inga fakturor matchar filtret.'}
+                <div className="panel-card panel-card--no-hover">
+                    <div className="empty-state">
+                        <div className="empty-state-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                            </svg>
+                        </div>
+                        {items.length === 0 ? (
+                            <>
+                                <h3>Inga fakturor än</h3>
+                                <p>Dra och släpp en PDF eller hämta från Fortnox.</p>
+                            </>
+                        ) : (
+                            <>
+                                <h3>Inga fakturor matchar filtret</h3>
+                                <p>Prova att ändra eller nollställa filtren.</p>
+                            </>
+                        )}
+                    </div>
                 </div>
             ) : (
                 <div className="panel-stagger" style={INVOICE_LIST_GRID_STYLE}>

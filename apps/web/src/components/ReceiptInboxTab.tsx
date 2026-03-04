@@ -12,6 +12,8 @@ import { fileService } from '../services/FileService';
 import { financeAgentService } from '../services/FinanceAgentService';
 import { logger } from '../services/LoggerService';
 import { markdownToHtml } from '../utils/markdownParser';
+import { FortnoxDisconnectedCard } from './FortnoxDisconnectedCard';
+import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
 import type { ReceiptInboxRecord, ReceiptStatus, ReceiptFortnoxSyncStatus } from '../types/finance';
 
 // =============================================================================
@@ -99,7 +101,6 @@ const UPLOAD_TEXT = { color: 'var(--text-secondary)', fontSize: '0.85rem' } as c
 const SUMMARY_GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem' } as const;
 const FILTER_ROW = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } as const;
 const LIST_GRID = { display: 'grid', gap: '0.75rem' } as const;
-const EMPTY_STATE = { textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem', border: '1px dashed var(--surface-border)' } as const;
 
 const CARD_TOP_ROW = { display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.6rem' } as const;
 const CARD_NAME_WRAP = { flex: 1, minWidth: '120px' } as const;
@@ -250,6 +251,7 @@ export function ReceiptInboxTab() {
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [dragOver, setDragOver] = useState(false);
     const [loadingItems, setLoadingItems] = useState(true);
+    const [fortnoxStatus, setFortnoxStatus] = useState<FortnoxConnectionStatus>(fortnoxContextService.getConnectionStatus());
     const fileInputRef = useRef<HTMLInputElement>(null);
     const companyId = companyService.getCurrentId();
 
@@ -298,8 +300,19 @@ export function ReceiptInboxTab() {
         return { ok: true, data: body };
     }, [buildAuthHeaders, companyId, getSessionAccessToken]);
 
+    // Listen for Fortnox connection changes
+    useEffect(() => {
+        const handler = (e: Event) => setFortnoxStatus((e as CustomEvent<FortnoxConnectionStatus>).detail);
+        fortnoxContextService.addEventListener('connection-changed', handler);
+        return () => fortnoxContextService.removeEventListener('connection-changed', handler);
+    }, []);
+
     // Load receipts from backend
     useEffect(() => {
+        if (!companyId) {
+            setLoadingItems(false);
+            return;
+        }
         let cancelled = false;
         setLoadingItems(true);
         void (async () => {
@@ -749,6 +762,13 @@ Föreslå korrekt kontering med debet/kredit.`;
                 ))}
             </div>
 
+            {(fortnoxStatus === 'disconnected' || fortnoxStatus === 'error') && (
+                <FortnoxDisconnectedCard
+                    context="kvitton"
+                    onConnect={() => window.dispatchEvent(new CustomEvent('open-integrations-modal'))}
+                />
+            )}
+
             {/* Status filter */}
             <div style={FILTER_ROW}>
                 <FilterBtn label="Alla" count={summary.total} active={statusFilter === 'alla'} onClick={() => setStatusFilter('alla')} />
@@ -769,10 +789,27 @@ Föreslå korrekt kontering med debet/kredit.`;
                     ))}
                 </div>
             ) : filtered.length === 0 ? (
-                <div className="panel-card panel-card--no-hover" style={EMPTY_STATE}>
-                    {items.length === 0
-                        ? 'Inga kvitton än. Dra och släpp en bild eller PDF.'
-                        : 'Inga kvitton matchar filtret.'}
+                <div className="panel-card panel-card--no-hover">
+                    <div className="empty-state">
+                        <div className="empty-state-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="5" y="2" width="14" height="20" rx="2" />
+                                <line x1="9" y1="10" x2="15" y2="10" />
+                                <line x1="9" y1="14" x2="13" y2="14" />
+                            </svg>
+                        </div>
+                        {items.length === 0 ? (
+                            <>
+                                <h3>Inga kvitton än</h3>
+                                <p>Dra och släpp en bild eller PDF, eller klicka på bifoga-knappen.</p>
+                            </>
+                        ) : (
+                            <>
+                                <h3>Inga kvitton matchar filtret</h3>
+                                <p>Prova att ändra eller nollställa filtren.</p>
+                            </>
+                        )}
+                    </div>
                 </div>
             ) : (
                 <div className="panel-stagger" style={LIST_GRID}>

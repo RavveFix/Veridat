@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase';
 import { companyService } from '../services/CompanyService';
 import { bankImportService } from '../services/BankImportService';
 import { logger } from '../services/LoggerService';
+import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
+import { FortnoxDisconnectedCard } from './FortnoxDisconnectedCard';
 import type { BankImport, BankImportMapping, BankTransaction } from '../types/bank';
 import { BANK_PROFILES, detectBankFromHeaders, getFieldSynonyms, type BankProfile } from '../utils/bankProfiles';
 import { getFortnoxList } from '../utils/fortnoxResponse';
@@ -807,10 +809,18 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
     const [actionError, setActionError] = useState<string | null>(null);
     const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
     const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+    const [fortnoxStatus, setFortnoxStatus] = useState<FortnoxConnectionStatus>(fortnoxContextService.getConnectionStatus());
     const [aiSuggestions, setAiSuggestions] = useState<Map<string, string>>(new Map());
     const [aiLoadingId, setAiLoadingId] = useState<string | null>(null);
     const [selectedBank, setSelectedBank] = useState<string | null>(null);
     const [detectedBank, setDetectedBank] = useState<BankProfile | null>(null);
+
+    // Listen for Fortnox connection changes
+    useEffect(() => {
+        const handler = (e: Event) => setFortnoxStatus((e as CustomEvent<FortnoxConnectionStatus>).detail);
+        fortnoxContextService.addEventListener('connection-changed', handler);
+        return () => fortnoxContextService.removeEventListener('connection-changed', handler);
+    }, []);
 
     const onDragOver = (e: DragEvent) => {
         e.preventDefault();
@@ -1218,6 +1228,13 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 </span>
             </div>
 
+            {(fortnoxStatus === 'disconnected' || fortnoxStatus === 'error') && (
+                <FortnoxDisconnectedCard
+                    context="bank"
+                    onConnect={() => window.dispatchEvent(new CustomEvent('open-integrations-modal'))}
+                />
+            )}
+
             {/* Bank selector */}
             <div className="panel-card panel-card--no-hover" style={BANK_SELECTOR_CARD_STYLE}>
                 <div style={BANK_SELECTOR_TOP_ROW_STYLE}>
@@ -1291,6 +1308,13 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                         e.currentTarget.value = '';
                     }}
                 />
+                <div style={{ marginBottom: '0.5rem', opacity: 0.5, color: 'var(--accent-primary)' }}>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                </div>
                 <div style={BANK_UPLOAD_TITLE}>
                     {dragOver ? 'Släpp filen här' : 'Dra och släpp din bankfil här'}
                 </div>

@@ -6,7 +6,7 @@
 
 import { FunctionComponent } from 'preact';
 
-type FortnoxContext = 'fakturor' | 'momsrapport' | 'resultat-balans';
+type FortnoxContext = 'fakturor' | 'momsrapport' | 'resultat-balans' | 'kvitton' | 'bank';
 
 interface FortnoxDisconnectedCardProps {
     context: FortnoxContext;
@@ -19,6 +19,8 @@ const CONTEXT_TEXT: Record<FortnoxContext, string> = {
     'fakturor': 'Anslut ditt Fortnox-konto för att se fakturor, genomföra attest och synka bokföring.',
     'momsrapport': 'Anslut Fortnox för att generera momsrapport baserad på dina bokförda fakturor.',
     'resultat-balans': 'Anslut Fortnox för att visa resultat- och balansräkning.',
+    'kvitton': 'Anslut Fortnox för att exportera granskade kvitton som verifikationer.',
+    'bank': 'Anslut Fortnox för att matcha banktransaktioner mot bokföring.',
 };
 
 const ERROR_STYLE = {
