@@ -450,7 +450,11 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                 const idx = prev.findIndex(s => s.id === step.id);
                 if (idx >= 0) {
                     const updated = [...prev];
-                    updated[idx] = step;
+                    // Preserve startedAt from original step if update sends 0
+                    updated[idx] = {
+                        ...step,
+                        startedAt: step.startedAt > 0 ? step.startedAt : prev[idx].startedAt,
+                    };
                     return updated;
                 }
                 return [...prev, step];

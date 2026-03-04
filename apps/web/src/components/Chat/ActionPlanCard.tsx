@@ -164,15 +164,17 @@ export const ActionPlanCard: FunctionComponent<ActionPlanCardProps> = ({
                     )}
                 </div>
                 <div class="action-plan-title-area">
-                    <span class="action-plan-title">
-                        {isPending ? 'Handlingsplan' : STATUS_LABELS[plan.status] || plan.status}
+                    <div class="action-plan-title-row">
+                        <span class="action-plan-title">
+                            {isPending ? 'Handlingsplan' : STATUS_LABELS[plan.status] || plan.status}
+                        </span>
                         {plan.actions[0]?.confidence != null && (
                             <ConfidenceIndicator
                                 confidence={Math.round(plan.actions[0].confidence * 100)}
-                                showLabel={false}
+                                showLabel={true}
                             />
                         )}
-                    </span>
+                    </div>
                     <span class="action-plan-subtitle">{plan.summary}</span>
                 </div>
             </div>

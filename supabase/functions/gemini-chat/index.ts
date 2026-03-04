@@ -3065,6 +3065,13 @@ ANVÄNDARFRÅGA:
     const usedMemories: UsedMemory[] = [];
 
     if (resolvedCompanyId) {
+      const _doneMem = isAgentMode
+        ? bufferStep('memory_search', 'Söker relevanta minnen')
+        : null;
+      let memStepDone = false;
+      const doneMem = (summary: string, failed = false) => {
+        if (!memStepDone && _doneMem) { memStepDone = true; _doneMem(summary, failed); }
+      };
       try {
         const { data: userMemories, error: userMemoriesError } =
           await supabaseAdmin
@@ -3082,6 +3089,7 @@ ANVÄNDARFRÅGA:
             userId,
             companyId: resolvedCompanyId,
           });
+          doneMem('Kunde inte läsa minnen', true);
         } else if (!userMemories || userMemories.length === 0) {
           // First interaction with this company — no memories yet
           contextBlocks.push(
@@ -3092,6 +3100,7 @@ ANVÄNDARFRÅGA:
               "- Momsperiod? (månads/kvartals/årsredovisning)\n" +
               "Väv in frågorna naturligt — inte som ett formulär.",
           );
+          doneMem('Inga minnen än');
         } else if (userMemories.length > 0) {
           const memoryRows = userMemories as UserMemoryRow[];
           const selection = selectRelevantMemories(memoryRows, message);
@@ -3111,12 +3120,14 @@ ANVÄNDARFRÅGA:
               .update({ last_used_at: new Date().toISOString() })
               .in("id", memoryIds);
           }
+          doneMem(`${selectedMemories.length} minnen valda`);
         }
       } catch (memoryError) {
         logger.warn("Failed to load user memories", {
           userId,
           companyId: resolvedCompanyId,
         });
+        doneMem('Kunde inte läsa minnen', true);
       }
 
       try {
@@ -3333,7 +3344,7 @@ ANVÄNDARFRÅGA:
 
               // Mark "analyzing" step as complete
               if (prefetchSteps.length > 0) {
-                const doneAnalyze = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'completed', startedAt: 0, completedAt: Date.now(), resultSummary: toolCallDetected ? 'Plan klar' : null };
+                const doneAnalyze = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'completed', startedAt: 0, completedAt: Date.now(), resultSummary: toolCallDetected ? 'Handlingsplan redo' : 'Svar genererat' };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: doneAnalyze })}\n\n`));
               }
 

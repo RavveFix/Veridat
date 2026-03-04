@@ -123,14 +123,7 @@ export const AgentActivityFeed: FunctionComponent<AgentActivityFeedProps> = ({
 
             {usedMemories && usedMemories.length > 0 && (
                 <div class="agent-feed__memories">
-                    <span class="agent-feed__memories-label">Anv\u00e4nde</span>
-                    <div class="agent-feed__memory-chips">
-                        {usedMemories.map(m => (
-                            <span key={m.id} class="agent-feed__memory-chip" title={m.preview}>
-                                {m.category}
-                            </span>
-                        ))}
-                    </div>
+                    <span class="agent-feed__memories-label">{'\u2139\uFE0F'} {usedMemories.length} minnen anv\u00e4nda</span>
                 </div>
             )}
         </div>
