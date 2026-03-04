@@ -21,17 +21,17 @@ export interface ModelInfo {
 const MODELS: Record<ModelType, ModelInfo> = {
     flash: {
         id: 'flash',
-        name: 'Flash',
-        displayName: 'Gemini 3 Flash',
-        description: 'Snabb & effektiv',
-        apiModel: 'gemini-3-flash-preview'
+        name: 'Standard',
+        displayName: 'Standard',
+        description: 'Smart routing — optimerad för varje uppgift',
+        apiModel: 'standard'
     },
     pro: {
         id: 'pro',
         name: 'Pro',
         displayName: 'Gemini 3.1 Pro',
         description: 'Djupare analys',
-        apiModel: 'gemini-3.1-pro-preview'
+        apiModel: 'pro'
     }
 };
 

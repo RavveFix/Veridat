@@ -32,12 +32,12 @@ const logger = createLogger('ai-router');
 
 /**
  * Gemini model selection based on user plan.
- * Free → Flash (fast, cheap). Pro/trial → Pro (better quality).
+ * Free → Flash-Lite (fast, cheap). Trial/Pro → Pro (better quality).
  */
 const GEMINI_MODELS: Record<UserPlan, string> = {
-    free: 'gemini-3-flash-preview',
-    trial: 'gemini-3-pro-preview',
-    pro: 'gemini-3-pro-preview',
+    free: 'gemini-3-flash-lite-preview',
+    trial: 'gemini-3.1-pro-preview',
+    pro: 'gemini-3.1-pro-preview',
 };
 
 export function resolveGeminiModel(plan?: UserPlan): string {
