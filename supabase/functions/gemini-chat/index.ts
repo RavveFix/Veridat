@@ -3063,10 +3063,10 @@ ANVÄNDARFRÅGA:
     const usedMemories: UsedMemory[] = [];
 
     if (resolvedCompanyId) {
-      const _doneMem = bufferStep('memory_search', 'Söker relevanta minnen');
+      const _doneMem = isAgentMode ? bufferStep('memory_search', 'Söker relevanta minnen') : null;
       let memStepDone = false;
       const doneMem = (summary: string, failed = false) => {
-        if (!memStepDone) { memStepDone = true; _doneMem(summary, failed); }
+        if (!memStepDone && _doneMem) { memStepDone = true; _doneMem(summary, failed); }
       };
       try {
         const { data: userMemories, error: userMemoriesError } =
@@ -3315,7 +3315,8 @@ ANVÄNDARFRÅGA:
               }
               // Emit "analyzing" step while Gemini processes
               if (prefetchSteps.length > 0) {
-                const analyzeStep = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'running', startedAt: Date.now(), completedAt: null, resultSummary: null };
+                const analyzeStartedAt = Date.now();
+                const analyzeStep = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'running', startedAt: analyzeStartedAt, completedAt: null, resultSummary: null };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: analyzeStep })}\n\n`));
               }
 
@@ -3340,7 +3341,7 @@ ANVÄNDARFRÅGA:
 
               // Mark "analyzing" step as complete
               if (prefetchSteps.length > 0) {
-                const doneAnalyze = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'completed', startedAt: 0, completedAt: Date.now(), resultSummary: toolCallDetected ? 'Handlingsplan redo' : 'Svar genererat' };
+                const doneAnalyze = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'completed', startedAt: analyzeStartedAt, completedAt: Date.now(), resultSummary: toolCallDetected ? 'Handlingsplan redo' : 'Svar genererat' };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: doneAnalyze })}\n\n`));
               }
 

@@ -71,7 +71,7 @@ export const AgentActivityFeed: FunctionComponent<AgentActivityFeedProps> = ({
             <div class="agent-feed agent-feed--collapsed" onClick={() => setCollapsed(false)}>
                 <span class="agent-feed__summary-icon">{'\u2728'}</span>
                 <span class="agent-feed__summary-text">
-                    {completedCount} steg utf\u00f6rda p\u00e5 {formatDuration(totalDuration)}
+                    {completedCount} {'steg utförda på'} {formatDuration(totalDuration)}
                 </span>
                 <svg class="agent-feed__expand-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="6 9 12 15 18 9" />
@@ -110,7 +110,7 @@ export const AgentActivityFeed: FunctionComponent<AgentActivityFeedProps> = ({
                         </div>
                         <div class="agent-step__time">
                             {step.status === 'running' ? (
-                                <span class="agent-step__running">p\u00e5g\u00e5r</span>
+                                <span class="agent-step__running">{'pågår'}</span>
                             ) : step.completedAt && step.startedAt ? (
                                 <span class="agent-step__duration">
                                     {formatDuration(step.completedAt - step.startedAt)}
