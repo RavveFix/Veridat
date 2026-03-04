@@ -3314,8 +3314,9 @@ ANVÄNDARFRÅGA:
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: step })}\n\n`));
               }
               // Emit "analyzing" step while Gemini processes
+              let analyzeStartedAt = 0;
               if (prefetchSteps.length > 0) {
-                const analyzeStartedAt = Date.now();
+                analyzeStartedAt = Date.now();
                 const analyzeStep = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'running', startedAt: analyzeStartedAt, completedAt: null, resultSummary: null };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: analyzeStep })}\n\n`));
               }
@@ -3337,6 +3338,13 @@ ANVÄNDARFRÅGA:
                   }\n\n`;
                   controller.enqueue(encoder.encode(sseData));
                 }
+              }
+
+              // Fallback: if Gemini returned empty despite forceToolCall, send error text
+              if (!fullText && !toolCallDetected && isAgentMode) {
+                const fallbackText = 'Jag kunde inte bearbeta din förfrågan just nu. Försök igen.';
+                fullText = fallbackText;
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: fallbackText })}\n\n`));
               }
 
               // Mark "analyzing" step as complete

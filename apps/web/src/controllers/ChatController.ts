@@ -792,6 +792,11 @@ export class ChatController {
                         }));
                     } else if (response?.type === 'json') {
                         uiController.showError('Jag behöver lite mer information för att gå vidare. Försök igen.');
+                    } else {
+                        // Safety net: clear thinking state when stream ends without content
+                        window.dispatchEvent(new CustomEvent('chat-streaming-chunk', {
+                            detail: { chunk: 'Jag fick inget svar — försök igen eller omformulera din fråga.', isNewResponse: true }
+                        }));
                     }
                 }
 
