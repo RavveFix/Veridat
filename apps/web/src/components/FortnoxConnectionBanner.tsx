@@ -2,14 +2,12 @@
  * FortnoxConnectionBanner - Global banner shown when Fortnox is disconnected.
  *
  * Mounted between the top-bar and workspace-split in the app layout.
- * Dismissable per session (sessionStorage).
+ * Dismissable for the current SPA session (reappears on refresh or new tab).
  */
 
 import { FunctionComponent } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
-
-const DISMISS_KEY = 'fortnox-banner-dismissed';
 
 const BANNER_STYLE = {
     display: 'flex',
@@ -60,9 +58,7 @@ export const FortnoxConnectionBanner: FunctionComponent = () => {
     const [status, setStatus] = useState<FortnoxConnectionStatus>(
         fortnoxContextService.getConnectionStatus()
     );
-    const [dismissed, setDismissed] = useState(
-        () => sessionStorage.getItem(DISMISS_KEY) === '1'
-    );
+    const [dismissed, setDismissed] = useState(false);
 
     useEffect(() => {
         const handler = (e: Event) => {
@@ -77,7 +73,6 @@ export const FortnoxConnectionBanner: FunctionComponent = () => {
     }
 
     const handleDismiss = () => {
-        sessionStorage.setItem(DISMISS_KEY, '1');
         setDismissed(true);
     };
 
