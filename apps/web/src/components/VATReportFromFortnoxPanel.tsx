@@ -2,8 +2,10 @@ import { useState, useEffect } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { logger } from '../services/LoggerService';
 import { companyService } from '../services/CompanyService';
+import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
 import type { VATReportData } from '../types/vat';
 import { VATReportCard } from './VATReportCard';
+import { FortnoxDisconnectedCard } from './FortnoxDisconnectedCard';
 
 interface InvoiceDetail {
     nr: number;
@@ -192,11 +194,22 @@ function InvoiceTable({ invoices, getCounterparty }: InvoiceTableProps) {
 }
 
 export function VATReportFromFortnoxPanel({ onBack }: VATReportFromFortnoxPanelProps) {
+    const [connectionStatus, setConnectionStatus] = useState<FortnoxConnectionStatus>(
+        fortnoxContextService.getConnectionStatus()
+    );
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [reportData, setReportData] = useState<VATReportData | null>(null);
     const [invoices, setInvoices] = useState<InvoiceDetail[]>([]);
     const [supplierInvoices, setSupplierInvoices] = useState<InvoiceDetail[]>([]);
+
+    useEffect(() => {
+        const handler = (e: Event) => {
+            setConnectionStatus((e as CustomEvent<FortnoxConnectionStatus>).detail);
+        };
+        fortnoxContextService.addEventListener('connection-changed', handler);
+        return () => fortnoxContextService.removeEventListener('connection-changed', handler);
+    }, []);
 
     async function fetchVATReport() {
         setLoading(true);
@@ -239,7 +252,13 @@ export function VATReportFromFortnoxPanel({ onBack }: VATReportFromFortnoxPanelP
         }
     }
 
-    useEffect(() => { fetchVATReport(); }, []);
+    useEffect(() => {
+        if (connectionStatus === 'connected') {
+            fetchVATReport();
+        } else {
+            setLoading(false);
+        }
+    }, [connectionStatus]);
 
     const unbookedInvoices = invoices.filter(i => !i.booked);
     const hasUnbooked = unbookedInvoices.length > 0;
@@ -256,7 +275,21 @@ export function VATReportFromFortnoxPanel({ onBack }: VATReportFromFortnoxPanelP
                 </button>
             )}
 
-            {!loading && (
+            {(connectionStatus === 'disconnected' || connectionStatus === 'error') && (
+                <FortnoxDisconnectedCard
+                    context="momsrapport"
+                    onConnect={() => window.dispatchEvent(new CustomEvent('open-integrations-modal'))}
+                />
+            )}
+
+            {connectionStatus === 'checking' && (
+                <div style={VAT_LOADING_WRAP_STYLE}>
+                    <div className="modal-spinner" style={VAT_LOADING_SPINNER_STYLE} role="status" aria-label="Laddar" />
+                    <p style={VAT_LOADING_TEXT_STYLE}>Kontrollerar Fortnox-anslutning...</p>
+                </div>
+            )}
+
+            {connectionStatus === 'connected' && !loading && (
                 <button
                     type="button"
                     onClick={fetchVATReport}
@@ -267,7 +300,7 @@ export function VATReportFromFortnoxPanel({ onBack }: VATReportFromFortnoxPanelP
                 </button>
             )}
 
-            {loading && (
+            {connectionStatus === 'connected' && loading && (
                 <div style={VAT_LOADING_WRAP_STYLE}>
                     <div className="modal-spinner" style={VAT_LOADING_SPINNER_STYLE} role="status" aria-label="Laddar" />
                     <p style={VAT_LOADING_TEXT_STYLE}>
@@ -288,6 +321,22 @@ export function VATReportFromFortnoxPanel({ onBack }: VATReportFromFortnoxPanelP
                     >
                         Försök igen
                     </button>
+                </div>
+            )}
+
+            {connectionStatus === 'connected' && !loading && !error && !reportData && (
+                <div className="panel-card panel-card--no-hover">
+                    <div className="empty-state">
+                        <div className="empty-state-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="20" x2="18" y2="10" />
+                                <line x1="12" y1="20" x2="12" y2="4" />
+                                <line x1="6" y1="20" x2="6" y2="14" />
+                            </svg>
+                        </div>
+                        <h3>Ingen momsrapport genererad</h3>
+                        <p>Klicka Uppdatera för att generera momsrapport baserad på dina bokförda fakturor i Fortnox.</p>
+                    </div>
                 </div>
             )}
 

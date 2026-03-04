@@ -9,6 +9,8 @@ import { useState, useEffect, useCallback } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { logger } from '../services/LoggerService';
 import { companyService } from '../services/CompanyService';
+import { fortnoxContextService, type FortnoxConnectionStatus } from '../services/FortnoxContextService';
+import { FortnoxDisconnectedCard } from './FortnoxDisconnectedCard';
 
 // =============================================================================
 // TYPES
@@ -175,12 +177,23 @@ const FORTNOX_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fortnox`;
 // =============================================================================
 
 export function FinancialStatementsPanel({ onBack }: FinancialStatementsPanelProps) {
+    const [connectionStatus, setConnectionStatus] = useState<FortnoxConnectionStatus>(
+        fortnoxContextService.getConnectionStatus()
+    );
     const [data, setData] = useState<FinancialStatementsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<ReportTab>('resultat');
     const [selectedYearId, setSelectedYearId] = useState<number | null>(null);
     const companyId = companyService.getCurrentId();
+
+    useEffect(() => {
+        const handler = (e: Event) => {
+            setConnectionStatus((e as CustomEvent<FortnoxConnectionStatus>).detail);
+        };
+        fortnoxContextService.addEventListener('connection-changed', handler);
+        return () => fortnoxContextService.removeEventListener('connection-changed', handler);
+    }, []);
 
     const fetchReport = useCallback(async (yearId?: number) => {
         setLoading(true);
@@ -225,13 +238,43 @@ export function FinancialStatementsPanel({ onBack }: FinancialStatementsPanelPro
     }, [companyId, selectedYearId]);
 
     useEffect(() => {
-        void fetchReport();
-    }, []);
+        if (connectionStatus === 'connected') {
+            void fetchReport();
+        } else {
+            setLoading(false);
+        }
+    }, [connectionStatus, fetchReport]);
 
     const handleYearChange = useCallback((yearId: number) => {
         setSelectedYearId(yearId);
         void fetchReport(yearId);
     }, [fetchReport]);
+
+    // Disconnected state
+    if (connectionStatus === 'disconnected' || connectionStatus === 'error') {
+        return (
+            <div>
+                {onBack && <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>}
+                <FortnoxDisconnectedCard
+                    context="resultat-balans"
+                    onConnect={() => window.dispatchEvent(new CustomEvent('open-integrations-modal'))}
+                />
+            </div>
+        );
+    }
+
+    // Checking connection
+    if (connectionStatus === 'checking') {
+        return (
+            <div>
+                {onBack && <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>}
+                <div style={LOADING_WRAP}>
+                    <div className="spinner" style={{ margin: '0 auto 1rem' }} />
+                    <div style={LOADING_TEXT}>Kontrollerar Fortnox-anslutning...</div>
+                </div>
+            </div>
+        );
+    }
 
     // Loading state
     if (loading) {
@@ -261,7 +304,27 @@ export function FinancialStatementsPanel({ onBack }: FinancialStatementsPanelPro
         );
     }
 
-    if (!data) return null;
+    if (!data) {
+        return (
+            <div>
+                {onBack && <button type="button" onClick={onBack} style={BACK_BTN}>Tillbaka</button>}
+                <div className="panel-card panel-card--no-hover">
+                    <div className="empty-state">
+                        <div className="empty-state-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                            </svg>
+                        </div>
+                        <h3>Resultat- & balansräkning</h3>
+                        <p>Klicka Uppdatera för att visa resultat- och balansräkning baserad på kontosaldon i Fortnox.</p>
+                        <button type="button" className="empty-state-btn" onClick={() => void fetchReport()}>
+                            Hämta rapport
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const { resultatRakning, balansRakning, company, financialYear, availableYears } = data;
 

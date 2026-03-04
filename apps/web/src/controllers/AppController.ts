@@ -16,6 +16,7 @@ import { MemoryIndicator } from '../components/MemoryIndicator';
 import { SearchModalWrapper } from '../components/SearchModal';
 import { initKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { FortnoxSidebar } from '../components/FortnoxSidebar';
+import { FortnoxConnectionBanner } from '../components/FortnoxConnectionBanner';
 import { AppSidebar, type AppPage } from '../components/AppSidebar';
 import { InvoicesPage } from '../components/pages/InvoicesPage';
 import { BankPage } from '../components/pages/BankPage';
@@ -589,6 +590,9 @@ export class AppController {
 
         this.mountMemoryComponents();
 
+        // Mount Fortnox connection banner
+        this.mountFortnoxBanner();
+
         // Initialize Fortnox Sidebar
         this.initFortnoxSidebar();
     }
@@ -608,6 +612,13 @@ export class AppController {
             trigger.addEventListener('click', () => {
                 window.dispatchEvent(new CustomEvent('open-search-modal'));
             });
+        }
+    }
+
+    private mountFortnoxBanner(): void {
+        const mount = document.getElementById('fortnox-banner-mount');
+        if (mount) {
+            mountPreactComponent(FortnoxConnectionBanner, {}, mount);
         }
     }
 

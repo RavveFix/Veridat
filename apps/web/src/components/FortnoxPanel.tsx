@@ -6,6 +6,7 @@ import { companyService } from '../services/CompanyService';
 import { CopilotPanel } from './CopilotPanel';
 import { getFortnoxList } from '../utils/fortnoxResponse';
 import { InvoicePostingReviewDrawer } from './InvoicePostingReviewDrawer';
+import { FortnoxDisconnectedCard } from './FortnoxDisconnectedCard';
 import {
     getInvoicePostingReviewEnabled,
     invoicePostingReviewService,
@@ -595,7 +596,16 @@ function renderEmptyInvoiceTableRow(columnCount: number) {
     return (
         <tr>
             <td colSpan={columnCount} style={TABLE_EMPTY_CELL_STYLE}>
-                Inga fakturor att visa.
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', padding: '1.5rem 0' }}>
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style={{ opacity: 0.4, color: 'var(--accent-primary)' }}>
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="16" y1="13" x2="8" y2="13" />
+                        <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                    <span>Inga fakturor ännu</span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Skapa din första faktura i Fortnox eller be Veridat hjälpa dig via chatten.</span>
+                </div>
             </td>
         </tr>
     );
@@ -1186,25 +1196,12 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
             )}
 
             {(connectionStatus === 'disconnected' || connectionStatus === 'error') && (
-                <div className="panel-card panel-card--no-hover" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1.5rem' }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Fortnox är inte kopplat</div>
-                    <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                        Anslut ditt Fortnox-konto för att se fakturor, genomföra attest och synka bokföring.
-                    </div>
-                    {connectError && (
-                        <div style={{ fontSize: '0.8rem', color: '#ef4444', padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.08)', borderRadius: '6px' }}>
-                            {connectError}
-                        </div>
-                    )}
-                    <button
-                        type="button"
-                        onClick={handleConnectFortnox}
-                        disabled={connectingFortnox}
-                        style={{ marginTop: '0.25rem', alignSelf: 'flex-start', padding: '0.6rem 1.25rem', borderRadius: '8px', border: 'none', background: connectingFortnox ? 'var(--text-secondary)' : 'var(--accent, #3b82f6)', color: '#fff', fontSize: '0.875rem', cursor: connectingFortnox ? 'wait' : 'pointer', fontWeight: 500, opacity: connectingFortnox ? 0.7 : 1 }}
-                    >
-                        {connectingFortnox ? 'Ansluter...' : 'Anslut Fortnox'}
-                    </button>
-                </div>
+                <FortnoxDisconnectedCard
+                    context="fakturor"
+                    onConnect={handleConnectFortnox}
+                    connecting={connectingFortnox}
+                    error={connectError ?? undefined}
+                />
             )}
 
             {connectionStatus === 'connected' && (<>

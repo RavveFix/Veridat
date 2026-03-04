@@ -103,32 +103,15 @@ const RECONCILIATION_SUMMARY_GRID_STYLE = {
     gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
     gap: '0.75rem'
 };
-
-const RECONCILIATION_EMPTY_STATE_STYLE = {
-    textAlign: 'center',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.75rem',
-    alignItems: 'center',
-    border: '1px dashed var(--surface-border)'
-};
-
-const RECONCILIATION_EMPTY_STATE_TEXT_STYLE = {
-    color: 'var(--text-secondary)',
-    fontSize: '0.85rem'
-};
-
-const RECONCILIATION_IMPORT_BUTTON_STYLE = {
-    padding: '0.6rem 1.25rem',
-    borderRadius: '8px',
-    border: 'none',
-    background: '#2563eb',
-    color: '#fff',
+const RECONCILIATION_STEPS_LIST_STYLE = {
+    textAlign: 'left',
     fontSize: '0.85rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    boxShadow: 'none'
-};
+    lineHeight: 1.8,
+    margin: '0.5rem 0 0',
+    paddingLeft: '1.25rem',
+    color: 'var(--text-secondary)',
+    maxWidth: '320px',
+} as const;
 
 const RECONCILIATION_MONTH_LIST_STYLE = {
     display: 'grid',
@@ -375,21 +358,27 @@ export function ReconciliationView({ onBack, onOpenBankImport }: ReconciliationV
             </div>
 
             {monthStatuses.length === 0 ? (
-                <div className="panel-card panel-card--no-hover" style={RECONCILIATION_EMPTY_STATE_STYLE}>
-                    <div style={RECONCILIATION_EMPTY_STATE_TEXT_STYLE}>
-                        Inga bankimporter hittades. Importera kontoutdrag för att börja avstämningen.
+                <div className="panel-card panel-card--no-hover">
+                    <div className="empty-state">
+                        <div className="empty-state-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" />
+                                <path d="M3 9h18" />
+                                <path d="M9 21V9" />
+                            </svg>
+                        </div>
+                        <h3>Ingen bankdata importerad</h3>
+                        <ol style={RECONCILIATION_STEPS_LIST_STYLE}>
+                            <li>Exportera transaktionsfil (CSV) från din internetbank</li>
+                            <li>Importera filen under fliken <strong style={{ color: 'var(--text-primary)' }}>Importera</strong></li>
+                            <li>Matcha transaktioner mot bokföring här</li>
+                        </ol>
+                        {onOpenBankImport && (
+                            <button type="button" className="empty-state-btn" onClick={onOpenBankImport}>
+                                Gå till Import
+                            </button>
+                        )}
                     </div>
-                    {onOpenBankImport && (
-                        <button
-                            type="button"
-                            onClick={onOpenBankImport}
-                            style={RECONCILIATION_IMPORT_BUTTON_STYLE}
-                            onMouseOver={(e) => (e.currentTarget.style.background = '#1d4ed8')}
-                            onMouseOut={(e) => (e.currentTarget.style.background = '#2563eb')}
-                        >
-                            Importera bankfil
-                        </button>
-                    )}
                 </div>
             ) : (
                 <div className="panel-stagger" style={RECONCILIATION_MONTH_LIST_STYLE}>

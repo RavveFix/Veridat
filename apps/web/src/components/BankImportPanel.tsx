@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { supabase } from '../lib/supabase';
 import { companyService } from '../services/CompanyService';
 import { bankImportService } from '../services/BankImportService';
@@ -121,11 +121,18 @@ const BANK_SAMPLE_LINK_STYLE = {
     fontWeight: 700,
     boxShadow: 'none'
 } as const;
-const BANK_FILE_PICKER_CARD_STYLE = { border: '1px dashed var(--surface-border)' } as const;
-const BANK_FILE_PICKER_ROW_STYLE = { display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' } as const;
-const BANK_FILE_INPUT_STYLE = { color: 'var(--text-secondary)' } as const;
-const BANK_FILE_PICKER_HINT_STYLE = { fontSize: '0.85rem', color: 'var(--text-secondary)' } as const;
-const BANK_FILE_NAME_STYLE = { marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
+const BANK_UPLOAD_ZONE_BASE = { padding: '1.5rem', textAlign: 'center' } as const;
+const BANK_FILE_INPUT_HIDDEN = { display: 'none' } as const;
+const BANK_UPLOAD_TITLE = { fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' } as const;
+const BANK_UPLOAD_HINT = { color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' } as const;
+const BANK_FILE_NAME_STYLE = { marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
+function getBankUploadZoneStyle(dragOver: boolean) {
+    return {
+        ...BANK_UPLOAD_ZONE_BASE,
+        border: `2px dashed ${dragOver ? '#3b82f6' : 'var(--surface-border)'}`,
+        background: dragOver ? 'rgba(59, 130, 246, 0.08)' : 'var(--surface-1)',
+    } as const;
+}
 const BANK_IMPORT_ERROR_STYLE = {
     padding: '0.8rem',
     borderRadius: '8px',
@@ -785,6 +792,8 @@ function buildMatches(
 }
 
 export function BankImportPanel({ onBack }: BankImportPanelProps) {
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [dragOver, setDragOver] = useState(false);
     const [preview, setPreview] = useState<CsvPreview | null>(null);
     const [filename, setFilename] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -802,6 +811,15 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
     const [aiLoadingId, setAiLoadingId] = useState<string | null>(null);
     const [selectedBank, setSelectedBank] = useState<string | null>(null);
     const [detectedBank, setDetectedBank] = useState<BankProfile | null>(null);
+
+    const onDragOver = (e: DragEvent) => {
+        e.preventDefault();
+        setDragOver(true);
+    };
+
+    const onDragLeave = () => {
+        setDragOver(false);
+    };
 
     const getSessionAccessToken = async (): Promise<string | null> => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -946,6 +964,15 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
             logger.error('CSV parse failed', err);
             setError('Ett fel uppstod vid läsning av CSV-filen.');
             setPreview(null);
+        }
+    };
+
+    const onDrop = (e: DragEvent) => {
+        e.preventDefault();
+        setDragOver(false);
+        const file = e.dataTransfer?.files?.[0];
+        if (file) {
+            void handleFileSelect(file);
         }
     };
 
@@ -1244,23 +1271,31 @@ export function BankImportPanel({ onBack }: BankImportPanelProps) {
                 </div>
             </div>
 
-            <div className="panel-card panel-card--no-hover" style={BANK_FILE_PICKER_CARD_STYLE}>
-                <div style={BANK_FILE_PICKER_ROW_STYLE}>
-                    <input
-                        type="file"
-                        accept=".csv,text/csv"
-                        data-testid="bank-import-file-input"
-                        onChange={(event) => {
-                            const file = event.currentTarget.files?.[0];
-                            if (file) {
-                                void handleFileSelect(file);
-                            }
-                        }}
-                        style={BANK_FILE_INPUT_STYLE}
-                    />
-                    <span style={BANK_FILE_PICKER_HINT_STYLE}>
-                        Välj din bankfil for forhandsvisning.
-                    </span>
+            <div
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className="panel-card panel-card--interactive"
+                style={getBankUploadZoneStyle(dragOver)}
+            >
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,text/csv"
+                    data-testid="bank-import-file-input"
+                    style={BANK_FILE_INPUT_HIDDEN}
+                    onChange={(e) => {
+                        const file = e.currentTarget.files?.[0];
+                        if (file) void handleFileSelect(file);
+                        e.currentTarget.value = '';
+                    }}
+                />
+                <div style={BANK_UPLOAD_TITLE}>
+                    {dragOver ? 'Släpp filen här' : 'Dra och släpp din bankfil här'}
+                </div>
+                <div style={BANK_UPLOAD_HINT}>
+                    eller klicka för att välja fil (CSV)
                 </div>
                 {filename && (
                     <div style={BANK_FILE_NAME_STYLE}>
