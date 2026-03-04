@@ -2775,10 +2775,20 @@ Deno.serve(async (req: Request) => {
     // Inject VAT Report Context if available OR fetch from DB
     let finalMessage = message;
 
-    // Declare prefetchSteps in outer scope so ReadableStream can access them
+    // Declare prefetchSteps + bufferStep in outer scope so ReadableStream and memory code can access them
     // (populated inside isAgentMode block, empty array otherwise)
     const prefetchSteps: Array<{ id: string; type: string; tool: string; label: string; status: string; startedAt: number; completedAt: number | null; resultSummary: string | null }> = [];
     let prefetchStepCounter = 0;
+    const bufferStep = (tool: string, label: string) => {
+      const id = `prefetch-${++prefetchStepCounter}`;
+      const step = { id, type: 'tool_call', tool, label, status: 'running', startedAt: Date.now(), completedAt: null as number | null, resultSummary: null as string | null };
+      prefetchSteps.push(step);
+      return (summary?: string, failed = false) => {
+        step.status = failed ? 'failed' : 'completed';
+        step.completedAt = Date.now();
+        step.resultSummary = summary ?? null;
+      };
+    };
 
     if (isSkillAssist) {
       finalMessage =
@@ -2812,18 +2822,6 @@ Deno.serve(async (req: Request) => {
         `   - Om [FÖRETAGSUPPSLAG] saknas → skapa kunden med bara namnet (systemet slår upp automatiskt vid skapandet).\n\n`;
 
       // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
-      // Buffer agent steps during pre-fetch (stream doesn't exist yet)
-      const bufferStep = (tool: string, label: string) => {
-        const id = `prefetch-${++prefetchStepCounter}`;
-        const step = { id, type: 'tool_call', tool, label, status: 'running', startedAt: Date.now(), completedAt: null as number | null, resultSummary: null as string | null };
-        prefetchSteps.push(step);
-        return (summary?: string, failed = false) => {
-          step.status = failed ? 'failed' : 'completed';
-          step.completedAt = Date.now();
-          step.resultSummary = summary ?? null;
-        };
-      };
-
       let invoiceContext = "";
       let accountsContext = "";
       let customersContext = "";
@@ -3065,12 +3063,10 @@ ANVÄNDARFRÅGA:
     const usedMemories: UsedMemory[] = [];
 
     if (resolvedCompanyId) {
-      const _doneMem = isAgentMode
-        ? bufferStep('memory_search', 'Söker relevanta minnen')
-        : null;
+      const _doneMem = bufferStep('memory_search', 'Söker relevanta minnen');
       let memStepDone = false;
       const doneMem = (summary: string, failed = false) => {
-        if (!memStepDone && _doneMem) { memStepDone = true; _doneMem(summary, failed); }
+        if (!memStepDone) { memStepDone = true; _doneMem(summary, failed); }
       };
       try {
         const { data: userMemories, error: userMemoriesError } =
