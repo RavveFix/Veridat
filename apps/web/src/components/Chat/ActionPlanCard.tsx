@@ -69,12 +69,31 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const friendlyError = (error: string): string => {
-    if (error.includes('CustomerNumber')) return 'Kundnummer saknas — kontrollera att kunden finns i Fortnox';
-    if (error.includes('SupplierNumber')) return 'Leverantörsnummer saknas';
-    if (error.includes('InvoiceRows')) return 'Fakturarader saknas';
-    if (error.includes('rate limit')) return 'För många anrop — försök igen om en stund';
-    if (error.includes('token')) return 'Fortnox-anslutningen har gått ut — återanslut i inställningar';
-    return error;
+    // Decode unicode escapes (e.g. \u00e4 → ä)
+    let decoded = error.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+        String.fromCharCode(parseInt(hex, 16))
+    );
+
+    // Try to extract message from JSON error objects
+    try {
+        const parsed = JSON.parse(decoded);
+        const msg = parsed?.ErrorInformation?.message || parsed?.message || parsed?.error;
+        if (msg) decoded = String(msg);
+    } catch { /* not JSON, use as-is */ }
+
+    // Extract message from inline JSON patterns like ({...})
+    const inlineJson = decoded.match(/\(\{"ErrorInformation":\{[^}]*"message":"([^"]+)"/);
+    if (inlineJson) decoded = inlineJson[1];
+
+    // Map known Fortnox errors to friendly Swedish
+    if (decoded.includes('2000204') || /[Kk]unde inte.*hitta kund/.test(decoded)) return 'Kunden hittades inte i Fortnox';
+    if (decoded.includes('CustomerNumber')) return 'Kundnummer saknas — kontrollera att kunden finns i Fortnox';
+    if (decoded.includes('SupplierNumber')) return 'Leverantörsnummer saknas';
+    if (decoded.includes('InvoiceRows')) return 'Fakturarader saknas';
+    if (decoded.includes('rate limit')) return 'För många anrop — försök igen om en stund';
+    if (decoded.includes('token')) return 'Fortnox-anslutningen har gått ut — återanslut i inställningar';
+    if (/[Oo]giltig förfrågan/.test(decoded)) return 'Ogiltig förfrågan till Fortnox — kontrollera indata';
+    return decoded;
 };
 
 const FLEX_CENTER_STYLE = {

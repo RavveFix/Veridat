@@ -2507,6 +2507,15 @@ Deno.serve(async (req: Request) => {
                       );
                       const customer = (result as any).Customer || result;
                       createdCustomerNumber = customer.CustomerNumber;
+                      // Inject CustomerNumber into subsequent invoice actions to avoid Fortnox replication delay
+                      if (createdCustomerNumber) {
+                        for (const remaining of actions.slice(i + 1)) {
+                          if (remaining.action_type === "create_invoice" && !remaining.parameters?.CustomerNumber) {
+                            remaining.parameters = { ...remaining.parameters, CustomerNumber: createdCustomerNumber };
+                            logger.info("Injected createdCustomerNumber into invoice action", { customerNumber: createdCustomerNumber });
+                          }
+                        }
+                      }
                       resultText =
                         `Kund skapad: ${customer.Name || params.name || params.Name} (nr ${customer.CustomerNumber || "tilldelas"})`;
                       break;
