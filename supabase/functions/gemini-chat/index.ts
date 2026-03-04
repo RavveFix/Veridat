@@ -805,7 +805,7 @@ function detectHistoryIntent(
   const mentionsRecent =
     /(förra veckan|förra månaden|förra kvartalet|senast|sist|tidigare|förut)/
       .test(normalized);
-  const mentionsTalk = /(pratade|diskuterade|nämnde|sade|sa)/.test(normalized);
+  const mentionsTalk = /\b(pratade|diskuterade|nämnde|sade|sa)\b/.test(normalized);
   const mentionsWe = /\bvi\b/.test(normalized);
   const mentionsHowWeDid = /(hur\s+.*(bokförde|gjorde|löste)|bokförde vi)/.test(
     normalized,
