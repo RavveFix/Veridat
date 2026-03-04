@@ -1386,7 +1386,9 @@ async function executeFortnoxTool(
         const invNum = Number(toolArgs.invoice_number);
         const resp = await fortnoxService.getInvoice(invNum);
         const inv = (resp as any).Invoice || resp;
-        return `Faktura ${inv.InvoiceNumber}:\n` +
+        const invId = inv.InvoiceNumber || inv.DocumentNumber || invNum;
+        let invoiceText = `Faktura ${invId}:\n` +
+          `- DocumentNumber: ${inv.DocumentNumber || invId}\n` +
           `- Kund: ${inv.CustomerName || "—"} (${inv.CustomerNumber})\n` +
           `- Datum: ${inv.InvoiceDate}\n` +
           `- Förfallodatum: ${inv.DueDate}\n` +
@@ -1394,6 +1396,14 @@ async function executeFortnoxTool(
           `- Netto: ${inv.Net} kr\n` +
           `- Bokförd: ${inv.Booked ? "Ja" : "Nej"}\n` +
           `- Status: ${inv.Cancelled ? "Makulerad" : inv.Booked ? "Bokförd" : "Utkast"}`;
+        // Include rows for update context
+        if (inv.InvoiceRows && Array.isArray(inv.InvoiceRows) && inv.InvoiceRows.length > 0) {
+          invoiceText += `\n- Fakturarader:`;
+          inv.InvoiceRows.forEach((row: any, i: number) => {
+            invoiceText += `\n  Rad ${i + 1}: "${row.Description || '-'}" | Antal: ${row.DeliveredQuantity || 1} | À-pris: ${row.Price || 0} kr | Total: ${row.Total || 0} kr`;
+          });
+        }
+        return invoiceText;
       }
       case "get_supplier_invoice": {
         const siNum = Number(toolArgs.given_number);
@@ -4472,7 +4482,9 @@ ANVÄNDARFRÅGA:
             const invNum = Number(args.invoice_number);
             toolResult = await fortnoxService.getInvoice(invNum);
             const inv = (toolResult as any).Invoice || toolResult;
-            responseText = `Faktura ${inv.InvoiceNumber}:\n` +
+            const invId = inv.InvoiceNumber || inv.DocumentNumber || invNum;
+            responseText = `Faktura ${invId}:\n` +
+              `- DocumentNumber: ${inv.DocumentNumber || invId}\n` +
               `- Kund: ${inv.CustomerName || "—"} (${inv.CustomerNumber})\n` +
               `- Datum: ${inv.InvoiceDate}\n` +
               `- Förfallodatum: ${inv.DueDate}\n` +
@@ -4480,6 +4492,13 @@ ANVÄNDARFRÅGA:
               `- Netto: ${inv.Net} kr\n` +
               `- Bokförd: ${inv.Booked ? "Ja" : "Nej"}\n` +
               `- Status: ${inv.Cancelled ? "Makulerad" : inv.Booked ? "Bokförd" : "Utkast"}`;
+            // Include rows for update context
+            if (inv.InvoiceRows && Array.isArray(inv.InvoiceRows) && inv.InvoiceRows.length > 0) {
+              responseText += `\n- Fakturarader:`;
+              inv.InvoiceRows.forEach((row: any, i: number) => {
+                responseText += `\n  Rad ${i + 1}: "${row.Description || '-'}" | Antal: ${row.DeliveredQuantity || 1} | À-pris: ${row.Price || 0} kr | Total: ${row.Total || 0} kr`;
+              });
+            }
             toolStructuredData = {
               toolArgs: args as Record<string, unknown>,
               toolResult: toolResult as Record<string, unknown>,
