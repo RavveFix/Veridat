@@ -2363,7 +2363,6 @@ h1 {
 /* ===== AI Model Selector ===== */
 .model-selector-container {
     position: relative;
-    margin-bottom: 0.5rem;
 }
 
 .model-selector-btn {
