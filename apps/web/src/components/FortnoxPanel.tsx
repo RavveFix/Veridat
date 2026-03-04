@@ -262,7 +262,7 @@ const FORTNOX_SECTION_TITLE_STYLE = { margin: 0, textTransform: 'none', letterSp
 const FORTNOX_TABLE_SUBTEXT_STYLE = { fontSize: '0.8rem', color: 'var(--text-secondary)' } as const;
 const FORTNOX_TOOLBAR_GROUP_STYLE = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } as const;
 const SEGMENTED_CONTROL_STYLE = { display: 'inline-flex', borderRadius: '10px', border: '1px solid var(--glass-border)', background: 'rgba(255, 255, 255, 0.05)', overflow: 'hidden', padding: '2px' } as const;
-const REFRESH_ICON_STYLE = { width: '32px', height: '32px', borderRadius: '50%', border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 } as const;
+const REFRESH_ICON_STYLE = { width: '32px', height: '32px', borderRadius: '50%', border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 } as const;
 const FORTNOX_ERROR_BOX_STYLE = {
     padding: '0.6rem 0.8rem',
     borderRadius: '8px',
@@ -1253,7 +1253,15 @@ export function FortnoxPanel({ onBack }: FortnoxPanelProps) {
                                     title="Uppdatera"
                                     style={getRefreshIconStyle(activeLoading)}
                                 >
-                                    {activeLoading ? '⏳' : '↻'}
+                                    <svg
+                                        width="16" height="16" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" strokeWidth="2"
+                                        strokeLinecap="round" strokeLinejoin="round"
+                                        style={activeLoading ? { animation: 'spin 1s linear infinite' } : undefined}
+                                    >
+                                        <polyline points="23 4 23 10 17 10" />
+                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                                    </svg>
                                 </button>
                             </div>
                             <div style={FORTNOX_TABLE_SUBTEXT_STYLE}>
