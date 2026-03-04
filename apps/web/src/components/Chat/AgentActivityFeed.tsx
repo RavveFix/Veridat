@@ -123,7 +123,7 @@ export const AgentActivityFeed: FunctionComponent<AgentActivityFeedProps> = ({
 
             {usedMemories && usedMemories.length > 0 && (
                 <div class="agent-feed__memories">
-                    <span class="agent-feed__memories-label">{'\u2139\uFE0F'} {usedMemories.length} minnen anv\u00e4nda</span>
+                    <span class="agent-feed__memories-label">{'\u2139\uFE0F'} {usedMemories.length} {' minnen använda'}</span>
                 </div>
             )}
         </div>
