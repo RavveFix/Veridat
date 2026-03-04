@@ -35,7 +35,7 @@ const logger = createLogger('ai-router');
  * Free → Flash-Lite (fast, cheap). Trial/Pro → Pro (better quality).
  */
 const GEMINI_MODELS: Record<UserPlan, string> = {
-    free: 'gemini-3-flash-lite-preview',
+    free: 'gemini-3.1-flash-lite-preview',
     trial: 'gemini-3.1-pro-preview',
     pro: 'gemini-3.1-pro-preview',
 };

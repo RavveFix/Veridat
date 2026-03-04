@@ -61,7 +61,7 @@ const RATE_LIMIT_ENDPOINT = "ai";
 /** Model routing: abstract tier + mode → concrete Gemini model ID */
 const MODEL_MAP = {
   standard: {
-    chat: "gemini-3-flash-lite-preview",
+    chat: "gemini-3.1-flash-lite-preview",
     agent: "gemini-3-flash-preview",
   },
   pro: {

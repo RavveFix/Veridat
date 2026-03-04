@@ -1170,7 +1170,7 @@ export const sendMessageToGemini = async (
         const genAI = new GoogleGenerativeAI(key);
 
         // Model priority: explicit override > env variable > default
-        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-lite-preview";
+        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3.1-flash-lite-preview";
         logger.info(`Using Gemini model: ${modelName}`);
 
         const model = genAI.getGenerativeModel({
@@ -1362,7 +1362,7 @@ export const sendMessageStreamToGemini = async (
 
         const genAI = new GoogleGenerativeAI(key);
         // Model priority: explicit override > env variable > default
-        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3-flash-lite-preview";
+        const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3.1-flash-lite-preview";
         logger.info(`Using Gemini model (streaming): ${modelName}`);
 
         const model = genAI.getGenerativeModel({
@@ -1442,7 +1442,7 @@ export const generateConversationTitle = async (
 
         const genAI = new GoogleGenerativeAI(key);
         // Use flash model for speed and low cost
-        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-lite-preview" });
+        const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
 
         const prompt = `Generera en kort svensk titel (max 5 ord) som sammanfattar denna konversation. Svara ENDAST med titeln, inget annat.
 
