@@ -2586,6 +2586,10 @@ h1 {
     content: "\1F512 ";
 }
 
+.model-option:not(.locked) .pro-badge::before {
+    content: "\1F451 ";
+}
+
 /* Tooltip on hover */
 .model-option.locked::after {
     content: "Pro: 40/t, 200/d";
@@ -3107,6 +3111,21 @@ h1 {
     color: var(--text-on-accent);
     border: none;
     min-height: 160px;
+    position: relative;
+}
+
+.popular-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    color: white;
+    text-transform: uppercase;
 }
 
 [data-theme="dark"] .suggestion-card.primary {
@@ -3169,7 +3188,7 @@ h1 {
 .floating-form {
     pointer-events: auto;
     background: var(--floating-bg);
-    border-radius: 100px;
+    border-radius: 12px;
     box-shadow:
         0 4px 6px -1px rgba(0, 0, 0, 0.05),
         0 10px 15px -3px rgba(0, 0, 0, 0.05),
@@ -3243,7 +3262,7 @@ h1 {
     background: var(--accent-black);
     color: var(--text-on-accent);
     border: none;
-    border-radius: 100px;
+    border-radius: 8px;
     padding: 0 1.25rem;
     min-height: var(--touch-target-min);
     font-family: var(--font-display);
@@ -4576,6 +4595,21 @@ h1 {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
+.dismiss-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 4px 8px;
+    font-family: var(--font-sans);
+    transition: opacity 0.2s ease;
+}
+
+.dismiss-btn:hover {
+    opacity: 0.7;
+}
+
 /* ── Mobile: stack vertically ── */
 @media (max-width: 768px) {
     .scanner {
@@ -4905,8 +4939,11 @@ h1 {
     display: none;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     text-align: center;
     padding: 0 2rem 2rem;
+    flex: 1;
+    min-height: 0;
     animation: heroFadeIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 

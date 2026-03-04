@@ -438,18 +438,22 @@ export class ConversationController {
         }
     }
 
-    async createInDB(): Promise<string | null> {
+    async createInDB(firstMessage?: string): Promise<string | null> {
         try {
             const session = await authService.getSession();
             if (!session) return null;
             const currentCompany = companyManager.getCurrent();
+
+            const title = firstMessage && firstMessage.length > 0
+                ? firstMessage.slice(0, 40) + (firstMessage.length > 40 ? '...' : '')
+                : 'Ny konversation';
 
             const { data, error } = await supabase
                 .from('conversations')
                 .insert({
                     user_id: session.user.id,
                     company_id: currentCompany.id,
-                    title: 'Ny konversation'
+                    title
                 })
                 .select('id')
                 .single();
@@ -554,27 +558,6 @@ export class ConversationController {
 
             this.isWelcomeTransitioning = false;
         }, 600);
-    }
-
-    resetToWelcomeState(): void {
-        const chatSection = document.querySelector('.chat-section');
-        const welcomeHero = document.querySelector('.welcome-hero');
-        const chatView = document.getElementById('chat-view');
-
-        if (welcomeHero) welcomeHero.classList.remove('hidden');
-        if (chatView) chatView.classList.add('hidden');
-
-        if (!chatSection) return;
-
-        // Animate back smoothly
-        chatSection.classList.add('welcome-entering');
-        chatSection.classList.remove('welcome-exiting');
-
-        setTimeout(() => {
-            chatSection.classList.remove('welcome-entering');
-            chatSection.classList.add('welcome-state');
-            this.isWelcomeTransitioning = false;
-        }, 300);
     }
 
     mountChatHistory(conversationId: string | null): void {

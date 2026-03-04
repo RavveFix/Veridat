@@ -777,11 +777,16 @@ export const ChatHistory: FunctionComponent<ChatHistoryProps> = ({ conversationI
                     <div class="avatar" style="background: var(--error-color, #ef4444);">!</div>
                     <div class="bubble" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); position: relative;">
                         <p style="color: var(--error-color, #ef4444); margin: 0; padding-right: 24px;">{errorMessage}</p>
-                        <button
-                            onClick={() => setErrorMessage(null)}
-                            style="position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--error-color, #ef4444); cursor: pointer; padding: 0; font-size: 16px; line-height: 1; opacity: 0.7;"
-                            aria-label="Stäng"
-                        >&times;</button>
+                        <div style="display: flex; gap: 8px; margin-top: 8px;">
+                            <button
+                                class="retry-btn"
+                                onClick={handleRetry}
+                            >Försök igen</button>
+                            <button
+                                class="dismiss-btn"
+                                onClick={() => setErrorMessage(null)}
+                            >Avfärda</button>
+                        </div>
                     </div>
                 </div>
             )}

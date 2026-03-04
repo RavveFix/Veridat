@@ -173,11 +173,9 @@ export class ChatController {
         } else if (!this.rateLimitActive) {
             // Only re-enable if not rate limited
             userInput.disabled = false;
-            if (placeholderContainer && !userInput.value && !this.agentMode) {
-                placeholderContainer.classList.remove('hidden');
-            }
-            this.updateInputForAgentMode();
+            userInput.placeholder = '';
             userInput.classList.remove('loading');
+            this.togglePlaceholder(true); // Force remount animated placeholder
             // Focus input after loading completes for better UX
             setTimeout(() => userInput.focus(), 50);
         }
@@ -236,8 +234,21 @@ export class ChatController {
             } catch {
                 // Ignore storage errors
             }
+            this.showAgentModeToast(enabled);
         }
         this.updateInputForAgentMode();
+    }
+
+    private showAgentModeToast(enabled: boolean): void {
+        const existing = document.querySelector('.toast-inline');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'toast-inline success';
+        toast.textContent = enabled ? 'Agent-läge aktiverat' : 'Agent-läge avaktiverat';
+        document.body.appendChild(toast);
+
+        setTimeout(() => toast.remove(), 2000);
     }
 
     private updateInputForAgentMode(): void {
@@ -592,6 +603,7 @@ export class ChatController {
         let vatReportResponse: VATReportResponse | null = null;
         let conversationId = companyManager.getConversationId();
         let didDispatchOptimistic = false;
+        const isNewConversation = !conversationId;
 
         // Validate Excel early to avoid creating empty conversations on invalid files
         if (fileToSend && fileService.isExcel(fileToSend) && this.excelWorkspace) {
@@ -610,7 +622,7 @@ export class ChatController {
             if (inputWrapper) inputWrapper.classList.remove('pulse-input');
 
             logger.info('Creating conversation on first message');
-            const newId = await conversationController.createInDB();
+            const newId = await conversationController.createInDB(userMessage);
             conversationId = newId ?? undefined;
 
             if (conversationId) {
@@ -816,6 +828,11 @@ export class ChatController {
                 // Run skill detection on user message
                 skillDetectionService.analyzeMessage(userMessage);
 
+                // Generate AI title for new conversations
+                if (conversationId && isNewConversation) {
+                    void chatService.generateConversationTitle(conversationId, userMessage);
+                }
+
                 // Schedule automatic memory generation after idle timeout
                 if (conversationId) {
                     memoryService.scheduleGeneration(conversationId);
@@ -838,7 +855,6 @@ export class ChatController {
                         : 'Något gick fel. Försök igen om en stund.'
                 );
                 restoreButton();
-                conversationController.resetToWelcomeState();
             }
         }
     }
