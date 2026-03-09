@@ -1227,6 +1227,12 @@ function normalizeCreateInvoiceArgs(value: unknown): CreateInvoiceArgs | null {
     } as CreateInvoiceArgs;
 }
 
+// TODO: Gemini Context Caching — system prompt + tool definitions (~3K tokens) is well below
+// the 32K minimum required by cachedContent API. Implement caching in Fas 2 when all 8 tools
+// + BAS-kontoplan are in system prompt and we exceed the threshold.
+// Docs: https://ai.google.dev/gemini-api/docs/caching
+// Plan: Cache system prompt + tools (TTL 1h), company context per user (TTL 15min)
+
 export const sendMessageToGemini = async (
     message: string,
     fileData?: FileData,
