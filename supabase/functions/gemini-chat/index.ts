@@ -1268,6 +1268,32 @@ async function lookupCompanyOnAllabolag(companyName: string): Promise<string> {
   }
 }
 
+async function callFortnoxRead(
+  action: string,
+  payload: Record<string, unknown>,
+  authHeader: string,
+  companyId: string,
+): Promise<Record<string, unknown>> {
+  const supabaseUrl = getEnv(["SUPABASE_URL", "SB_URL", "SB_SUPABASE_URL", "API_URL"]);
+  const response = await fetch(`${supabaseUrl}/functions/v1/fortnox`, {
+    method: "POST",
+    headers: {
+      "Authorization": authHeader,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action, companyId, payload }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      typeof result?.error === "string"
+        ? result.error
+        : `Fortnox-anrop misslyckades (${response.status})`,
+    );
+  }
+  return result as Record<string, unknown>;
+}
+
 async function executeFortnoxTool(
   toolName: string,
   toolArgs: Record<string, unknown>,
@@ -3889,6 +3915,206 @@ ANVÄNDARFRÅGA:
                       });
                       toolResponseText =
                         `Betalning på ${payAmount} kr registrerad för kundfaktura ${invoiceNum} (${paymentDate}).`;
+                    }
+                  } else if (toolName === "search_invoices") {
+                    // Read-only: search/list invoices from Fortnox
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      const args = toolArgs as { query?: string; status?: string; limit?: number };
+                      const fetchLimit = Math.min(args.limit || 25, 100);
+                      const result = await callFortnoxRead("getInvoices", {
+                        pagination: { page: 1, limit: fetchLimit },
+                      }, authHeader, resolvedCompanyId);
+
+                      let invoices = ((result as any)?.Invoices || []) as Array<Record<string, unknown>>;
+
+                      // Filter by query (customer name or invoice number)
+                      if (args.query) {
+                        const q = args.query.toLowerCase();
+                        invoices = invoices.filter((inv: any) =>
+                          (inv.CustomerName || "").toLowerCase().includes(q) ||
+                          String(inv.DocumentNumber || "").includes(q)
+                        );
+                      }
+
+                      // Filter by status
+                      if (args.status && args.status !== "all") {
+                        invoices = invoices.filter((inv: any) => {
+                          const cancelled = inv.Cancelled === true;
+                          if (args.status === "cancelled") return cancelled;
+                          if (cancelled) return false;
+                          const balance = Number(inv.Balance) || 0;
+                          const booked = inv.Booked === true;
+                          const dueDate = inv.DueDate as string;
+                          const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
+
+                          if (args.status === "paid") return balance === 0 && booked;
+                          if (args.status === "overdue") return balance > 0 && isOverdue;
+                          if (args.status === "unpaid") return balance > 0;
+                          return true;
+                        });
+                      }
+
+                      // Build artifact data
+                      const displayLimit = args.limit || 10;
+                      const invoiceListData = {
+                        type: "invoice_list" as const,
+                        invoices: invoices.slice(0, displayLimit).map((inv: any) => ({
+                          invoiceNumber: String(inv.DocumentNumber || ""),
+                          customerName: String(inv.CustomerName || ""),
+                          total: Number(inv.Total) || 0,
+                          totalVat: Number(inv.TotalVAT) || 0,
+                          status: inv.Cancelled
+                            ? "cancelled"
+                            : Number(inv.Balance) === 0
+                              ? "paid"
+                              : (inv.DueDate && new Date(inv.DueDate) < new Date() ? "overdue" : "unpaid"),
+                          invoiceDate: String(inv.InvoiceDate || ""),
+                          dueDate: String(inv.DueDate || ""),
+                        })),
+                        query: args.query,
+                      };
+
+                      // Stream artifact event
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ invoiceList: invoiceListData })}\n\n`));
+                      streamingActionPlan = invoiceListData as any;
+
+                      const count = invoiceListData.invoices.length;
+                      toolResponseText = count > 0
+                        ? `Jag hittade ${count} fakturor${args.query ? ` som matchar "${args.query}"` : ""}${args.status && args.status !== "all" ? ` med status ${args.status}` : ""}.`
+                        : `Inga fakturor hittades${args.query ? ` som matchar "${args.query}"` : ""}.`;
+                    }
+                  } else if (toolName === "search_customers") {
+                    // Read-only: search/list customers from Fortnox
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      const args = toolArgs as { query?: string };
+                      const result = await callFortnoxRead("getCustomers", {}, authHeader, resolvedCompanyId);
+
+                      let customers = ((result as any)?.Customers || []) as Array<Record<string, unknown>>;
+
+                      // Filter by query
+                      if (args.query) {
+                        const q = args.query.toLowerCase();
+                        customers = customers.filter((c: any) =>
+                          (c.Name || "").toLowerCase().includes(q) ||
+                          (c.OrganisationNumber || "").toLowerCase().includes(q) ||
+                          String(c.CustomerNumber || "").includes(q)
+                        );
+                      }
+
+                      const customerListData = {
+                        type: "customer_list" as const,
+                        customers: customers.slice(0, 20).map((c: any) => ({
+                          customerNumber: String(c.CustomerNumber || ""),
+                          name: String(c.Name || ""),
+                          organisationNumber: c.OrganisationNumber || undefined,
+                          email: c.Email || undefined,
+                          phone: c.Phone || undefined,
+                        })),
+                        query: args.query,
+                      };
+
+                      // Stream artifact event
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ customerList: customerListData })}\n\n`));
+                      streamingActionPlan = customerListData as any;
+
+                      const count = customerListData.customers.length;
+                      toolResponseText = count > 0
+                        ? `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}.`
+                        : `Inga kunder hittades${args.query ? ` som matchar "${args.query}"` : ""}.`;
+                    }
+                  } else if (toolName === "get_vat_report") {
+                    // Read-only: fetch VAT report from Fortnox
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      const args = toolArgs as { from_date: string; to_date: string };
+                      const result = await callFortnoxRead("getVATReport", {
+                        fromDate: args.from_date,
+                        toDate: args.to_date,
+                      }, authHeader, resolvedCompanyId);
+
+                      const report = result as any;
+                      const reportData = report?.data || report;
+
+                      // Stream VAT report artifact if structured data is available
+                      if (reportData?.vat || reportData?.summary) {
+                        const vatReportArtifact = {
+                          type: "vat_report" as const,
+                          period: reportData.period || `${args.from_date} – ${args.to_date}`,
+                          company: reportData.company || {},
+                          summary: reportData.summary || {},
+                          sales: reportData.sales || [],
+                          costs: reportData.costs || [],
+                          vat: reportData.vat || {},
+                          journal_entries: reportData.journal_entries || [],
+                          validation: reportData.validation || {},
+                        };
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ vatReport: vatReportArtifact })}\n\n`));
+                        streamingActionPlan = vatReportArtifact as any;
+                      }
+
+                      const vatData = reportData?.vat || {};
+                      const outgoingVat = (vatData.outgoing_25 || 0) + (vatData.outgoing_12 || 0) + (vatData.outgoing_6 || 0);
+                      const incomingVat = vatData.incoming || 0;
+                      const netVat = vatData.net ?? (outgoingVat - incomingVat);
+
+                      toolResponseText = `Momsrapport för ${args.from_date} till ${args.to_date}:\n` +
+                        `Utgående moms: ${outgoingVat.toFixed(2)} kr\n` +
+                        `Ingående moms: ${incomingVat.toFixed(2)} kr\n` +
+                        `Moms att ${netVat >= 0 ? "betala" : "återfå"}: ${Math.abs(netVat).toFixed(2)} kr`;
+                    }
+                  } else if (toolName === "get_company_info") {
+                    // Read-only: fetch company info from Fortnox
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      // Call FortnoxService directly (no dedicated action in fortnox Edge Function)
+                      const fnxSupabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+                        global: { headers: { Authorization: authHeader } },
+                      });
+                      const fortnoxConfig = {
+                        clientId: Deno.env.get("FORTNOX_CLIENT_ID") ?? "",
+                        clientSecret: Deno.env.get("FORTNOX_CLIENT_SECRET") ?? "",
+                        redirectUri: "",
+                      };
+                      const fortnoxService = new FortnoxService(
+                        fortnoxConfig,
+                        fnxSupabaseClient,
+                        userId,
+                        resolvedCompanyId,
+                      );
+
+                      const [companyResult, yearsResult] = await Promise.all([
+                        fortnoxService.getCompanyInfo(),
+                        fortnoxService.getFinancialYears().catch(() => ({ FinancialYears: [] })),
+                      ]);
+
+                      const info = (companyResult as any).CompanyInformation || {};
+                      const years = (yearsResult as any).FinancialYears || [];
+                      const currentYear = years.length > 0 ? years[0] : null;
+
+                      const companyInfoData = {
+                        type: "company_info" as const,
+                        companyName: info.CompanyName || "",
+                        organisationNumber: info.OrganizationNumber || "",
+                        address: [info.Address, info.ZipCode, info.City].filter(Boolean).join(", ") || undefined,
+                        email: info.Email || undefined,
+                        phone: info.Phone1 || info.Phone2 || undefined,
+                        fiscalYear: currentYear
+                          ? { from: currentYear.FromDate, to: currentYear.ToDate }
+                          : undefined,
+                      };
+
+                      // Stream artifact event
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ companyInfo: companyInfoData })}\n\n`));
+                      streamingActionPlan = companyInfoData as any;
+
+                      toolResponseText = `Företagsinformation: ${companyInfoData.companyName}` +
+                        (companyInfoData.organisationNumber ? ` (${companyInfoData.organisationNumber})` : "");
                     }
                   } else if (toolName === "learn_accounting_pattern") {
                     // Handle learning a new accounting pattern from user correction
