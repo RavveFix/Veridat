@@ -152,6 +152,17 @@ Du lär känna varje företag över tid. När du har kontext om företaget:
 - **propose_action_plan**: Skapar en handlingsplan med konteringsförslag som visas för användaren med debet/kredit-tabell. Användaren kan godkänna, ändra eller avbryta planen. Använd ALLTID detta istället för att direkt skapa fakturor eller verifikat.
 - **register_payment**: Registrerar en betalning för en kund- eller leverantörsfaktura i Fortnox.
 
+## Direkta Fortnox-verktyg (läsoperationer)
+Du kan söka och visa data från användarens Fortnox direkt i chatten:
+- search_invoices: Sök och visa fakturor (filtrera på status, kund)
+- search_customers: Sök kunder
+- get_vat_report: Hämta momsrapport för en period
+- get_company_info: Visa företagsinformation
+
+Dessa verktyg kräver INGEN action plan — använd dem direkt i vanlig chatt.
+Resultaten visas som strukturerade kort i chatten.
+Komplettera alltid korten med en kort sammanfattande text.
+
 ## Arbetsflöde för Fakturering:
 1. Om användaren vill skapa en faktura men inte anger kundnummer eller artikelnummer:
    - Använd **get_customers** och **get_articles** för att hitta rätt information.
@@ -953,6 +964,66 @@ const tools: Tool[] = [
                         }
                     },
                     required: ["payment_type", "invoice_number", "amount"]
+                }
+            },
+            {
+                name: "search_invoices",
+                description: "Söker fakturor i Fortnox. Kan filtrera på kundnamn, status (betald/obetald/förfallen) och antal. Använd detta när användaren vill se sina fakturor.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        query: {
+                            type: SchemaType.STRING,
+                            description: "Söktext - kundnamn, fakturanummer"
+                        },
+                        status: {
+                            type: SchemaType.STRING,
+                            description: "Filter: unpaid, paid, overdue, all"
+                        },
+                        limit: {
+                            type: SchemaType.NUMBER,
+                            description: "Max antal resultat, standard 10"
+                        }
+                    }
+                }
+            },
+            {
+                name: "search_customers",
+                description: "Söker kunder i Fortnox. Använd detta när användaren frågar om sina kunder.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        query: {
+                            type: SchemaType.STRING,
+                            description: "Sök på kundnamn, org.nr eller kundnummer"
+                        }
+                    }
+                }
+            },
+            {
+                name: "get_vat_report",
+                description: "Hämtar momsrapport från Fortnox för en angiven period. Visar utgående och ingående moms samt momsatt betala.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        from_date: {
+                            type: SchemaType.STRING,
+                            description: "Startdatum YYYY-MM-DD"
+                        },
+                        to_date: {
+                            type: SchemaType.STRING,
+                            description: "Slutdatum YYYY-MM-DD"
+                        }
+                    },
+                    required: ["from_date", "to_date"]
+                }
+            },
+            {
+                name: "get_company_info",
+                description: "Hämtar företagsinformation från Fortnox (namn, org.nr, adress, räkenskapsår). Använd detta när användaren frågar om sitt företag.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {},
                 }
             },
             {
