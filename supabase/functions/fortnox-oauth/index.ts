@@ -375,7 +375,7 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
     const errorDescription = url.searchParams.get('error_description');
 
     // Get app URL for redirects
-    const appUrl = Deno.env.get('APP_URL') || 'https://veridat.se/app';
+    const appUrl = Deno.env.get('APP_URL') || 'https://www.veridat.se/dashboard';
 
     if (error) {
         logger.error('Fortnox OAuth error', { error, errorDescription });

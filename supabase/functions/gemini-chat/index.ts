@@ -1825,6 +1825,16 @@ Deno.serve(async (req: Request) => {
         ? companyId.trim()
         : null;
 
+    if (!resolvedCompanyId && isAgentMode) {
+      logger.warn("Agent mode request missing companyId", {
+        userId,
+        companyIdRaw: companyId,
+        companyIdType: typeof companyId,
+        conversationId,
+        hasActionResponse: !!requestMetadata?.action_response,
+      });
+    }
+
     // Check rate limit
     const plan = await getUserPlan(supabaseAdmin, userId);
     logger.debug("Resolved plan", { userId, plan });
@@ -1938,7 +1948,48 @@ Deno.serve(async (req: Request) => {
       };
 
       if (conversation.company_id) {
+        if (!resolvedCompanyId) {
+          logger.info("Resolved companyId from conversation fallback", {
+            conversationId,
+            companyId: conversation.company_id,
+          });
+        }
         resolvedCompanyId = String(conversation.company_id);
+      }
+    }
+
+    // Fallback 3: query companies table by user_id if both request and conversation fallbacks failed
+    if (!resolvedCompanyId) {
+      const { data: defaultCompany } = await supabaseAdmin
+        .from("companies")
+        .select("id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (defaultCompany?.id) {
+        resolvedCompanyId = defaultCompany.id;
+        logger.info("Resolved companyId from companies table fallback", {
+          userId,
+          companyId: resolvedCompanyId,
+        });
+
+        // Backfill conversation.company_id so future messages skip this fallback
+        if (verifiedConversation && !verifiedConversation.company_id) {
+          const { error: backfillError } = await supabaseAdmin
+            .from("conversations")
+            .update({ company_id: resolvedCompanyId })
+            .eq("id", verifiedConversation.id)
+            .eq("user_id", userId);
+          if (backfillError) {
+            logger.warn("Failed to backfill conversation.company_id", {
+              conversationId: verifiedConversation.id,
+              companyId: resolvedCompanyId,
+              error: backfillError.message,
+            });
+          }
+        }
       }
     }
 
@@ -2136,6 +2187,32 @@ Deno.serve(async (req: Request) => {
         }
 
         // Execute approved/modified actions
+        if (!resolvedCompanyId) {
+          logger.error("Action plan execution blocked: no companyId", {
+            userId,
+            conversationId,
+            companyIdFromRequest: companyId,
+            companyIdFromConversation: verifiedConversation?.company_id,
+          });
+          const encoder = new TextEncoder();
+          const errStream = new ReadableStream({
+            start(controller) {
+              const text = "Bolagskontext saknas — välj ett företag och försök igen.";
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            },
+          });
+          return new Response(errStream, {
+            headers: {
+              ...responseHeaders,
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
+        }
+
         const fortnoxConfig = {
           clientId: Deno.env.get("FORTNOX_CLIENT_ID") ?? "",
           clientSecret: Deno.env.get("FORTNOX_CLIENT_SECRET") ?? "",
@@ -3528,6 +3605,35 @@ ANVÄNDARFRÅGA:
           actions: Array<Record<string, unknown>>;
           assumptions: string[];
         } | null = null;
+
+        const callFortnoxWrite = async (
+          fnAction: string,
+          fnPayload: Record<string, unknown>,
+          operation: string,
+          resource: string,
+        ): Promise<Record<string, unknown>> => {
+          if (!resolvedCompanyId) {
+            throw new Error("Bolagskontext saknas — välj ett företag.");
+          }
+          const idempotencyKey = `streaming_tool:${resolvedCompanyId}:${operation}:${resource}`.slice(0, 200);
+          const resp = await fetch(`${supabaseUrl}/functions/v1/fortnox`, {
+            method: "POST",
+            headers: { Authorization: authHeader, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: fnAction,
+              companyId: resolvedCompanyId,
+              payload: { ...fnPayload, idempotencyKey, sourceContext: "gemini-chat-streaming-tool" },
+            }),
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            const detail = typeof result?.detail === "string" ? ` (${result.detail})` : "";
+            throw new Error(
+              (typeof result?.error === "string" ? result.error : `Fortnox write failed (${resp.status})`) + detail,
+            );
+          }
+          return (result || {}) as Record<string, unknown>;
+        };
 
         const responseStream = new ReadableStream({
           async start(controller) {
