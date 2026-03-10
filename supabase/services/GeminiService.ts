@@ -937,7 +937,7 @@ const tools: Tool[] = [
             },
             {
                 name: "request_clarification",
-                description: "Fråga användaren om saknad information innan en handlingsplan skapas. Använd detta i agent-läge när belopp, antal, pris, momssats eller annan kritisk information saknas i användarens meddelande.",
+                description: "Fråga användaren om saknad information innan en handlingsplan skapas. Använd detta när belopp, antal, pris, momssats eller annan kritisk information saknas för en skrivoperation.",
                 parameters: {
                     type: SchemaType.OBJECT,
                     properties: {
