@@ -2720,6 +2720,153 @@ Deno.serve(async (req: Request) => {
                         `Kund skapad: ${customer.Name || params.name || params.Name} (nr ${customer.CustomerNumber || "tilldelas"})`;
                       break;
                     }
+                    case "search_invoices": {
+                      // Read-tool that ended up in action plan — run same logic as streaming path
+                      const searchArgs = params as { query?: string; status?: string; limit?: number };
+                      const fetchLimit = Math.min(searchArgs.limit || 25, 100);
+                      const invResult = await callFortnoxRead("getInvoices", {
+                        pagination: { page: 1, limit: fetchLimit },
+                      }, authHeader, resolvedCompanyId);
+                      let invoices = ((invResult as any)?.Invoices || []) as Array<Record<string, unknown>>;
+                      if (searchArgs.query) {
+                        const q = searchArgs.query.toLowerCase();
+                        invoices = invoices.filter((inv: any) =>
+                          (inv.CustomerName || "").toLowerCase().includes(q) ||
+                          String(inv.DocumentNumber || "").includes(q)
+                        );
+                      }
+                      if (searchArgs.status && searchArgs.status !== "all") {
+                        invoices = invoices.filter((inv: any) => {
+                          const cancelled = inv.Cancelled === true;
+                          if (searchArgs.status === "cancelled") return cancelled;
+                          if (cancelled) return false;
+                          const balance = Number(inv.Balance) || 0;
+                          const booked = inv.Booked === true;
+                          const dueDate = inv.DueDate as string;
+                          const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
+                          if (searchArgs.status === "paid") return balance === 0 && booked;
+                          if (searchArgs.status === "overdue") return balance > 0 && isOverdue;
+                          if (searchArgs.status === "unpaid") return balance > 0;
+                          return true;
+                        });
+                      }
+                      const displayLimit = searchArgs.limit || 10;
+                      const invoiceListData = {
+                        type: "invoice_list" as const,
+                        invoices: invoices.slice(0, displayLimit).map((inv: any) => ({
+                          invoiceNumber: String(inv.DocumentNumber || ""),
+                          customerName: String(inv.CustomerName || ""),
+                          total: Number(inv.Total) || 0,
+                          totalVat: Number(inv.TotalVAT) || 0,
+                          status: inv.Cancelled ? "cancelled"
+                            : Number(inv.Balance) === 0 ? "paid"
+                            : (inv.DueDate && new Date(inv.DueDate) < new Date() ? "overdue" : "unpaid"),
+                          invoiceDate: String(inv.InvoiceDate || ""),
+                          dueDate: String(inv.DueDate || ""),
+                        })),
+                        query: searchArgs.query,
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ invoiceList: invoiceListData })}\n\n`));
+                      const invCount = invoiceListData.invoices.length;
+                      resultText = invCount > 0
+                        ? `Hittade ${invCount} fakturor${searchArgs.query ? ` som matchar "${searchArgs.query}"` : ""}.`
+                        : `Inga fakturor hittades.`;
+                      break;
+                    }
+                    case "search_customers": {
+                      const custArgs = params as { query?: string };
+                      const custResult = await callFortnoxRead("getCustomers", {}, authHeader, resolvedCompanyId);
+                      let customers = ((custResult as any)?.Customers || []) as Array<Record<string, unknown>>;
+                      if (custArgs.query) {
+                        const q = custArgs.query.toLowerCase();
+                        customers = customers.filter((c: any) =>
+                          (c.Name || "").toLowerCase().includes(q) ||
+                          (c.OrganisationNumber || "").toLowerCase().includes(q) ||
+                          String(c.CustomerNumber || "").includes(q)
+                        );
+                      }
+                      const customerListData = {
+                        type: "customer_list" as const,
+                        customers: customers.slice(0, 20).map((c: any) => ({
+                          customerNumber: String(c.CustomerNumber || ""),
+                          name: String(c.Name || ""),
+                          organisationNumber: c.OrganisationNumber || undefined,
+                          email: c.Email || undefined,
+                          phone: c.Phone || undefined,
+                        })),
+                        query: custArgs.query,
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ customerList: customerListData })}\n\n`));
+                      const custCount = customerListData.customers.length;
+                      resultText = custCount > 0
+                        ? `Hittade ${custCount} kunder${custArgs.query ? ` som matchar "${custArgs.query}"` : ""}.`
+                        : `Inga kunder hittades.`;
+                      break;
+                    }
+                    case "get_vat_report": {
+                      const vatArgs = params as { from_date: string; to_date: string };
+                      const vatResult = await callFortnoxRead("getVATReport", {
+                        fromDate: vatArgs.from_date,
+                        toDate: vatArgs.to_date,
+                      }, authHeader, resolvedCompanyId);
+                      const report = vatResult as any;
+                      const reportData = report?.data || report;
+                      if (reportData?.vat || reportData?.summary) {
+                        const vatReportArtifact = {
+                          type: "vat_report" as const,
+                          period: reportData.period || `${vatArgs.from_date} – ${vatArgs.to_date}`,
+                          company: reportData.company || {},
+                          summary: reportData.summary || {},
+                          sales: reportData.sales || [],
+                          costs: reportData.costs || [],
+                          vat: reportData.vat || {},
+                          journal_entries: reportData.journal_entries || [],
+                          validation: reportData.validation || {},
+                        };
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ vatReport: vatReportArtifact })}\n\n`));
+                      }
+                      const vatData = reportData?.vat || {};
+                      const outgoingVat = (vatData.outgoing_25 || 0) + (vatData.outgoing_12 || 0) + (vatData.outgoing_6 || 0);
+                      const incomingVat = vatData.incoming || 0;
+                      const netVat = vatData.net ?? (outgoingVat - incomingVat);
+                      resultText = `Momsrapport ${vatArgs.from_date} till ${vatArgs.to_date}: ` +
+                        `Utgående ${outgoingVat.toFixed(2)} kr, Ingående ${incomingVat.toFixed(2)} kr, ` +
+                        `${netVat >= 0 ? "Att betala" : "Att återfå"}: ${Math.abs(netVat).toFixed(2)} kr`;
+                      break;
+                    }
+                    case "get_company_info": {
+                      const fnxClient = createClient(supabaseUrl, supabaseServiceKey, {
+                        global: { headers: { Authorization: authHeader } },
+                      });
+                      const fnxConfig = {
+                        clientId: Deno.env.get("FORTNOX_CLIENT_ID") ?? "",
+                        clientSecret: Deno.env.get("FORTNOX_CLIENT_SECRET") ?? "",
+                        redirectUri: "",
+                      };
+                      const fnxSvc = new FortnoxService(fnxConfig, fnxClient, userId, resolvedCompanyId);
+                      const [companyRes, yearsRes] = await Promise.all([
+                        fnxSvc.getCompanyInfo(),
+                        fnxSvc.getFinancialYears().catch(() => ({ FinancialYears: [] })),
+                      ]);
+                      const info = (companyRes as any).CompanyInformation || {};
+                      const years = (yearsRes as any).FinancialYears || [];
+                      const currentYear = years.length > 0 ? years[0] : null;
+                      const companyInfoData = {
+                        type: "company_info" as const,
+                        companyName: info.CompanyName || "",
+                        organisationNumber: info.OrganizationNumber || "",
+                        address: [info.Address, info.ZipCode, info.City].filter(Boolean).join(", ") || undefined,
+                        email: info.Email || undefined,
+                        phone: info.Phone1 || info.Phone2 || undefined,
+                        fiscalYear: currentYear
+                          ? { from: currentYear.FromDate, to: currentYear.ToDate }
+                          : undefined,
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ companyInfo: companyInfoData })}\n\n`));
+                      resultText = `Företagsinformation: ${companyInfoData.companyName}` +
+                        (companyInfoData.organisationNumber ? ` (${companyInfoData.organisationNumber})` : "");
+                      break;
+                    }
                     default:
                       resultText =
                         `Okänd åtgärdstyp: ${action.action_type}`;

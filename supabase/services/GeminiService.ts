@@ -160,6 +160,7 @@ Du kan söka och visa data från användarens Fortnox direkt i chatten:
 - get_company_info: Visa företagsinformation
 
 Dessa verktyg kräver INGEN action plan — använd dem direkt i vanlig chatt.
+Inkludera ALDRIG search_invoices, search_customers, get_vat_report eller get_company_info som actions i propose_action_plan.
 Resultaten visas som strukturerade kort i chatten.
 Komplettera alltid korten med en kort sammanfattande text.
 
