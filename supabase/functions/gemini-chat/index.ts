@@ -58,16 +58,10 @@ import { ExpensePatternService } from "../../services/ExpensePatternService.ts";
 const logger = createLogger("gemini-chat");
 const RATE_LIMIT_ENDPOINT = "ai";
 
-/** Model routing: abstract tier + mode → concrete Gemini model ID */
+/** Model routing: abstract tier → concrete Gemini model ID */
 const MODEL_MAP = {
-  standard: {
-    chat: "gemini-3.1-flash-lite-preview",
-    agent: "gemini-3-flash-preview",
-  },
-  pro: {
-    chat: "gemini-3.1-pro-preview",
-    agent: "gemini-3.1-pro-preview",
-  },
+  standard: "gemini-3-flash-preview",
+  pro: "gemini-3.1-pro-preview",
 } as const;
 type EdgeSupabaseClient = SupabaseClient<any, any, any, any, any>;
 
@@ -1760,7 +1754,6 @@ Deno.serve(async (req: Request) => {
       fileData || fileDataPages || documentText || fileUrl || fileName,
     );
     const isSkillAssist = assistantMode === "skill_assist";
-    const isAgentMode = assistantMode === "agent";
 
     // Log which model is requested
     if (model) {
@@ -1825,16 +1818,6 @@ Deno.serve(async (req: Request) => {
         ? companyId.trim()
         : null;
 
-    if (!resolvedCompanyId && isAgentMode) {
-      logger.warn("Agent mode request missing companyId", {
-        userId,
-        companyIdRaw: companyId,
-        companyIdType: typeof companyId,
-        conversationId,
-        hasActionResponse: !!requestMetadata?.action_response,
-      });
-    }
-
     // Check rate limit
     const plan = await getUserPlan(supabaseAdmin, userId);
     logger.debug("Resolved plan", { userId, plan });
@@ -1858,10 +1841,8 @@ Deno.serve(async (req: Request) => {
         resolvedTier = "standard";
       }
 
-      // skill_assist intentionally uses chat-tier models (Flash-Lite/Pro), not agent-tier
-      const mode = isAgentMode ? "agent" : "chat";
-      const modelId = MODEL_MAP[resolvedTier][mode];
-      logger.info("Model resolved", { tier: resolvedTier, mode, modelId });
+      const modelId = MODEL_MAP[resolvedTier];
+      logger.info("Model resolved", { tier: resolvedTier, modelId });
       return modelId;
     })();
 
@@ -3153,275 +3134,12 @@ Deno.serve(async (req: Request) => {
     // Inject VAT Report Context if available OR fetch from DB
     let finalMessage = message;
 
-    // Declare prefetchSteps + bufferStep in outer scope so ReadableStream and memory code can access them
-    // (populated inside isAgentMode block, empty array otherwise)
-    const prefetchSteps: Array<{ id: string; type: string; tool: string; label: string; status: string; startedAt: number; completedAt: number | null; resultSummary: string | null }> = [];
-    let prefetchStepCounter = 0;
-    const bufferStep = (tool: string, label: string) => {
-      const id = `prefetch-${++prefetchStepCounter}`;
-      const step = { id, type: 'tool_call', tool, label, status: 'running', startedAt: Date.now(), completedAt: null as number | null, resultSummary: null as string | null };
-      prefetchSteps.push(step);
-      return (summary?: string, failed = false) => {
-        step.status = failed ? 'failed' : 'completed';
-        step.completedAt = Date.now();
-        step.resultSummary = summary ?? null;
-      };
-    };
-
     if (isSkillAssist) {
       finalMessage =
         `${buildSkillAssistSystemPrompt()}\n\nAnvändarens önskemål:\n${message}`;
-    } else if (isAgentMode) {
-      finalMessage =
-        `[AGENT-LÄGE — TOOL-ONLY]\n` +
-        `DU FÅR ABSOLUT INTE svara med text. Anropa ENBART propose_action_plan ELLER request_clarification.\n` +
-        `Om du svarar med text istället för tool call misslyckas systemet.\n` +
-        `Svara ALLTID på svenska. Visa ALDRIG intern tankeprocess.\n\n` +
-        `Regler:\n` +
-        `1. Om belopp, antal, pris eller annan kritisk information SAKNAS → anropa request_clarification. Gissa ALDRIG belopp.\n` +
-        `   Exempel: "Skapa faktura till Acme för konsulttimmar" → fråga om belopp, antal timmar, timpris\n` +
-        `   Exempel: "Skapa faktura till Acme på 15 000 kr för konsulttimmar" → tillräcklig info, använd propose_action_plan\n` +
-        `2. Inkludera ALLTID posting_rows med account (nummer), accountName, debit, credit\n` +
-        `3. Använd BARA konton från [KONTOPLAN]. Saknas kontoplanen → standard BAS-konton\n` +
-        `4. KUNDFAKTUROR: action_type = "create_invoice", parameters MÅSTE innehålla:\n` +
-        `   - CustomerNumber: kundnumret från [KUNDER] (matcha namn → nummer). Om kunden INTE finns i [KUNDER] → lägg till en SEPARAT åtgärd med action_type "create_customer" FÖRE create_invoice, med parameters: { Name: "Kundnamn" }. Systemet kopplar ihop kundnumret automatiskt.\n` +
-        `   - InvoiceRows: [{ Description: "kort benämning", Price: à_pris_per_enhet, DeliveredQuantity: antal }]\n` +
-        `     Price = à-pris per enhet exkl. moms, INTE totalbelopp. Exempel: 5 timmar á 2000 kr → Price: 2000, DeliveredQuantity: 5\n` +
-        `     Description = kort och professionell benämning (max 50 tecken), BARA tjänstetyp/vara:\n` +
-        `     BRA: "Konsulttjänster", "Webbutveckling", "Programmering elbilsladdning"\n` +
-        `     FEL: "Skapa kundfaktura till Testföretag AB för 5 timmar konsulttjänster"\n` +
-        `   - Inkludera ÄVEN posting_rows för konteringsförhandsvisning\n` +
-        `5. LEVERANTÖRSFAKTUROR: faktura finns (se [FAKTURADATA]) → "book_supplier_invoice" med parameters: { invoice_number: löpnumret }, annars → "create_supplier_invoice" med parameters: { SupplierNumber: leverantörsnumret från [LEVERANTÖRER] }\n` +
-        `6. VERIFIKAT/JOURNALPOSTER: action_type = "book_invoice" med posting_rows\n` +
-        `7. Använd artikelnummer från [ARTIKLAR] i InvoiceRows om relevant\n` +
-        `8. NY KUND: Om kunden INTE finns i [KUNDER], kontrollera [FÖRETAGSUPPSLAG] om det finns.\n` +
-        `   - Om [FÖRETAGSUPPSLAG] visar träffar → använd create_customer med orgnr, adress, postnr, stad från uppslaget FÖRE create_invoice.\n` +
-        `   - Om [FÖRETAGSUPPSLAG] visar "Inga träffar" → anropa request_clarification och berätta att företaget inte hittades på allabolag.se. Fråga om användaren menade ett annat namn.\n` +
-        `   - Om [FÖRETAGSUPPSLAG] saknas → skapa kunden med bara namnet (systemet slår upp automatiskt vid skapandet).\n` +
-        `9. ÄNDRA KUNDFAKTURA: action_type = "update_invoice". Kräver:\n` +
-        `   - DocumentNumber: fakturans dokumentnummer från [FAKTURADATA]\n` +
-        `   - InvoiceRows: ALLA rader för den uppdaterade fakturan (inte bara ändringar — Fortnox ersätter ALLA rader vid uppdatering)\n` +
-        `   - Valfria fält att ändra: DueDate, Comments, OurReference, YourReference\n` +
-        `   - Om [FAKTURADATA] visar "Bokförd" → använd request_clarification och förklara att bokförda fakturor inte kan ändras, man måste kreditera och skapa ny\n` +
-        `   - Om [FAKTURADATA] visar "Makulerad" → använd request_clarification och förklara att makulerade fakturor inte kan ändras\n` +
-        `   - Inkludera ALLTID posting_rows för konteringsförhandsvisning\n` +
-        `   - I description: beskriv VAD som ändras (t.ex. "Ändra pris på rad 1 från 1000 kr till 500 kr")\n` +
-        `   - I assumptions: inkludera "Nuvarande totalbelopp: X kr → Nytt totalbelopp: Y kr"\n\n`;
-
-      // Pre-fetch company data from Fortnox (accounts, customers, suppliers, articles, invoice)
-      let invoiceContext = "";
-      let accountsContext = "";
-      let customersContext = "";
-      let suppliersContext = "";
-      let articlesContext = "";
-      let companyLookupContext = "";
-      if (resolvedCompanyId) {
-        const fortnoxHeaders = { Authorization: authHeader, "Content-Type": "application/json" };
-        const fortnoxUrl = `${supabaseUrl}/functions/v1/fortnox`;
-
-        // Helper: fetch with 5s timeout
-        const fetchWithTimeout = (body: Record<string, unknown>) => {
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 5000);
-          return fetch(fortnoxUrl, {
-            method: "POST", headers: fortnoxHeaders, signal: ctrl.signal,
-            body: JSON.stringify(body),
-          }).then(async (r) => {
-            clearTimeout(timer);
-            if (!r.ok) {
-              const errText = await r.text().catch(() => "");
-              logger.warn("Agent pre-fetch failed", { status: r.status, action: body.action, error: errText.slice(0, 200) });
-              return null;
-            }
-            return r.json();
-          }).catch(() => { clearTimeout(timer); return null; });
-        };
-
-        // Fetch agent context — always include all data in agent mode
-        // (follow-up messages like "10 timmar á 1500 kr" lack keywords but need full context)
-        let invoiceRef = extractInvoiceReference(message);
-        const customerNameRef = !invoiceRef ? extractInvoiceByCustomerName(message) : null;
-        const doneCtx = bufferStep('getAgentContext', 'Hämtar företagsdata');
-        const doneInv = invoiceRef ? bufferStep('getInvoice', 'Hämtar faktura') : null;
-        const [agentCtx, initialInvoiceData] = await Promise.all([
-          fetchWithTimeout({
-            action: "getAgentContext",
-            companyId: resolvedCompanyId,
-            payload: {
-              includeCustomers: true,
-              includeSuppliers: true,
-              includeArticles: true,
-            },
-          }),
-          invoiceRef ? fetchWithTimeout({
-            action: invoiceRef.type === "supplier" ? "getSupplierInvoice" : "getInvoice",
-            companyId: resolvedCompanyId,
-            payload: invoiceRef.type === "supplier"
-              ? { givenNumber: invoiceRef.number }
-              : { invoiceNumber: invoiceRef.number },
-          }) : null,
-        ]);
-
-        // Mark pre-fetch steps as complete
-        {
-          const parts: string[] = [];
-          if (agentCtx?.Customers) parts.push(`${(agentCtx.Customers as any[]).length} kunder`);
-          if (agentCtx?.Suppliers) parts.push(`${(agentCtx.Suppliers as any[]).length} leverantörer`);
-          if (agentCtx?.Articles) parts.push(`${(agentCtx.Articles as any[]).length} artiklar`);
-          if (agentCtx?.Accounts) parts.push(`${(agentCtx.Accounts as any[]).filter((a: any) => a.Active).length} konton`);
-          doneCtx(parts.length > 0 ? parts.join(', ') : undefined, !agentCtx);
-        }
-        if (doneInv) doneInv(initialInvoiceData ? 'Hittad' : undefined, !initialInvoiceData && !!invoiceRef);
-
-        // If user referenced invoice by customer name, look up latest unbooked invoice
-        let invoiceData = initialInvoiceData;
-        if (!invoiceData && customerNameRef && agentCtx?.Customers) {
-          const customers = agentCtx.Customers as Array<{ CustomerNumber: string; Name: string }>;
-          const match = customers.find((c: { Name: string }) =>
-            c.Name.toLowerCase().includes(customerNameRef.toLowerCase())
-          );
-          if (match) {
-            const doneCustInv = bufferStep('getInvoices', `Hämtar fakturor för ${match.Name}`);
-            try {
-              const invoiceList = await fetchWithTimeout({
-                action: "getInvoices",
-                companyId: resolvedCompanyId,
-                payload: { customerNumber: match.CustomerNumber },
-              });
-              const invoices = (invoiceList as any)?.Invoices;
-              if (Array.isArray(invoices) && invoices.length > 0) {
-                const unbooked = invoices.filter((i: any) => !i.Booked && !i.Cancelled);
-                const target = unbooked.length > 0 ? unbooked[0] : invoices[0];
-                const docNum = target.DocumentNumber || target.InvoiceNumber;
-                if (docNum) {
-                  const fullInvoice = await fetchWithTimeout({
-                    action: "getInvoice",
-                    companyId: resolvedCompanyId,
-                    payload: { invoiceNumber: docNum },
-                  });
-                  if (fullInvoice) {
-                    invoiceData = fullInvoice;
-                    invoiceRef = { type: "customer", number: docNum };
-                    doneCustInv('Hittad', false);
-                  } else {
-                    doneCustInv('Kunde inte hämta faktura', true);
-                  }
-                } else {
-                  doneCustInv('Ingen faktura hittad', true);
-                }
-              } else {
-                doneCustInv('Inga fakturor', true);
-              }
-            } catch (e) {
-              logger.warn("Customer invoice lookup failed", e);
-              doneCustInv('Misslyckades', true);
-            }
-          }
-        }
-
-        // Build compact chart of accounts (comma-separated, only bookkeeping-relevant)
-        if (agentCtx?.Accounts) {
-          const active = (agentCtx.Accounts as Array<{ Number: number; Description: string; Active: boolean }>)
-            .filter((a: any) => a.Active && a.Number >= 1000 && a.Number <= 8999)
-            .map((a: any) => `${a.Number} ${a.Description}`);
-          if (active.length > 0) {
-            accountsContext = `[KONTOPLAN — ${active.length} konton]\n` + active.join(", ") + "\n\n";
-          }
-        }
-
-        // Build compact customer list
-        if (agentCtx?.Customers) {
-          const list = (agentCtx.Customers as Array<{ CustomerNumber: string; Name: string; Active?: boolean }>)
-            .filter((c: any) => c.Active !== false)
-            .map((c: any) => `${c.CustomerNumber} ${c.Name}`);
-          if (list.length > 0) {
-            customersContext = `[KUNDER — ${list.length} st]\n` + list.join(", ") + "\n\n";
-          }
-        }
-
-        // Build compact supplier list
-        if (agentCtx?.Suppliers) {
-          const list = (agentCtx.Suppliers as Array<{ SupplierNumber: string; Name: string; Active?: boolean }>)
-            .filter((s: any) => s.Active !== false)
-            .map((s: any) => `${s.SupplierNumber} ${s.Name}`);
-          if (list.length > 0) {
-            suppliersContext = `[LEVERANTÖRER — ${list.length} st]\n` + list.join(", ") + "\n\n";
-          }
-        }
-
-        // Build compact article list
-        if (agentCtx?.Articles) {
-          const list = (agentCtx.Articles as Array<{ ArticleNumber: string; Description: string; SalesPrice?: number }>)
-            .map((a: any) => `${a.ArticleNumber} ${a.Description}${a.SalesPrice ? ` (${a.SalesPrice} kr)` : ""}`);
-          if (list.length > 0) {
-            articlesContext = `[ARTIKLAR — ${list.length} st]\n` + list.join(", ") + "\n\n";
-          }
-        }
-
-        // Pre-lookup unknown companies on allabolag.se
-        if (message) {
-          const companyNamePattern = /\b([A-ZÅÄÖ][A-ZÅÄÖa-zåäöé&\-]*(?:\s+[A-ZÅÄÖa-zåäöé&\-]+)*\s+(?:AB|HB|KB|Aktiebolag|Handelsbolag))\b/gi;
-          const mentionedCompanies = [...new Set(
-            (message.match(companyNamePattern) || []).map((n: string) => n.trim())
-          )];
-          const existingNames = agentCtx?.Customers
-            ? (agentCtx.Customers as Array<{ Name: string }>).map((c: any) => c.Name.toLowerCase())
-            : [];
-          const unknownCompanies = mentionedCompanies.filter(
-            (name: string) => !existingNames.some((existing: string) =>
-              existing.includes(name.toLowerCase()) || name.toLowerCase().includes(existing)
-            )
-          );
-          if (unknownCompanies.length > 0) {
-            const doneLookup = bufferStep('company_lookup', `Söker ${unknownCompanies[0]} på allabolag.se`);
-            try {
-              const lookupResult = await lookupCompanyOnAllabolag(unknownCompanies[0]);
-              companyLookupContext = `[FÖRETAGSUPPSLAG — "${unknownCompanies[0]}"]\n${lookupResult}\n\n`;
-              doneLookup('Hittad');
-            } catch (err) {
-              logger.warn("Pre-lookup failed", { company: unknownCompanies[0], error: err });
-              doneLookup('Misslyckades', true);
-            }
-          }
-        }
-
-        // Build invoice context
-        if (invoiceData) {
-          const inv = invoiceData.SupplierInvoice || invoiceData.Invoice;
-          if (inv) {
-            invoiceContext =
-              `[FAKTURADATA FRÅN FORTNOX]\n` +
-              `Typ: ${invoiceRef!.type === "supplier" ? "Leverantörsfaktura" : "Kundfaktura"}\n` +
-              `DocumentNumber: ${inv.DocumentNumber}\n` +
-              `Nummer: ${inv.GivenNumber || inv.DocumentNumber}\n` +
-              `${invoiceRef!.type === "supplier" ? "Leverantör" : "Kund"}: ${inv.SupplierName || inv.CustomerName} (nr ${inv.SupplierNumber || inv.CustomerNumber})\n` +
-              `Fakturanummer: ${inv.InvoiceNumber || ""}\n` +
-              `Total: ${inv.Total} kr\n` +
-              `Moms: ${inv.VAT || inv.TotalVAT || 0} kr\n` +
-              `Datum: ${inv.InvoiceDate}\n` +
-              `Förfallodatum: ${inv.DueDate}\n` +
-              `Status: ${inv.Booked ? "Bokförd" : "Ej bokförd"}${inv.Cancelled ? ", Makulerad" : ""}\n` +
-              `Vår referens: ${inv.OurReference || "-"}\n` +
-              `Er referens: ${inv.YourReference || "-"}\n` +
-              `Kommentar: ${inv.Comments || "-"}\n`;
-
-            // Include InvoiceRows detail for update context
-            if (inv.InvoiceRows && Array.isArray(inv.InvoiceRows) && inv.InvoiceRows.length > 0) {
-              invoiceContext += `Fakturarader:\n`;
-              (inv.InvoiceRows as Array<{ Description?: string; DeliveredQuantity?: number; Price?: number; Total?: number }>).forEach((row, i) => {
-                invoiceContext += `  Rad ${i + 1}: "${row.Description || '-'}" | Antal: ${row.DeliveredQuantity || 1} | À-pris: ${row.Price || 0} kr | Total: ${row.Total || 0} kr\n`;
-              });
-            }
-
-            invoiceContext += `Använd dessa EXAKTA uppgifter i ditt förslag.\n\n`;
-          }
-        }
-      }
-
-      finalMessage += accountsContext + customersContext + suppliersContext + articlesContext + invoiceContext + companyLookupContext + `Användarens meddelande:\n${message}`;
     }
 
-    if (!isSkillAssist && !isAgentMode && !vatReportContext && conversationId) {
+    if (!isSkillAssist && !vatReportContext && conversationId) {
       try {
         const { data: reports, error } = await supabaseAdmin
           .from("vat_reports")
@@ -3510,11 +3228,6 @@ ANVÄNDARFRÅGA:
     const usedMemories: UsedMemory[] = [];
 
     if (resolvedCompanyId) {
-      const _doneMem = isAgentMode ? bufferStep('memory_search', 'Söker relevanta minnen') : null;
-      let memStepDone = false;
-      const doneMem = (summary: string, failed = false) => {
-        if (!memStepDone && _doneMem) { memStepDone = true; _doneMem(summary, failed); }
-      };
       try {
         const { data: userMemories, error: userMemoriesError } =
           await supabaseAdmin
@@ -3532,7 +3245,7 @@ ANVÄNDARFRÅGA:
             userId,
             companyId: resolvedCompanyId,
           });
-          doneMem('Kunde inte läsa minnen', true);
+
         } else if (!userMemories || userMemories.length === 0) {
           // First interaction with this company — no memories yet
           contextBlocks.push(
@@ -3543,7 +3256,6 @@ ANVÄNDARFRÅGA:
               "- Momsperiod? (månads/kvartals/årsredovisning)\n" +
               "Väv in frågorna naturligt — inte som ett formulär.",
           );
-          doneMem('Inga minnen än');
         } else if (userMemories.length > 0) {
           const memoryRows = userMemories as UserMemoryRow[];
           const selection = selectRelevantMemories(memoryRows, message);
@@ -3563,14 +3275,12 @@ ANVÄNDARFRÅGA:
               .update({ last_used_at: new Date().toISOString() })
               .in("id", memoryIds);
           }
-          doneMem(`${selectedMemories.length} minnen valda`);
         }
       } catch (memoryError) {
         logger.warn("Failed to load user memories", {
           userId,
           companyId: resolvedCompanyId,
         });
-        doneMem('Kunde inte läsa minnen', true);
       }
 
       try {
@@ -3677,7 +3387,7 @@ ANVÄNDARFRÅGA:
     }
 
     const accountingTemplateEnabled = ACCOUNTING_RESPONSE_TEMPLATE_ENABLED &&
-      !isSkillAssist && !isAgentMode;
+      !isSkillAssist;
     const accountingIntent = accountingTemplateEnabled && isAccountingIntent({
       message,
       vatReportContext,
@@ -3712,6 +3422,16 @@ ANVÄNDARFRÅGA:
       finalMessage = withAccountingContract(finalMessage);
     }
 
+    // Tool usage instructions — always present so Gemini knows how to use Fortnox tools
+    if (!isSkillAssist) {
+      finalMessage = `[VERKTYGSREGLER]\n` +
+        `Du har tillgång till Fortnox-verktyg. Använd dem så här:\n` +
+        `- LÄSVERKTYG (search_invoices, search_customers, get_vat_report, get_company_info): Använd FRITT utan att fråga. Om användaren frågar om fakturor, kunder, moms eller företagsinfo — anropa verktyget direkt.\n` +
+        `- SKRIVVERKTYG (skapa/ändra faktura, bokföra, registrera betalning): Anropa ALLTID propose_action_plan med posting_rows. Utför ALDRIG en skrivoperation direkt.\n` +
+        `- SAKNAD INFO: Om pris, belopp, antal eller annan kritisk info saknas för en skrivoperation → anropa request_clarification.\n\n` +
+        finalMessage;
+    }
+
     // Provider switch (default: Gemini)
     const isSupportedFile = fileData?.mimeType?.startsWith("image/") ||
       fileData?.mimeType === "application/pdf";
@@ -3721,8 +3441,7 @@ ANVÄNDARFRÅGA:
     );
     const geminiFileData = primaryFile ||
       (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
-    const disableTools = isSkillAssist || (!isAgentMode && (shouldSkipHistorySearch(message) ||
-      hasFileAttachment));
+    const disableTools = isSkillAssist;
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
 
@@ -3738,7 +3457,7 @@ ANVÄNDARFRÅGA:
           history,
           undefined,
           effectiveModel,
-          { disableTools, forceToolCall: isAgentMode ? ["propose_action_plan", "request_clarification"] : undefined },
+          { disableTools },
         );
         logger.debug("Gemini stream created successfully");
         const encoder = new TextEncoder();
@@ -3785,17 +3504,6 @@ ANVÄNDARFRÅGA:
         const responseStream = new ReadableStream({
           async start(controller) {
             try {
-              // Emit buffered pre-fetch steps at stream start
-              for (const step of prefetchSteps) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: step })}\n\n`));
-              }
-              // Emit "analyzing" step while Gemini processes
-              let analyzeStartedAt = 0;
-              if (prefetchSteps.length > 0) {
-                analyzeStartedAt = Date.now();
-                const analyzeStep = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'running', startedAt: analyzeStartedAt, completedAt: null, resultSummary: null };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: analyzeStep })}\n\n`));
-              }
 
               let chunkCount = 0;
               let lastFinishReason: string | undefined;
@@ -3838,48 +3546,7 @@ ANVÄNDARFRÅGA:
                 streamDurationMs: streamDuration,
                 lastFinishReason: lastFinishReason || "none",
                 promptFeedback: lastPromptFeedback ? JSON.stringify(lastPromptFeedback) : null,
-                isAgentMode,
               });
-
-              // Retry with mode:AUTO (no forceToolCall) + varied prompt if streaming returned empty
-              if (!fullText && !toolCallDetected && isAgentMode) {
-                const retryPrompt = finalMessage +
-                  `\n\n[RETRY-${Date.now()}] VIKTIGT: Du MÅSTE anropa propose_action_plan eller request_clarification. Svara ALDRIG med vanlig text.`;
-                logger.warn("Gemini stream empty in agent mode, retrying with mode:AUTO + varied prompt");
-                try {
-                  const retryResponse = await sendMessageToGemini(
-                    retryPrompt,
-                    geminiFileData,
-                    history,
-                    undefined,
-                    effectiveModel,
-                    // No forceToolCall → mode:AUTO, model can choose tools or text
-                  );
-                  if (retryResponse.toolCall) {
-                    toolCallDetected = { name: retryResponse.toolCall.tool, args: retryResponse.toolCall.args };
-                    logger.info("mode:AUTO retry succeeded with tool call", { tool: retryResponse.toolCall.tool });
-                  } else if (retryResponse.text) {
-                    fullText = retryResponse.text;
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: retryResponse.text })}\n\n`));
-                    logger.info("mode:AUTO retry returned text instead of tool call", { textLength: retryResponse.text.length });
-                  }
-                } catch (retryErr) {
-                  logger.error("mode:AUTO retry failed", retryErr);
-                }
-              }
-
-              // Final fallback if all retries failed
-              if (!fullText && !toolCallDetected && isAgentMode) {
-                const fallbackText = 'Jag kunde inte bearbeta din förfrågan just nu. Försök igen.';
-                fullText = fallbackText;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: fallbackText })}\n\n`));
-              }
-
-              // Mark "analyzing" step as complete
-              if (prefetchSteps.length > 0) {
-                const doneAnalyze = { id: 'analyze', type: 'thinking', tool: 'gemini', label: 'Analyserar och skapar plan', status: 'completed', startedAt: analyzeStartedAt, completedAt: Date.now(), resultSummary: toolCallDetected ? 'Handlingsplan redo' : 'Svar genererat' };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ agentStep: doneAnalyze })}\n\n`));
-              }
 
               if (toolCallDetected) {
                 // Execute the tool and stream the result
