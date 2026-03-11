@@ -2053,34 +2053,9 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    let _userMessageSaved = false;
+    // User message is already saved by the frontend (chat-provider.tsx) before
+    // this function is called. We only save the assistant response here.
     let conversationService: ConversationService | null = null;
-
-    if (conversationId) {
-      try {
-        const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
-          global: { headers: { Authorization: authHeader } },
-        });
-
-        conversationService = new ConversationService(supabaseClient);
-
-        // Save user message
-        await conversationService.addMessage(
-          conversationId,
-          "user",
-          message,
-          fileUrl || null,
-          fileName || null,
-        );
-        _userMessageSaved = true;
-        logger.info("User message saved to database", { conversationId });
-      } catch (saveError) {
-        logger.error("Failed to save user message", saveError, {
-          conversationId,
-          userId,
-        });
-      }
-    }
 
     // Handle action plan response (approve/reject/modify)
     if (requestMetadata?.action_response) {
