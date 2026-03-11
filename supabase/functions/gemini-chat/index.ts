@@ -3478,51 +3478,72 @@ ANVÄNDARFRÅGA:
 
         // Thinking step helpers — emit agentStep SSE events
         let thinkingStepCounter = 0;
-        const sendThinkingStep = (
+        const thinkingStepTimestamps = new Map<string, number>();
+
+        const sendStep = (
           ctrl: ReadableStreamDefaultController,
           enc: TextEncoder,
           label: string,
-          parentId?: string,
+          opts?: { type?: string; tool?: string; parentId?: string },
         ): string => {
           const id = `thinking-${++thinkingStepCounter}`;
+          const startedAt = Date.now();
+          thinkingStepTimestamps.set(id, startedAt);
           const step = {
             agentStep: {
               id,
-              type: "thinking",
-              tool: "",
+              type: opts?.type ?? "thinking",
+              tool: opts?.tool ?? "",
               label,
               status: "running",
-              startedAt: Date.now(),
+              startedAt,
               completedAt: null,
               resultSummary: null,
-              parentId: parentId ?? null,
+              parentId: opts?.parentId ?? null,
             },
           };
           ctrl.enqueue(enc.encode(`data: ${JSON.stringify(step)}\n\n`));
           return id;
         };
 
+        // Convenience wrappers
+        const sendThinkingStep = (
+          ctrl: ReadableStreamDefaultController,
+          enc: TextEncoder,
+          label: string,
+        ) => sendStep(ctrl, enc, label);
+
+        const completeStep = (
+          ctrl: ReadableStreamDefaultController,
+          enc: TextEncoder,
+          id: string,
+          label: string,
+          opts?: { type?: string; tool?: string; parentId?: string },
+        ) => {
+          const startedAt = thinkingStepTimestamps.get(id) ?? Date.now();
+          const step = {
+            agentStep: {
+              id,
+              type: opts?.type ?? "thinking",
+              tool: opts?.tool ?? "",
+              label,
+              status: "completed",
+              startedAt,
+              completedAt: Date.now(),
+              resultSummary: null,
+              parentId: opts?.parentId ?? null,
+            },
+          };
+          ctrl.enqueue(enc.encode(`data: ${JSON.stringify(step)}\n\n`));
+        };
+
+        // Convenience wrapper
         const completeThinkingStep = (
           ctrl: ReadableStreamDefaultController,
           enc: TextEncoder,
           id: string,
           label: string,
-        ) => {
-          const step = {
-            agentStep: {
-              id,
-              type: "thinking",
-              tool: "",
-              label,
-              status: "completed",
-              startedAt: Date.now(),
-              completedAt: Date.now(),
-              resultSummary: null,
-              parentId: null,
-            },
-          };
-          ctrl.enqueue(enc.encode(`data: ${JSON.stringify(step)}\n\n`));
-        };
+        ) => completeStep(ctrl, enc, id, label);
 
         const responseStream = new ReadableStream({
           async start(controller) {
@@ -3535,13 +3556,16 @@ ANVÄNDARFRÅGA:
               let lastFinishReason: string | undefined;
               let lastPromptFeedback: unknown = undefined;
               const streamStartTime = Date.now();
-
-              // Complete analysis step, begin streaming
-              completeThinkingStep(controller, encoder, analyzeStepId, "Analyserar din fråga...");
-              const formulerStepId = sendThinkingStep(controller, encoder, "Formulerar svar...");
+              let formulerStepId: string | null = null;
 
               for await (const chunk of stream) {
                 chunkCount++;
+
+                // Complete "Analyserar" on first chunk — marks real end of analysis
+                if (chunkCount === 1) {
+                  completeThinkingStep(controller, encoder, analyzeStepId, "Analyserar din fråga...");
+                  formulerStepId = sendThinkingStep(controller, encoder, "Formulerar svar...");
+                }
 
                 // Capture diagnostics from chunk
                 const candidate = chunk.candidates?.[0];
@@ -3579,15 +3603,12 @@ ANVÄNDARFRÅGA:
               });
 
               if (toolCallDetected) {
-                // Complete "Formulerar svar" since we're doing a tool call instead
-                completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
-
                 // Execute the tool and stream the result
                 let toolResponseText = "";
                 const toolName = toolCallDetected.name;
                 const toolArgs = toolCallDetected.args || {};
 
-                // Emit tool-specific thinking step
+                // Emit tool step nested under "Formulerar svar..."
                 const TOOL_LABELS: Record<string, string> = {
                   search_invoices: "Hämtar fakturor från Fortnox...",
                   search_customers: "Söker kunder i Fortnox...",
@@ -3600,7 +3621,11 @@ ANVÄNDARFRÅGA:
                   web_search: "Söker på webben...",
                 };
                 const toolLabel = TOOL_LABELS[toolName] || `Kör ${toolName}...`;
-                const toolStepId = sendThinkingStep(controller, encoder, toolLabel);
+                const toolStepId = sendStep(controller, encoder, toolLabel, {
+                  type: "tool",
+                  tool: toolName,
+                  parentId: formulerStepId ?? undefined,
+                });
 
                 try {
                   if (toolName === "conversation_search") {
@@ -4197,11 +4222,16 @@ ANVÄNDARFRÅGA:
                   fullText = toolResponseText;
                 }
 
-                // Complete the tool-specific thinking step
-                completeThinkingStep(controller, encoder, toolStepId, toolLabel);
+                // Complete the tool step, then its parent "Formulerar svar..."
+                completeStep(controller, encoder, toolStepId, toolLabel, {
+                  type: "tool",
+                  tool: toolName,
+                  parentId: formulerStepId ?? undefined,
+                });
+                if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
               } else {
                 // No tool call — complete "Formulerar svar..." after streaming ends
-                completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
+                if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
               }
 
               if (fullText && conversationId && userId !== "anonymous") {
