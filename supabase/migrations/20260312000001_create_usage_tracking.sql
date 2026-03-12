@@ -63,7 +63,6 @@ AS $$
   SELECT ut.event_type, COUNT(*)
   FROM usage_tracking ut
   WHERE ut.user_id = p_user_id
-    AND p_user_id = (SELECT auth.uid())
     AND ut.created_at >= date_trunc('month', now())
   GROUP BY ut.event_type;
 $$;
