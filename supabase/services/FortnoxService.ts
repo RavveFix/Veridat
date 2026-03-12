@@ -67,6 +67,30 @@ interface VoucherSearchOptions {
 
 const logger = createLogger('fortnox');
 
+// ---------------------------------------------------------------------------
+// CP-437 decoder — SIE files use IBM PC codepage 437
+// TextDecoder doesn't support CP-437, so we map bytes 0x80-0xFF manually.
+// ---------------------------------------------------------------------------
+const CP437_HIGH: string[] = [
+    'Ç','ü','é','â','ä','à','å','ç','ê','ë','è','ï','î','ì','Ä','Å', // 80-8F
+    'É','æ','Æ','ô','ö','ò','û','ù','ÿ','Ö','Ü','¢','£','¥','₧','ƒ', // 90-9F
+    'á','í','ó','ú','ñ','Ñ','ª','º','¿','⌐','¬','½','¼','¡','«','»', // A0-AF
+    '░','▒','▓','│','┤','╡','╢','╖','╕','╣','║','╗','╝','╜','╛','┐', // B0-BF
+    '└','┴','┬','├','─','┼','╞','╟','╚','╔','╩','╦','╠','═','╬','╧', // C0-CF
+    '╨','╤','╥','╙','╘','╒','╓','╫','╪','┘','┌','█','▄','▌','▐','▀', // D0-DF
+    'α','ß','Γ','π','Σ','σ','µ','τ','Φ','Θ','Ω','δ','∞','φ','ε','∩', // E0-EF
+    '≡','±','≥','≤','⌠','⌡','÷','≈','°','∙','·','√','ⁿ','²','■','\u00A0', // F0-FF
+];
+
+function decodeCp437(bytes: Uint8Array): string {
+    let result = '';
+    for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        result += b < 0x80 ? String.fromCharCode(b) : CP437_HIGH[b - 0x80];
+    }
+    return result;
+}
+
 export class FortnoxService {
     private clientId: string;
     private clientSecret: string;
@@ -895,9 +919,10 @@ export class FortnoxService {
             throw classifyFortnoxError(new Error(errorText), response.status);
         }
 
-        // SIE files use ISO-8859-1 encoding per Swedish standard — decode explicitly
+        // SIE files use CP-437 encoding per Swedish SIE standard.
+        // TextDecoder doesn't support CP-437, so decode manually.
         const buffer = await response.arrayBuffer();
-        const content = new TextDecoder('iso-8859-1').decode(buffer);
+        const content = decodeCp437(new Uint8Array(buffer));
         const typeLabels: Record<number, string> = {
             1: 'Arssaldon',
             2: 'Periodsaldon',
