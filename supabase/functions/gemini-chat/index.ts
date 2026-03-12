@@ -2894,7 +2894,9 @@ Deno.serve(async (req: Request) => {
                         })),
                       };
                       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ financialSummary: financialSummaryData })}\n\n`));
-                      resultText = `Ekonomisk sammanfattning för ${financialSummaryData.company}. Resultat: ${financialSummaryData.netResult} kr.`;
+                      const fsCompanyLabel = financialSummaryData.company || "ditt företag";
+                      const fsDisplayResult = -financialSummaryData.netResult;
+                      resultText = `Ekonomisk sammanfattning för ${fsCompanyLabel}. Resultat: ${fsDisplayResult} kr.`;
                       break;
                     }
                     case "get_account_balances": {
@@ -4403,7 +4405,9 @@ ANVÄNDARFRÅGA:
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ financialSummary: financialSummaryData })}\n\n`));
                         streamingActionPlan = financialSummaryData as any;
 
-                        toolResponseText = `Här är den ekonomiska sammanfattningen för ${financialSummaryData.company}. Resultat: ${financialSummaryData.netResult} kr.`;
+                        const fsCompanyLabel2 = financialSummaryData.company || "ditt företag";
+                        const fsDisplayResult2 = -financialSummaryData.netResult;
+                        toolResponseText = `Här är den ekonomiska sammanfattningen för ${fsCompanyLabel2}. Resultat: ${fsDisplayResult2} kr.`;
                       } catch (fsErr) {
                         logger.error("get_financial_summary failed", fsErr);
                         toolResponseText = "Kunde inte hämta ekonomisk sammanfattning från Fortnox just nu. Försök igen.";
