@@ -2945,6 +2945,7 @@ Deno.serve(async (req: Request) => {
                         fromDate: svArgs.from_date,
                         toDate: svArgs.to_date,
                         pagination: { page: 1, limit: svFetchLimit },
+                        includeRows: true,
                       }, authHeader, resolvedCompanyId);
                       const vouchers = ((svResult as any)?.Vouchers || []) as Array<Record<string, unknown>>;
                       const svDisplayLimit = svArgs.limit || 20;
@@ -2960,8 +2961,8 @@ Deno.serve(async (req: Request) => {
                             totalDebit: voucherRows.reduce((sum: number, r: any) => sum + (Number(r.Debit) || 0), 0),
                             totalCredit: voucherRows.reduce((sum: number, r: any) => sum + (Number(r.Credit) || 0), 0),
                             rows: voucherRows.map((r: any) => ({
-                              account: Number(r.AccountNumber) || 0,
-                              accountName: String(r.AccountDescription || ""),
+                              account: Number(r.Account) || 0,
+                              accountName: String(r.Description || ""),
                               debit: Number(r.Debit) || 0,
                               credit: Number(r.Credit) || 0,
                             })),
@@ -4485,6 +4486,7 @@ ANVÄNDARFRÅGA:
                           fromDate: args.from_date,
                           toDate: args.to_date,
                           pagination: { page: 1, limit: fetchLimit },
+                          includeRows: true,
                         }, authHeader, resolvedCompanyId);
 
                         const vouchers = ((result as any)?.Vouchers || []) as Array<Record<string, unknown>>;
@@ -4501,8 +4503,8 @@ ANVÄNDARFRÅGA:
                               totalDebit: voucherRows.reduce((sum: number, r: any) => sum + (Number(r.Debit) || 0), 0),
                               totalCredit: voucherRows.reduce((sum: number, r: any) => sum + (Number(r.Credit) || 0), 0),
                               rows: voucherRows.map((r: any) => ({
-                                account: Number(r.AccountNumber) || 0,
-                                accountName: String(r.AccountDescription || ""),
+                                account: Number(r.Account) || 0,
+                                accountName: String(r.Description || ""),
                                 debit: Number(r.Debit) || 0,
                                 credit: Number(r.Credit) || 0,
                               })),

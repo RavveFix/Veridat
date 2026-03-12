@@ -1557,12 +1557,33 @@ Deno.serve(async (req: Request) => {
                 const fromDate = payload?.fromDate as string | undefined;
                 const toDate = payload?.toDate as string | undefined;
                 const pagination = parsePagination(payload);
-                result = await requireFortnoxService().getVouchers(
+                const includeRows = payload?.includeRows === true;
+
+                const listResult = await requireFortnoxService().getVouchers(
                     financialYear,
                     voucherSeries,
                     pagination,
                     { fromDate, toDate }
                 );
+
+                // Enrich each voucher with full VoucherRows from individual detail endpoint
+                if (includeRows && listResult.Vouchers.length > 0) {
+                    const enriched = await Promise.all(
+                        listResult.Vouchers.map(async (v) => {
+                            try {
+                                const detail = await requireFortnoxService().getVoucher(
+                                    v.VoucherSeries, v.VoucherNumber, financialYear
+                                );
+                                return { ...v, VoucherRows: detail.Voucher.VoucherRows || [] };
+                            } catch {
+                                return v;
+                            }
+                        })
+                    );
+                    listResult.Vouchers = enriched as typeof listResult.Vouchers;
+                }
+
+                result = listResult;
                 break;
             }
 

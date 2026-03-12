@@ -895,7 +895,9 @@ export class FortnoxService {
             throw classifyFortnoxError(new Error(errorText), response.status);
         }
 
-        const content = await response.text();
+        // SIE files use ISO-8859-1 encoding per Swedish standard — decode explicitly
+        const buffer = await response.arrayBuffer();
+        const content = new TextDecoder('iso-8859-1').decode(buffer);
         const typeLabels: Record<number, string> = {
             1: 'Arssaldon',
             2: 'Periodsaldon',
