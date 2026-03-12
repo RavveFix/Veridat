@@ -11,7 +11,6 @@ import {
   type FileData,
   GeminiRateLimitError,
   generateConversationTitle,
-  type GetVouchersArgs,
   type LearnAccountingPatternArgs,
   type RecentChatsArgs,
   sendMessageStreamToGemini,
@@ -69,7 +68,6 @@ const ACCOUNTING_TOOL_RESPONSE_NAMES = new Set([
   "get_customers",
   "get_articles",
   "get_suppliers",
-  "get_vouchers",
   "create_supplier",
   "create_supplier_invoice",
   "create_journal_entry",
@@ -1385,23 +1383,6 @@ async function executeFortnoxTool(
           }`
           : "Inga leverantörer hittades i Fortnox.";
       }
-      case "get_vouchers": {
-        const vArgs = toolArgs as GetVouchersArgs;
-        const result = await fortnoxService.getVouchers(
-          vArgs.financial_year,
-          vArgs.series,
-        );
-        const vouchers = (result as any).Vouchers || [];
-        return vouchers.length > 0
-          ? `Hittade ${vouchers.length} verifikationer:\n${
-            vouchers.slice(0, 10).map((v: any) =>
-              `- ${v.VoucherSeries}${v.VoucherNumber}: ${
-                v.Description || "—"
-              } (${v.TransactionDate})`
-            ).join("\n")
-          }`
-          : "Inga verifikationer hittades.";
-      }
       case "get_invoice": {
         const invNum = Number(toolArgs.invoice_number);
         const resp = await fortnoxService.getInvoice(invNum);
@@ -2697,7 +2678,7 @@ Deno.serve(async (req: Request) => {
                           if (searchArgs.status === "cancelled") return cancelled;
                           if (cancelled) return false;
                           const balance = Number(inv.Balance) || 0;
-                          const booked = inv.Booked === true;
+                          const booked = inv.Booked === true || String(inv.Booked).toLowerCase() === "true";
                           const dueDate = inv.DueDate as string;
                           const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
                           if (searchArgs.status === "paid") return balance === 0 && booked;
@@ -2706,7 +2687,7 @@ Deno.serve(async (req: Request) => {
                           return true;
                         });
                       }
-                      const displayLimit = searchArgs.limit || 10;
+                      const displayLimit = searchArgs.limit || 25;
                       const invoiceListData = {
                         type: "invoice_list" as const,
                         invoices: invoices.slice(0, displayLimit).map((inv: any) => ({
@@ -2752,7 +2733,7 @@ Deno.serve(async (req: Request) => {
                           if (suppArgs.status === "cancelled") return cancelled;
                           if (cancelled) return false;
                           const balance = Number(inv.Balance) || 0;
-                          const booked = inv.Booked === true;
+                          const booked = inv.Booked === true || String(inv.Booked).toLowerCase() === "true";
                           const dueDate = inv.DueDate as string;
                           const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
                           if (suppArgs.status === "paid") return balance === 0 && booked;
@@ -2761,7 +2742,7 @@ Deno.serve(async (req: Request) => {
                           return true;
                         });
                       }
-                      const suppDisplayLimit = suppArgs.limit || 10;
+                      const suppDisplayLimit = suppArgs.limit || 25;
                       const supplierInvoiceListData = {
                         type: "supplier_invoice_list" as const,
                         invoices: suppInvoices.slice(0, suppDisplayLimit).map((inv: any) => ({
@@ -2938,7 +2919,7 @@ Deno.serve(async (req: Request) => {
                       if (abArgs.from_account) filtered = filtered.filter(a => a.number >= abArgs.from_account!);
                       if (abArgs.to_account) filtered = filtered.filter(a => a.number <= abArgs.to_account!);
                       const nonZeroOnly = abArgs.non_zero_only !== false;
-                      if (nonZeroOnly) filtered = filtered.filter(a => a.openingBalance !== 0 || a.closingBalance !== 0);
+                      if (nonZeroOnly) filtered = filtered.filter(a => a.openingBalance !== 0 || a.closingBalance !== 0 || a.change !== 0);
                       filtered.sort((a, b) => a.number - b.number);
                       const accountBalancesData = {
                         type: "account_balances" as const,
@@ -4110,7 +4091,7 @@ ANVÄNDARFRÅGA:
                             if (args.status === "cancelled") return cancelled;
                             if (cancelled) return false;
                             const balance = Number(inv.Balance) || 0;
-                            const booked = inv.Booked === true;
+                            const booked = inv.Booked === true || String(inv.Booked).toLowerCase() === "true";
                             const dueDate = inv.DueDate as string;
                             const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
 
@@ -4122,7 +4103,7 @@ ANVÄNDARFRÅGA:
                         }
 
                         // Build artifact data
-                        const displayLimit = args.limit || 10;
+                        const displayLimit = args.limit || 25;
                         const invoiceListData = {
                           type: "invoice_list" as const,
                           invoices: invoices.slice(0, displayLimit).map((inv: any) => ({
@@ -4187,7 +4168,7 @@ ANVÄNDARFRÅGA:
                             if (args.status === "cancelled") return cancelled;
                             if (cancelled) return false;
                             const balance = Number(inv.Balance) || 0;
-                            const booked = inv.Booked === true;
+                            const booked = inv.Booked === true || String(inv.Booked).toLowerCase() === "true";
                             const dueDate = inv.DueDate as string;
                             const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
 
@@ -4199,7 +4180,7 @@ ANVÄNDARFRÅGA:
                         }
 
                         // Build artifact data
-                        const displayLimit = args.limit || 10;
+                        const displayLimit = args.limit || 25;
                         const supplierInvoiceListData = {
                           type: "supplier_invoice_list" as const,
                           invoices: invoices.slice(0, displayLimit).map((inv: any) => ({
@@ -4457,7 +4438,7 @@ ANVÄNDARFRÅGA:
                         if (args.from_account) filtered = filtered.filter(a => a.number >= args.from_account!);
                         if (args.to_account) filtered = filtered.filter(a => a.number <= args.to_account!);
                         const nonZeroOnly = args.non_zero_only !== false; // default true
-                        if (nonZeroOnly) filtered = filtered.filter(a => a.openingBalance !== 0 || a.closingBalance !== 0);
+                        if (nonZeroOnly) filtered = filtered.filter(a => a.openingBalance !== 0 || a.closingBalance !== 0 || a.change !== 0);
                         filtered.sort((a, b) => a.number - b.number);
 
                         const accountBalancesData = {
@@ -5109,32 +5090,6 @@ ANVÄNDARFRÅGA:
               toolResult: toolResult as Record<string, unknown>,
             };
             break;
-          case "get_vouchers": {
-            const vArgs = args as GetVouchersArgs;
-            toolResult = await fortnoxService.getVouchers(
-              vArgs.financial_year,
-              vArgs.series,
-            );
-            const vouchers = toolResult.Vouchers || [];
-            responseText = vouchers.length > 0
-              ? `Hittade ${vouchers.length} verifikationer:\n${
-                vouchers.slice(0, 10).map((v: any) =>
-                  `- ${v.VoucherSeries}${v.VoucherNumber}: ${
-                    v.Description || "Ingen beskrivning"
-                  } (${v.TransactionDate})`
-                ).join("\n")
-              }${
-                vouchers.length > 10
-                  ? `\n...och ${vouchers.length - 10} till`
-                  : ""
-              }`
-              : "Inga verifikationer hittades.";
-            toolStructuredData = {
-              toolArgs: vArgs as Record<string, unknown>,
-              toolResult: toolResult as Record<string, unknown>,
-            };
-            break;
-          }
           case "get_invoice": {
             const invNum = Number(args.invoice_number);
             toolResult = await fortnoxService.getInvoice(invNum);

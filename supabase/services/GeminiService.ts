@@ -689,23 +689,6 @@ const tools: Tool[] = [
                 }
             },
             {
-                name: "get_vouchers",
-                description: "Hämtar verifikationer från Fortnox. Används för att visa bokförda transaktioner.",
-                parameters: {
-                    type: SchemaType.OBJECT,
-                    properties: {
-                        financial_year: {
-                            type: SchemaType.NUMBER,
-                            description: "Räkenskapsår (t.ex. 2026). Om inte angivet, hämtas innevarande år."
-                        },
-                        series: {
-                            type: SchemaType.STRING,
-                            description: "Verifikatserie (t.ex. 'A'). Om inte angivet, hämtas alla serier."
-                        }
-                    }
-                }
-            },
-            {
                 name: "get_invoice",
                 description: "Hämtar en specifik kundfaktura från Fortnox med fakturanummer. Använd för att se detaljer om en befintlig faktura innan bokföring.",
                 parameters: {
@@ -1041,7 +1024,7 @@ const tools: Tool[] = [
             },
             {
                 name: "get_financial_summary",
-                description: "Hämtar en ekonomisk sammanfattning med resultaträkning och balansräkning från Fortnox. Visar intäkter, kostnader, resultat, tillgångar och skulder.",
+                description: "Hämtar ekonomisk sammanfattning från Fortnox med resultaträkning och balansräkning. Visar intäkter, kostnader, nettoresultat, tillgångar och skulder/eget kapital. Använd detta när användaren frågar om ekonomisk översikt, hur det går för företaget, resultat, P&L, eller balansräkning.",
                 parameters: {
                     type: SchemaType.OBJECT,
                     properties: {
@@ -1079,7 +1062,7 @@ const tools: Tool[] = [
             },
             {
                 name: "search_vouchers",
-                description: "Söker och visar verifikationer från Fortnox i en strukturerad tabell. Kan filtreras på räkenskapsår, serie och datumintervall. Använd detta när användaren vill se bokförda verifikationer.",
+                description: "Söker och visar verifikationer (bokföringsverifikat) från Fortnox i en strukturerad tabell. Kan filtreras på räkenskapsår, verifikatserie och datumintervall. Använd detta när användaren frågar om verifikationer, verifikat, bokförda transaktioner, eller vill se bokföringsposter.",
                 parameters: {
                     type: SchemaType.OBJECT,
                     properties: {
@@ -1139,7 +1122,7 @@ const tools: Tool[] = [
             },
             {
                 name: "get_company_info",
-                description: "Hämtar företagsinformation från Fortnox (namn, org.nr, adress, räkenskapsår). Använd detta när användaren frågar om sitt företag.",
+                description: "Hämtar grundläggande företagsuppgifter från Fortnox: företagsnamn, organisationsnummer, adress, telefon, e-post och räkenskapsår. Använd BARA för kontaktuppgifter och registreringsinfo — INTE för ekonomi, resultat eller bokföring.",
                 parameters: {
                     type: SchemaType.OBJECT,
                     properties: {},
