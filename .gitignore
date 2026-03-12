@@ -75,3 +75,4 @@ security_best_practices_report.md
 
 # Codex (local agent workspace)
 .codex/
+.worktrees/

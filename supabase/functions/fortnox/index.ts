@@ -10,6 +10,7 @@ import {
     createForbiddenOriginResponse
 } from "../../services/CorsService.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
+import { UsageTrackingService } from "../../services/UsageTrackingService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
 import { FortnoxApiError } from "../../services/FortnoxErrors.ts";
 import { AuditService, type FortnoxOperation } from "../../services/AuditService.ts";
@@ -2617,6 +2618,16 @@ Deno.serve(async (req: Request) => {
                     { action }
                 );
         }
+
+        // Log Fortnox usage (fire-and-forget)
+        const usageTracker = new UsageTrackingService(supabaseAdmin);
+        const fortnoxEventType = WRITE_ACTIONS_TO_OPERATION[action] ? 'fortnox_write' as const : 'fortnox_read' as const;
+        usageTracker.logEvent({
+            userId,
+            companyId: resolvedCompanyId,
+            eventType: fortnoxEventType,
+            toolName: action,
+        });
 
         return new Response(
             JSON.stringify(result),

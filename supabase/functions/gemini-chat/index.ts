@@ -26,6 +26,7 @@ import {
 } from "../../services/JournalService.ts";
 import { roundToOre } from "../../services/SwedishRounding.ts";
 import { RateLimiterService } from "../../services/RateLimiterService.ts";
+import { UsageTrackingService } from "../../services/UsageTrackingService.ts";
 import {
   type CompanyMemory,
   CompanyMemoryService,
@@ -1861,6 +1862,37 @@ Deno.serve(async (req: Request) => {
       userId,
       remaining: rateLimit.remaining,
     });
+
+    // --- Monthly usage tracking (soft limits, warn-only during beta) ---
+    const usageTracker = new UsageTrackingService(supabaseAdmin);
+    let usageWarningPayload: {
+      type: string;
+      ratio: number;
+      used: number;
+      limit: number;
+    } | null = null;
+
+    try {
+      const [monthlyUsage, planLimits] = await Promise.all([
+        usageTracker.getMonthlyUsage(userId),
+        usageTracker.getPlanLimits(plan),
+      ]);
+      if (planLimits && planLimits.ai_messages_per_month > 0) {
+        const used = monthlyUsage["ai_message"] ?? 0;
+        const limit = planLimits.ai_messages_per_month;
+        const ratio = used / limit;
+        if (ratio >= 0.8) {
+          usageWarningPayload = {
+            type: "ai_message",
+            ratio: Math.round(ratio * 100) / 100,
+            used,
+            limit,
+          };
+        }
+      }
+    } catch (e) {
+      logger.warn("Usage check failed (non-blocking)", { error: String(e) });
+    }
 
     let verifiedConversation: {
       id: string;
@@ -3700,6 +3732,13 @@ ANVÄNDARFRÅGA:
           async start(controller) {
             try {
 
+              // Emit usage warning if approaching monthly limit
+              if (usageWarningPayload) {
+                controller.enqueue(encoder.encode(
+                  `data: ${JSON.stringify({ usageWarning: usageWarningPayload })}\n\n`
+                ));
+              }
+
               // Emit first thinking step
               const analyzeStepId = sendThinkingStep(controller, encoder, "Analyserar din fråga...");
 
@@ -4707,6 +4746,14 @@ ANVÄNDARFRÅGA:
                 }\n\n`;
                 controller.enqueue(encoder.encode(memoriesData));
               }
+
+              // Log AI usage (fire-and-forget)
+              usageTracker.logEvent({
+                userId,
+                companyId: resolvedCompanyId,
+                eventType: "ai_message",
+              });
+
               controller.enqueue(encoder.encode("data: [DONE]\n\n"));
             } catch (err) {
               logger.error("Stream processing error", err);
@@ -5846,12 +5893,20 @@ ANVÄNDARFRÅGA:
       }
     }
 
+    // Log AI usage for non-streaming path (fire-and-forget)
+    usageTracker.logEvent({
+      userId,
+      companyId: resolvedCompanyId,
+      eventType: "ai_message",
+    });
+
     return new Response(
       JSON.stringify({
         type: "text",
         data: responseText,
         usedMemories: usedMemories.length > 0 ? usedMemories : undefined,
         skillDraft: skillDraft ?? undefined,
+        usageWarning: usageWarningPayload ?? undefined,
         actionPlan: nonStreamMetadata?.type === "action_plan"
           ? nonStreamMetadata
           : undefined,
