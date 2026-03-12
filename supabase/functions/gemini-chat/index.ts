@@ -2729,6 +2729,62 @@ Deno.serve(async (req: Request) => {
                         : `Inga fakturor hittades.`;
                       break;
                     }
+                    case "search_supplier_invoices": {
+                      const suppArgs = params as { query?: string; status?: string; from_date?: string; to_date?: string; limit?: number };
+                      const suppFetchLimit = Math.min(suppArgs.limit || 25, 100);
+                      const suppResult = await callFortnoxRead("getSupplierInvoices", {
+                        fromDate: suppArgs.from_date,
+                        toDate: suppArgs.to_date,
+                        pagination: { page: 1, limit: suppFetchLimit },
+                      }, authHeader, resolvedCompanyId);
+                      let suppInvoices = ((suppResult as any)?.SupplierInvoices || []) as Array<Record<string, unknown>>;
+                      if (suppArgs.query) {
+                        const q = suppArgs.query.toLowerCase();
+                        suppInvoices = suppInvoices.filter((inv: any) =>
+                          (inv.SupplierName || "").toLowerCase().includes(q) ||
+                          String(inv.GivenNumber || "").includes(q) ||
+                          String(inv.InvoiceNumber || "").includes(q)
+                        );
+                      }
+                      if (suppArgs.status && suppArgs.status !== "all") {
+                        suppInvoices = suppInvoices.filter((inv: any) => {
+                          const cancelled = inv.Cancelled === true;
+                          if (suppArgs.status === "cancelled") return cancelled;
+                          if (cancelled) return false;
+                          const balance = Number(inv.Balance) || 0;
+                          const booked = inv.Booked === true;
+                          const dueDate = inv.DueDate as string;
+                          const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
+                          if (suppArgs.status === "paid") return balance === 0 && booked;
+                          if (suppArgs.status === "overdue") return balance > 0 && isOverdue;
+                          if (suppArgs.status === "unpaid") return balance > 0;
+                          return true;
+                        });
+                      }
+                      const suppDisplayLimit = suppArgs.limit || 10;
+                      const supplierInvoiceListData = {
+                        type: "supplier_invoice_list" as const,
+                        invoices: suppInvoices.slice(0, suppDisplayLimit).map((inv: any) => ({
+                          givenNumber: String(inv.GivenNumber || ""),
+                          supplierName: String(inv.SupplierName || ""),
+                          invoiceNumber: String(inv.InvoiceNumber || ""),
+                          total: Number(inv.Total) || 0,
+                          balance: Number(inv.Balance) || 0,
+                          status: inv.Cancelled ? "cancelled"
+                            : Number(inv.Balance) === 0 ? "paid"
+                            : (inv.DueDate && new Date(inv.DueDate) < new Date() ? "overdue" : "unpaid"),
+                          invoiceDate: String(inv.InvoiceDate || ""),
+                          dueDate: String(inv.DueDate || ""),
+                        })),
+                        query: suppArgs.query,
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ supplierInvoiceList: supplierInvoiceListData })}\n\n`));
+                      const suppCount = supplierInvoiceListData.invoices.length;
+                      resultText = suppCount > 0
+                        ? `Hittade ${suppCount} leverantörsfakturor${suppArgs.query ? ` som matchar "${suppArgs.query}"` : ""}.`
+                        : `Inga leverantörsfakturor hittades.`;
+                      break;
+                    }
                     case "search_customers": {
                       const custArgs = params as { query?: string };
                       const custResult = await callFortnoxRead("getCustomers", {}, authHeader, resolvedCompanyId);
@@ -2821,6 +2877,117 @@ Deno.serve(async (req: Request) => {
                       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ companyInfo: companyInfoData })}\n\n`));
                       resultText = `Företagsinformation: ${companyInfoData.companyName}` +
                         (companyInfoData.organisationNumber ? ` (${companyInfoData.organisationNumber})` : "");
+                      break;
+                    }
+                    case "get_financial_summary": {
+                      const fsArgs = params as { financial_year_id?: number };
+                      const fsResult = await callFortnoxRead("getFinancialStatements", {
+                        financialYearId: fsArgs.financial_year_id,
+                      }, authHeader, resolvedCompanyId);
+                      const fs = fsResult as any;
+                      const financialSummaryData = {
+                        type: "financial_summary" as const,
+                        company: fs.company?.name || "",
+                        financialYear: {
+                          from: fs.financialYear?.fromDate || "",
+                          to: fs.financialYear?.toDate || "",
+                        },
+                        revenue: fs.resultatRakning?.totalRevenue || 0,
+                        expenses: fs.resultatRakning?.totalExpenses || 0,
+                        netResult: fs.resultatRakning?.netResult || 0,
+                        totalAssets: fs.balansRakning?.totalAssets || 0,
+                        totalLiabilitiesEquity: fs.balansRakning?.totalLiabilitiesEquity || 0,
+                        balanced: fs.balansRakning?.balanced ?? true,
+                        sections: [
+                          ...(fs.resultatRakning?.sections || []),
+                          ...(fs.balansRakning?.assets || []),
+                          ...(fs.balansRakning?.liabilitiesEquity || []),
+                        ].map((s: any) => ({
+                          title: s.title,
+                          total: s.total,
+                          accounts: (s.accounts || []).map((a: any) => ({
+                            number: a.number,
+                            name: a.name,
+                            amount: a.closingBalance ?? a.change ?? 0,
+                          })),
+                        })),
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ financialSummary: financialSummaryData })}\n\n`));
+                      resultText = `Ekonomisk sammanfattning för ${financialSummaryData.company}. Resultat: ${financialSummaryData.netResult} kr.`;
+                      break;
+                    }
+                    case "get_account_balances": {
+                      const abArgs = params as { from_account?: number; to_account?: number; financial_year_id?: number; non_zero_only?: boolean };
+                      const abResult = await callFortnoxRead("getFinancialStatements", {
+                        financialYearId: abArgs.financial_year_id,
+                      }, authHeader, resolvedCompanyId);
+                      const abFs = abResult as any;
+                      const allAccounts: Array<{number: number; name: string; openingBalance: number; closingBalance: number; change: number}> = [];
+                      for (const section of [...(abFs.resultatRakning?.sections || []), ...(abFs.balansRakning?.assets || []), ...(abFs.balansRakning?.liabilitiesEquity || [])]) {
+                        for (const acc of (section.accounts || [])) {
+                          allAccounts.push({
+                            number: acc.number,
+                            name: acc.name,
+                            openingBalance: acc.openingBalance || 0,
+                            closingBalance: acc.closingBalance || 0,
+                            change: acc.change || 0,
+                          });
+                        }
+                      }
+                      let filtered = allAccounts;
+                      if (abArgs.from_account) filtered = filtered.filter(a => a.number >= abArgs.from_account!);
+                      if (abArgs.to_account) filtered = filtered.filter(a => a.number <= abArgs.to_account!);
+                      const nonZeroOnly = abArgs.non_zero_only !== false;
+                      if (nonZeroOnly) filtered = filtered.filter(a => a.openingBalance !== 0 || a.closingBalance !== 0);
+                      filtered.sort((a, b) => a.number - b.number);
+                      const accountBalancesData = {
+                        type: "account_balances" as const,
+                        accounts: filtered.map(a => ({
+                          number: a.number, name: a.name,
+                          openingBalance: a.openingBalance, closingBalance: a.closingBalance, change: a.change,
+                        })),
+                        financialYear: { from: abFs.financialYear?.fromDate || "", to: abFs.financialYear?.toDate || "" },
+                        filter: abArgs.from_account || abArgs.to_account ? { fromAccount: abArgs.from_account, toAccount: abArgs.to_account } : undefined,
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ accountBalances: accountBalancesData })}\n\n`));
+                      resultText = `Hittade ${filtered.length} konton med saldo.`;
+                      break;
+                    }
+                    case "search_vouchers": {
+                      const svArgs = params as { financial_year?: number; series?: string; from_date?: string; to_date?: string; limit?: number };
+                      const svFetchLimit = Math.min(svArgs.limit || 20, 100);
+                      const svResult = await callFortnoxRead("getVouchers", {
+                        financialYear: svArgs.financial_year,
+                        voucherSeries: svArgs.series,
+                        fromDate: svArgs.from_date,
+                        toDate: svArgs.to_date,
+                        pagination: { page: 1, limit: svFetchLimit },
+                      }, authHeader, resolvedCompanyId);
+                      const vouchers = ((svResult as any)?.Vouchers || []) as Array<Record<string, unknown>>;
+                      const svDisplayLimit = svArgs.limit || 20;
+                      const voucherListData = {
+                        type: "voucher_list" as const,
+                        vouchers: vouchers.slice(0, svDisplayLimit).map((v: any) => {
+                          const voucherRows = (v.VoucherRows || []) as Array<Record<string, unknown>>;
+                          return {
+                            voucherNumber: Number(v.VoucherNumber) || 0,
+                            voucherSeries: String(v.VoucherSeries || ""),
+                            description: String(v.Description || ""),
+                            transactionDate: String(v.TransactionDate || ""),
+                            totalDebit: voucherRows.reduce((sum: number, r: any) => sum + (Number(r.Debit) || 0), 0),
+                            totalCredit: voucherRows.reduce((sum: number, r: any) => sum + (Number(r.Credit) || 0), 0),
+                            rows: voucherRows.map((r: any) => ({
+                              account: Number(r.AccountNumber) || 0,
+                              accountName: String(r.AccountDescription || ""),
+                              debit: Number(r.Debit) || 0,
+                              credit: Number(r.Credit) || 0,
+                            })),
+                          };
+                        }),
+                        query: svArgs.series ? `Serie ${svArgs.series}` : undefined,
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ voucherList: voucherListData })}\n\n`));
+                      resultText = `Hittade ${voucherListData.vouchers.length} verifikationer.`;
                       break;
                     }
                     default:
@@ -3401,7 +3568,7 @@ ANVÄNDARFRÅGA:
     if (!isSkillAssist) {
       finalMessage = `[VERKTYGSREGLER]\n` +
         `Du har tillgång till Fortnox-verktyg. Använd dem så här:\n` +
-        `- LÄSVERKTYG (search_invoices, search_customers, get_vat_report, get_company_info): Använd FRITT utan att fråga. Om användaren frågar om fakturor, kunder, moms eller företagsinfo — anropa verktyget direkt.\n` +
+        `- LÄSVERKTYG (search_invoices, search_supplier_invoices, search_customers, get_vat_report, get_company_info, get_financial_summary, get_account_balances, search_vouchers): Använd FRITT utan att fråga. Om användaren frågar om fakturor, leverantörsfakturor, kunder, moms, företagsinfo, ekonomisk översikt, kontosaldon eller verifikationer — anropa verktyget direkt.\n` +
         `- SKRIVVERKTYG (skapa/ändra faktura, bokföra, registrera betalning): Anropa ALLTID propose_action_plan med posting_rows. Utför ALDRIG en skrivoperation direkt.\n` +
         `- SAKNAD INFO: Om pris, belopp, antal eller annan kritisk info saknas för en skrivoperation → anropa request_clarification.\n\n` +
         finalMessage;
@@ -3611,6 +3778,10 @@ ANVÄNDARFRÅGA:
                 // Emit tool step nested under "Formulerar svar..."
                 const TOOL_LABELS: Record<string, string> = {
                   search_invoices: "Hämtar fakturor från Fortnox...",
+                  search_supplier_invoices: "Hämtar leverantörsfakturor...",
+                  get_financial_summary: "Hämtar ekonomisk översikt...",
+                  get_account_balances: "Hämtar kontosaldon...",
+                  search_vouchers: "Hämtar verifikationer...",
                   search_customers: "Söker kunder i Fortnox...",
                   get_vat_report: "Genererar momsrapport...",
                   get_company_info: "Hämtar företagsinformation...",
@@ -3983,6 +4154,84 @@ ANVÄNDARFRÅGA:
                         toolResponseText = "Kunde inte hämta fakturor från Fortnox just nu. Försök igen.";
                       }
                     }
+                  } else if (toolName === "search_supplier_invoices") {
+                    // Read-only: search/list supplier invoices from Fortnox
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      try {
+                        const args = toolArgs as { query?: string; status?: string; from_date?: string; to_date?: string; limit?: number };
+                        const fetchLimit = Math.min(args.limit || 25, 100);
+                        const result = await callFortnoxRead("getSupplierInvoices", {
+                          fromDate: args.from_date,
+                          toDate: args.to_date,
+                          pagination: { page: 1, limit: fetchLimit },
+                        }, authHeader, resolvedCompanyId);
+
+                        let invoices = ((result as any)?.SupplierInvoices || []) as Array<Record<string, unknown>>;
+
+                        // Filter by query (supplier name, given number, or invoice number)
+                        if (args.query) {
+                          const q = args.query.toLowerCase();
+                          invoices = invoices.filter((inv: any) =>
+                            (inv.SupplierName || "").toLowerCase().includes(q) ||
+                            String(inv.GivenNumber || "").includes(q) ||
+                            String(inv.InvoiceNumber || "").includes(q)
+                          );
+                        }
+
+                        // Filter by status
+                        if (args.status && args.status !== "all") {
+                          invoices = invoices.filter((inv: any) => {
+                            const cancelled = inv.Cancelled === true;
+                            if (args.status === "cancelled") return cancelled;
+                            if (cancelled) return false;
+                            const balance = Number(inv.Balance) || 0;
+                            const booked = inv.Booked === true;
+                            const dueDate = inv.DueDate as string;
+                            const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
+
+                            if (args.status === "paid") return balance === 0 && booked;
+                            if (args.status === "overdue") return balance > 0 && isOverdue;
+                            if (args.status === "unpaid") return balance > 0;
+                            return true;
+                          });
+                        }
+
+                        // Build artifact data
+                        const displayLimit = args.limit || 10;
+                        const supplierInvoiceListData = {
+                          type: "supplier_invoice_list" as const,
+                          invoices: invoices.slice(0, displayLimit).map((inv: any) => ({
+                            givenNumber: String(inv.GivenNumber || ""),
+                            supplierName: String(inv.SupplierName || ""),
+                            invoiceNumber: String(inv.InvoiceNumber || ""),
+                            total: Number(inv.Total) || 0,
+                            balance: Number(inv.Balance) || 0,
+                            status: inv.Cancelled
+                              ? "cancelled"
+                              : Number(inv.Balance) === 0
+                                ? "paid"
+                                : (inv.DueDate && new Date(inv.DueDate) < new Date() ? "overdue" : "unpaid"),
+                            invoiceDate: String(inv.InvoiceDate || ""),
+                            dueDate: String(inv.DueDate || ""),
+                          })),
+                          query: args.query,
+                        };
+
+                        // Stream artifact event
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ supplierInvoiceList: supplierInvoiceListData })}\n\n`));
+                        streamingActionPlan = supplierInvoiceListData as any;
+
+                        const count = supplierInvoiceListData.invoices.length;
+                        toolResponseText = count > 0
+                          ? `Jag hittade ${count} leverantörsfakturor${args.query ? ` som matchar "${args.query}"` : ""}${args.status && args.status !== "all" ? ` med status ${args.status}` : ""}.`
+                          : `Inga leverantörsfakturor hittades${args.query ? ` som matchar "${args.query}"` : ""}.`;
+                      } catch (searchErr) {
+                        logger.error("search_supplier_invoices failed", searchErr);
+                        toolResponseText = "Kunde inte hämta leverantörsfakturor från Fortnox just nu. Försök igen.";
+                      }
+                    }
                   } else if (toolName === "search_customers") {
                     // Read-only: search/list customers from Fortnox
                     if (!resolvedCompanyId) {
@@ -4127,6 +4376,164 @@ ANVÄNDARFRÅGA:
                       } catch (companyErr) {
                         logger.error("get_company_info failed", companyErr);
                         toolResponseText = "Kunde inte hämta företagsinformation från Fortnox just nu. Försök igen.";
+                      }
+                    }
+                  } else if (toolName === "get_financial_summary") {
+                    // Read-only: fetch financial statements (P&L + Balance Sheet) from Fortnox
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      try {
+                        const args = toolArgs as { financial_year_id?: number };
+                        const result = await callFortnoxRead("getFinancialStatements", {
+                          financialYearId: args.financial_year_id,
+                        }, authHeader, resolvedCompanyId);
+
+                        const fsResult = result as any;
+                        const financialSummaryData = {
+                          type: "financial_summary" as const,
+                          company: fsResult.company?.name || "",
+                          financialYear: {
+                            from: fsResult.financialYear?.fromDate || "",
+                            to: fsResult.financialYear?.toDate || "",
+                          },
+                          revenue: fsResult.resultatRakning?.totalRevenue || 0,
+                          expenses: fsResult.resultatRakning?.totalExpenses || 0,
+                          netResult: fsResult.resultatRakning?.netResult || 0,
+                          totalAssets: fsResult.balansRakning?.totalAssets || 0,
+                          totalLiabilitiesEquity: fsResult.balansRakning?.totalLiabilitiesEquity || 0,
+                          balanced: fsResult.balansRakning?.balanced ?? true,
+                          sections: [
+                            ...(fsResult.resultatRakning?.sections || []),
+                            ...(fsResult.balansRakning?.assets || []),
+                            ...(fsResult.balansRakning?.liabilitiesEquity || []),
+                          ].map((s: any) => ({
+                            title: s.title,
+                            total: s.total,
+                            accounts: (s.accounts || []).map((a: any) => ({
+                              number: a.number,
+                              name: a.name,
+                              amount: a.closingBalance ?? a.change ?? 0,
+                            })),
+                          })),
+                        };
+
+                        // Stream artifact event
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ financialSummary: financialSummaryData })}\n\n`));
+                        streamingActionPlan = financialSummaryData as any;
+
+                        toolResponseText = `Här är den ekonomiska sammanfattningen för ${financialSummaryData.company}. Resultat: ${financialSummaryData.netResult} kr.`;
+                      } catch (fsErr) {
+                        logger.error("get_financial_summary failed", fsErr);
+                        toolResponseText = "Kunde inte hämta ekonomisk sammanfattning från Fortnox just nu. Försök igen.";
+                      }
+                    }
+                  } else if (toolName === "get_account_balances") {
+                    // Read-only: fetch account balances from Fortnox
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      try {
+                        const args = toolArgs as { from_account?: number; to_account?: number; financial_year_id?: number; non_zero_only?: boolean };
+                        const result = await callFortnoxRead("getFinancialStatements", {
+                          financialYearId: args.financial_year_id,
+                        }, authHeader, resolvedCompanyId);
+
+                        const fsResult = result as any;
+                        const allAccounts: Array<{number: number; name: string; openingBalance: number; closingBalance: number; change: number}> = [];
+                        for (const section of [...(fsResult.resultatRakning?.sections || []), ...(fsResult.balansRakning?.assets || []), ...(fsResult.balansRakning?.liabilitiesEquity || [])]) {
+                          for (const acc of (section.accounts || [])) {
+                            allAccounts.push({
+                              number: acc.number,
+                              name: acc.name,
+                              openingBalance: acc.openingBalance || 0,
+                              closingBalance: acc.closingBalance || 0,
+                              change: acc.change || 0,
+                            });
+                          }
+                        }
+
+                        let filtered = allAccounts;
+                        if (args.from_account) filtered = filtered.filter(a => a.number >= args.from_account!);
+                        if (args.to_account) filtered = filtered.filter(a => a.number <= args.to_account!);
+                        const nonZeroOnly = args.non_zero_only !== false; // default true
+                        if (nonZeroOnly) filtered = filtered.filter(a => a.openingBalance !== 0 || a.closingBalance !== 0);
+                        filtered.sort((a, b) => a.number - b.number);
+
+                        const accountBalancesData = {
+                          type: "account_balances" as const,
+                          accounts: filtered.map(a => ({
+                            number: a.number,
+                            name: a.name,
+                            openingBalance: a.openingBalance,
+                            closingBalance: a.closingBalance,
+                            change: a.change,
+                          })),
+                          financialYear: {
+                            from: fsResult.financialYear?.fromDate || "",
+                            to: fsResult.financialYear?.toDate || "",
+                          },
+                          filter: args.from_account || args.to_account ? { fromAccount: args.from_account, toAccount: args.to_account } : undefined,
+                        };
+
+                        // Stream artifact event
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ accountBalances: accountBalancesData })}\n\n`));
+                        streamingActionPlan = accountBalancesData as any;
+
+                        toolResponseText = `Hittade ${filtered.length} konton med saldo.`;
+                      } catch (abErr) {
+                        logger.error("get_account_balances failed", abErr);
+                        toolResponseText = "Kunde inte hämta kontosaldon från Fortnox just nu. Försök igen.";
+                      }
+                    }
+                  } else if (toolName === "search_vouchers") {
+                    // Read-only: fetch vouchers from Fortnox
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      try {
+                        const args = toolArgs as { financial_year?: number; series?: string; from_date?: string; to_date?: string; limit?: number };
+                        const fetchLimit = Math.min(args.limit || 20, 100);
+                        const result = await callFortnoxRead("getVouchers", {
+                          financialYear: args.financial_year,
+                          voucherSeries: args.series,
+                          fromDate: args.from_date,
+                          toDate: args.to_date,
+                          pagination: { page: 1, limit: fetchLimit },
+                        }, authHeader, resolvedCompanyId);
+
+                        const vouchers = ((result as any)?.Vouchers || []) as Array<Record<string, unknown>>;
+                        const displayLimit = args.limit || 20;
+                        const voucherListData = {
+                          type: "voucher_list" as const,
+                          vouchers: vouchers.slice(0, displayLimit).map((v: any) => {
+                            const voucherRows = (v.VoucherRows || []) as Array<Record<string, unknown>>;
+                            return {
+                              voucherNumber: Number(v.VoucherNumber) || 0,
+                              voucherSeries: String(v.VoucherSeries || ""),
+                              description: String(v.Description || ""),
+                              transactionDate: String(v.TransactionDate || ""),
+                              totalDebit: voucherRows.reduce((sum: number, r: any) => sum + (Number(r.Debit) || 0), 0),
+                              totalCredit: voucherRows.reduce((sum: number, r: any) => sum + (Number(r.Credit) || 0), 0),
+                              rows: voucherRows.map((r: any) => ({
+                                account: Number(r.AccountNumber) || 0,
+                                accountName: String(r.AccountDescription || ""),
+                                debit: Number(r.Debit) || 0,
+                                credit: Number(r.Credit) || 0,
+                              })),
+                            };
+                          }),
+                          query: args.series ? `Serie ${args.series}` : undefined,
+                        };
+
+                        // Stream artifact event
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ voucherList: voucherListData })}\n\n`));
+                        streamingActionPlan = voucherListData as any;
+
+                        toolResponseText = `Hittade ${voucherListData.vouchers.length} verifikationer.`;
+                      } catch (svErr) {
+                        logger.error("search_vouchers failed", svErr);
+                        toolResponseText = "Kunde inte hämta verifikationer från Fortnox just nu. Försök igen.";
                       }
                     }
                   } else if (toolName === "learn_accounting_pattern") {

@@ -154,13 +154,17 @@ Du lär känna varje företag över tid. När du har kontext om företaget:
 
 ## Direkta Fortnox-verktyg (läsoperationer)
 Du kan söka och visa data från användarens Fortnox direkt i chatten:
-- search_invoices: Sök och visa fakturor (filtrera på status, kund)
+- search_invoices: Sök och visa kundfakturor (filtrera på status, kund)
+- search_supplier_invoices: Sök och visa leverantörsfakturor (filtrera på status, leverantör, datum)
 - search_customers: Sök kunder
 - get_vat_report: Hämta momsrapport för en period
 - get_company_info: Visa företagsinformation
+- get_financial_summary: Hämta ekonomisk sammanfattning (resultaträkning + balansräkning)
+- get_account_balances: Hämta kontosaldon (IB, UB, förändring) — kan filtreras på kontonummerintervall
+- search_vouchers: Sök och visa verifikationer — kan filtreras på serie, datumintervall, räkenskapsår
 
 Dessa verktyg kräver INGEN action plan — använd dem direkt i vanlig chatt.
-Inkludera ALDRIG search_invoices, search_customers, get_vat_report eller get_company_info som actions i propose_action_plan.
+Inkludera ALDRIG search_invoices, search_supplier_invoices, search_customers, get_vat_report, get_company_info, get_financial_summary, get_account_balances eller search_vouchers som actions i propose_action_plan.
 Resultaten visas som strukturerade kort i chatten.
 Komplettera alltid korten med en kort sammanfattande text.
 
@@ -169,6 +173,10 @@ VIKTIGT: När användaren ber om att SE, VISA, HITTA eller LISTA fakturor,
 använd ALLTID search_invoices — ALDRIG create_invoice eller propose_action_plan.
 create_invoice ska BARA användas när användaren EXPLICIT ber om att SKAPA en ny faktura.
 Nyckelord som "visa mina fakturor", "vilka fakturor", "obetalda fakturor" = search_invoices.
+Nyckelord som "visa leverantörsfakturor", "obetalda leverantörsfakturor", "fakturor från leverantörer" = search_supplier_invoices.
+Nyckelord som "ekonomisk översikt", "resultaträkning", "balansräkning", "hur går det för företaget" = get_financial_summary.
+Nyckelord som "kontosaldon", "kontobalanser", "kontoplan", "saldo på konto", "visa saldon" = get_account_balances.
+Nyckelord som "verifikationer", "visa verifikationer", "bokförda verifikationer", "verifikat", "verifikationslista" = search_vouchers.
 Nyckelord som "skapa faktura", "fakturera kund X" = create_invoice (via propose_action_plan).
 
 ## Direkt handling — undvik onödiga uppföljningsfrågor:
@@ -998,6 +1006,102 @@ const tools: Tool[] = [
                         limit: {
                             type: SchemaType.NUMBER,
                             description: "Max antal resultat, standard 10"
+                        }
+                    }
+                }
+            },
+            {
+                name: "search_supplier_invoices",
+                description: "Söker leverantörsfakturor i Fortnox. Kan filtrera på leverantörsnamn, status (obetald/betald/förfallen) och datumintervall. Använd detta när användaren vill se sina leverantörsfakturor.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        query: {
+                            type: SchemaType.STRING,
+                            description: "Söktext - leverantörsnamn eller fakturanummer"
+                        },
+                        status: {
+                            type: SchemaType.STRING,
+                            description: "Filter: unpaid, paid, overdue, all"
+                        },
+                        from_date: {
+                            type: SchemaType.STRING,
+                            description: "Startdatum YYYY-MM-DD"
+                        },
+                        to_date: {
+                            type: SchemaType.STRING,
+                            description: "Slutdatum YYYY-MM-DD"
+                        },
+                        limit: {
+                            type: SchemaType.NUMBER,
+                            description: "Max antal resultat, standard 10"
+                        }
+                    }
+                }
+            },
+            {
+                name: "get_financial_summary",
+                description: "Hämtar en ekonomisk sammanfattning med resultaträkning och balansräkning från Fortnox. Visar intäkter, kostnader, resultat, tillgångar och skulder.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        financial_year_id: {
+                            type: SchemaType.NUMBER,
+                            description: "Räkenskapsår-ID i Fortnox. Om inte angivet används innevarande år."
+                        }
+                    }
+                }
+            },
+            {
+                name: "get_account_balances",
+                description: "Hämtar kontosaldon från Fortnox kontoplan. Visar ingående balans (IB), utgående balans (UB) och förändring per konto. Kan filtreras på kontonummerintervall. Använd detta när användaren vill se saldon, kontobalanser eller kontoplan.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        from_account: {
+                            type: SchemaType.NUMBER,
+                            description: "Första kontonummer att visa (t.ex. 1000 för tillgångar). Standard: alla konton."
+                        },
+                        to_account: {
+                            type: SchemaType.NUMBER,
+                            description: "Sista kontonummer att visa (t.ex. 1999). Standard: alla konton."
+                        },
+                        financial_year_id: {
+                            type: SchemaType.NUMBER,
+                            description: "Räkenskapsår-ID i Fortnox. Om inte angivet används innevarande år."
+                        },
+                        non_zero_only: {
+                            type: SchemaType.BOOLEAN,
+                            description: "Visa bara konton med saldo. Standard: true."
+                        }
+                    }
+                }
+            },
+            {
+                name: "search_vouchers",
+                description: "Söker och visar verifikationer från Fortnox i en strukturerad tabell. Kan filtreras på räkenskapsår, serie och datumintervall. Använd detta när användaren vill se bokförda verifikationer.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        financial_year: {
+                            type: SchemaType.NUMBER,
+                            description: "Räkenskapsår (t.ex. 2026)"
+                        },
+                        series: {
+                            type: SchemaType.STRING,
+                            description: "Verifikatserie (t.ex. 'A')"
+                        },
+                        from_date: {
+                            type: SchemaType.STRING,
+                            description: "Startdatum YYYY-MM-DD"
+                        },
+                        to_date: {
+                            type: SchemaType.STRING,
+                            description: "Slutdatum YYYY-MM-DD"
+                        },
+                        limit: {
+                            type: SchemaType.NUMBER,
+                            description: "Max antal verifikationer, standard 20"
                         }
                     }
                 }
