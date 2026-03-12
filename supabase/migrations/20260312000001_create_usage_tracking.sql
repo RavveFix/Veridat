@@ -28,7 +28,7 @@ CREATE POLICY "Anyone can read plan limits" ON public.plan_limits
 CREATE TABLE public.usage_tracking (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
+  company_id TEXT,  -- informational only; companies has composite PK so no FK
   event_type TEXT NOT NULL CHECK (event_type IN ('ai_message', 'fortnox_read', 'fortnox_write')),
   tool_name TEXT,
   tokens_used INTEGER,
