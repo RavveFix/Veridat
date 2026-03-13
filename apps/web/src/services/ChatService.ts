@@ -21,6 +21,12 @@ type RateLimitEventDetail = {
     message?: string | null;
 };
 
+export interface ProcessedFileData {
+    fileData: { data: string; mimeType: string } | null;
+    fileDataPages: Array<{ pageNumber?: number; data: string; mimeType: string }> | null;
+    documentText: string | null;
+}
+
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 2000; // 2 seconds base delay
 
@@ -179,17 +185,22 @@ class ChatServiceClass {
         fileUrl: string | null = null,
         vatReportContext: Record<string, unknown> | null = null,
         onStreamingChunk?: (chunk: string) => void,
-        assistantMode: 'agent' | 'skill_assist' | null = null
+        assistantMode: 'agent' | 'skill_assist' | null = null,
+        preProcessed?: ProcessedFileData
     ): Promise<GeminiResponse> {
         logger.startTimer('gemini-chat');
 
         try {
-            // Prepare file data if present
+            // Prepare file data — use pre-processed if available, otherwise process inline
             let fileData: { data: string; mimeType: string } | null = null;
             let fileDataPages: Array<{ pageNumber?: number; data: string; mimeType: string }> | null = null;
             let documentText: string | null = null;
 
-            if (file) {
+            if (preProcessed) {
+                fileData = preProcessed.fileData;
+                fileDataPages = preProcessed.fileDataPages;
+                documentText = preProcessed.documentText;
+            } else if (file) {
                 if (fileService.isPdf(file)) {
                     try {
                         const pdf = await fileService.extractPdfForChat(file);

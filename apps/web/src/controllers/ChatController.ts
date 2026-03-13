@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { ExcelWorkspace } from '../components/ExcelWorkspace';
 import { companyManager } from '../services/CompanyService';
 import { fileService } from '../services/FileService';
-import { chatService, type AIAnalysisProgress } from '../services/ChatService';
+import { chatService, type AIAnalysisProgress, type ProcessedFileData } from '../services/ChatService';
 import { uiController } from '../services/UIService';
 import { logger } from '../services/LoggerService';
 import { conversationController } from './ConversationController';
@@ -32,6 +32,8 @@ export class ChatController {
     private conversationLoadingTimeout: number | null = null;
     private placeholderUnmount: (() => void) | null = null;
     private agentMode: boolean = false;
+    private fileProcessing: boolean = false;
+    private processedFileData: ProcessedFileData | null = null;
     private static readonly AGENT_MODE_STORAGE_KEY = 'veridat_agent_mode';
     private static readonly AGENT_MODE_PLACEHOLDER = 'Beskriv en bokföringsåtgärd du vill utföra...';
 
@@ -376,7 +378,7 @@ export class ChatController {
                 const target = e.target as HTMLInputElement;
                 if (target.files && target.files.length > 0) {
                     this.currentFile = target.files[0];
-                    uiController.showFilePreview(this.currentFile.name);
+                    this.processSelectedFile(this.currentFile);
                 }
             });
         }
@@ -384,6 +386,87 @@ export class ChatController {
         if (removeFileBtn) {
             removeFileBtn.addEventListener('click', () => this.clearFile());
         }
+    }
+
+    private async processSelectedFile(file: File): Promise<void> {
+        // Show file chip with loading spinner
+        uiController.showFilePreview(file.name, true);
+        this.fileProcessing = true;
+        this.processedFileData = null;
+        this.setSendButtonEnabled(false);
+
+        // Validate file
+        const validation = fileService.validate(file);
+        if (!validation.valid) {
+            this.showToast(validation.error || 'Filen kunde inte valideras', 'error');
+            this.clearFile();
+            return;
+        }
+
+        // Skip pre-processing for Excel files (handled separately at submit)
+        if (fileService.isExcel(file)) {
+            this.fileProcessing = false;
+            uiController.setFilePreviewReady();
+            this.setSendButtonEnabled(true);
+            return;
+        }
+
+        // Process PDF/image files
+        try {
+            let fileData: { data: string; mimeType: string } | null = null;
+            let fileDataPages: Array<{ pageNumber?: number; data: string; mimeType: string }> | null = null;
+            let documentText: string | null = null;
+
+            if (fileService.isPdf(file)) {
+                try {
+                    const pdf = await fileService.extractPdfForChat(file);
+                    documentText = pdf.documentText || null;
+                    if (pdf.pageImages.length > 0) {
+                        fileDataPages = pdf.pageImages.map((p) => ({
+                            pageNumber: p.pageNumber,
+                            data: p.data,
+                            mimeType: p.mimeType
+                        }));
+                    }
+                } catch (pdfError) {
+                    logger.warn('PDF extraction failed, falling back to base64', { error: pdfError });
+                    const base64Result = await fileService.toBase64WithPadding(file);
+                    fileData = { data: base64Result.data, mimeType: base64Result.mimeType };
+                }
+            } else {
+                const base64Result = await fileService.toBase64WithPadding(file);
+                fileData = { data: base64Result.data, mimeType: base64Result.mimeType };
+            }
+
+            // Check if file was cleared while processing
+            if (this.currentFile !== file) return;
+
+            this.processedFileData = { fileData, fileDataPages, documentText };
+            this.fileProcessing = false;
+            uiController.setFilePreviewReady();
+            this.setSendButtonEnabled(true);
+        } catch (error) {
+            logger.error('File processing failed', { error });
+            this.showToast('Kunde inte bearbeta filen. Försök igen.', 'error');
+            this.clearFile();
+        }
+    }
+
+    private setSendButtonEnabled(enabled: boolean): void {
+        const { chatForm } = uiController.elements;
+        const sendButton = chatForm?.querySelector('button[type="submit"]') as HTMLButtonElement;
+        if (sendButton) sendButton.disabled = !enabled;
+    }
+
+    private showToast(message: string, type: 'success' | 'error' = 'success'): void {
+        const existing = document.querySelector('.toast-inline');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = `toast-inline ${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
     }
 
     private setupVATReportHandler(): void {
@@ -565,6 +648,12 @@ export class ChatController {
         // Block submission while conversation is loading
         if (this.conversationLoading) {
             logger.debug('Form submission blocked - conversation still loading');
+            return;
+        }
+
+        // Block submission while file is still being processed
+        if (this.fileProcessing) {
+            logger.debug('Form submission blocked - file still processing');
             return;
         }
 
@@ -781,9 +870,10 @@ export class ChatController {
             try {
                 let didStream = false;
                 let isFirstChunk = true;
+                const preProcessed = fileForGemini ? this.processedFileData ?? undefined : undefined;
                 const response = await chatService.sendToGemini(
                     userMessage,
-                    fileForGemini,
+                    preProcessed ? null : fileForGemini,
                     fileUrl,
                     vatContext,
                     (chunk) => {
@@ -794,7 +884,8 @@ export class ChatController {
                         }));
                         isFirstChunk = false;
                     },
-                    shouldUseAgent ? 'agent' : null
+                    shouldUseAgent ? 'agent' : null,
+                    preProcessed
                 );
 
                 if (!didStream) {
@@ -893,6 +984,9 @@ export class ChatController {
 
     clearFile(): void {
         this.currentFile = null;
+        this.processedFileData = null;
+        this.fileProcessing = false;
+        this.setSendButtonEnabled(true);
         uiController.clearFilePreview();
     }
 }

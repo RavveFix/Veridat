@@ -160,10 +160,17 @@ class UIControllerService {
     /**
      * Show file preview with name
      */
-    showFilePreview(fileName: string): void {
+    showFilePreview(fileName: string, loading = false): void {
         const { filePreview, fileNameSpan, userInput } = this.elements;
         if (fileNameSpan) fileNameSpan.textContent = fileName;
-        if (filePreview) filePreview.classList.remove('hidden');
+        if (filePreview) {
+            filePreview.classList.remove('hidden');
+            if (loading) {
+                filePreview.classList.add('loading');
+            } else {
+                filePreview.classList.remove('loading');
+            }
+        }
         if (userInput) userInput.focus();
     }
 
@@ -173,8 +180,19 @@ class UIControllerService {
     clearFilePreview(): void {
         const { filePreview, fileInput, userInput } = this.elements;
         if (fileInput) fileInput.value = '';
-        if (filePreview) filePreview.classList.add('hidden');
+        if (filePreview) {
+            filePreview.classList.add('hidden');
+            filePreview.classList.remove('loading');
+        }
         if (userInput) userInput.focus();
+    }
+
+    /**
+     * Remove loading state from file preview (processing complete)
+     */
+    setFilePreviewReady(): void {
+        const { filePreview } = this.elements;
+        if (filePreview) filePreview.classList.remove('loading');
     }
 
     // ========== Voice UI Methods ==========
