@@ -1376,7 +1376,7 @@ export const sendMessageToGemini = async (
         } else if (options?.allowedTools) {
             toolConfig = {
                 functionCallingConfig: {
-                    mode: "AUTO" as any,
+                    mode: "ANY" as any,
                     allowedFunctionNames: options.allowedTools,
                 },
             };
@@ -1581,7 +1581,7 @@ export const sendMessageStreamToGemini = async (
         } else if (options?.allowedTools) {
             toolConfig = {
                 functionCallingConfig: {
-                    mode: "AUTO" as any,
+                    mode: "ANY" as any,
                     allowedFunctionNames: options.allowedTools,
                 },
             };
