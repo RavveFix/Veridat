@@ -1735,6 +1735,12 @@ Deno.serve(async (req: Request) => {
     const hasFileAttachment = Boolean(
       fileData || fileDataPages || documentText || fileUrl || fileName,
     );
+    if (fileData) {
+      logger.info("Received fileData", {
+        mimeType: fileData.mimeType,
+        dataLength: fileData.data?.length || 0,
+      });
+    }
     const isSkillAssist = assistantMode === "skill_assist";
 
     // Log which model is requested
@@ -3599,6 +3605,32 @@ ANVÄNDARFRÅGA:
     );
     const geminiFileData = primaryFile ||
       (imagePages.length > 0 ? (imagePages[0] as FileData) : undefined);
+    if (hasFileAttachment) {
+      logger.info("File routing result", {
+        hasGeminiFileData: !!geminiFileData,
+        mimeType: geminiFileData?.mimeType || "none",
+      });
+    }
+    // When a file is attached, tell Gemini to analyze it before using tools
+    if (geminiFileData && geminiFileData.data && geminiFileData.data.length > 0) {
+      const safeFileName = fileName || "okänd fil";
+      const safeMime = geminiFileData.mimeType || "unknown";
+      logger.info("File attached for Gemini", {
+        fileName: safeFileName,
+        mimeType: safeMime,
+        dataLength: geminiFileData.data.length,
+      });
+      finalMessage = `[BIFOGAD FIL: ${safeFileName} (${safeMime})]\n` +
+        `VIKTIGT: Användaren har bifogat en fil. Analysera filinnehållet FÖRST — ` +
+        `extrahera all relevant information (belopp, moms, leverantör, datum) ` +
+        `innan du använder Fortnox-verktyg. Basera ditt konteringsförslag på filens innehåll.\n\n` +
+        finalMessage;
+    } else if (geminiFileData) {
+      logger.warn("geminiFileData present but data is empty", {
+        mimeType: geminiFileData.mimeType,
+        fileName: fileName || "unknown",
+      });
+    }
     const disableTools = isSkillAssist;
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
