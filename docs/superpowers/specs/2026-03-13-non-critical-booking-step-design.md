@@ -1,0 +1,62 @@
+# Non-Critical Booking Step for Supplier Invoices
+
+**Date:** 2026-03-13
+**Status:** Approved
+
+## Problem
+
+Fortnox "enkel attest" (simple approval) setting is disabled, causing `approveSupplierInvoiceBookkeep` and `bookSupplierInvoice` API calls to fail with error codes 2001110/2001322. This blocks the entire supplier invoice creation flow — the booking step failure causes the action plan to report failure even though the invoice was successfully created.
+
+## Decision
+
+Make the `book_supplier_invoice` step non-critical: attempt booking, but if it fails, treat the step as successful with a user-facing note to book manually in Fortnox. This is future-proof — if "enkel attest" is enabled later, booking will work automatically.
+
+## Approach: Try-catch with graceful degradation
+
+### Changes
+
+All changes are in `supabase/functions/gemini-chat/index.ts`.
+
+#### 1. Direct tool handler (~line 1630)
+
+Wrap the entire `book_supplier_invoice` case in an outer try-catch. On failure, return a graceful message instead of throwing.
+
+**Before:** Throws on both `approveSupplierInvoiceBookkeep` and `bookSupplierInvoice` failure.
+**After:** Catches all errors, logs warning, returns:
+```
+"Leverantörsfaktura {nr} kunde inte bokföras automatiskt. Bokför manuellt i Fortnox under Leverantörsfakturor → Attestera/Bokför."
+```
+
+#### 2. Action plan handler (~line 2529)
+
+Same pattern. On failure, set `resultText` to the fallback message. The action is still counted as successful in the action plan progress (N/N).
+
+**Before:** Inner catch falls back to `bookSupplierInvoice`, but if that also fails, the error propagates up and the action plan step fails.
+**After:** Outer try-catch catches all failures. `resultText` set to fallback. Step counted as success.
+
+#### 3. register_payment auto-approve (~line 2688)
+
+Already handles failures gracefully (catch logs and continues to payment). Update the log message to be more descriptive.
+
+#### 4. Non-streaming handler (~line 5815)
+
+Same pattern as #1 and #2. Wrap in outer try-catch, set `responseText` and `toolStructuredData` to indicate graceful fallback.
+
+### Fallback message (Swedish)
+
+```
+"Leverantörsfaktura {nr} kunde inte bokföras automatiskt. Bokför manuellt i Fortnox under Leverantörsfakturor → Attestera/Bokför."
+```
+
+### What does NOT change
+
+- `FortnoxService.ts` — `bookSupplierInvoice` and `approveSupplierInvoiceBookkeep` methods stay as-is
+- `GeminiService.ts` — system prompt still suggests "Vill du att jag bokför den?" as next step
+- `propose_action_plan` schema — `book_supplier_invoice` remains a valid action type
+- `register_payment` handler — already graceful, only log message updated
+
+### Success criteria
+
+- Upload a receipt → AI creates supplier + supplier invoice → booking step attempted → if fails, user sees success with manual booking note
+- Action plan shows 3/3 (or 2/2 if no payment step) regardless of booking outcome
+- If user later enables "enkel attest" in Fortnox, booking works automatically with no code changes
