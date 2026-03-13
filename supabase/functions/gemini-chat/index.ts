@@ -2445,18 +2445,20 @@ Deno.serve(async (req: Request) => {
                                 Debit: net,
                                 Credit: 0,
                               },
+                              // For non-RC: add VAT + supplier liability rows
+                              // For RC (EUINTERNAL): Fortnox auto-generates 2440, 2645, 2614
                               ...(isRC ? [] : [
                                 {
                                   Account: 2640,
                                   Debit: vat,
                                   Credit: 0,
                                 },
+                                {
+                                  Account: 2440,
+                                  Debit: 0,
+                                  Credit: totalAmt,
+                                },
                               ]),
-                              {
-                                Account: 2440,
-                                Debit: 0,
-                                Credit: totalAmt,
-                              },
                             ],
                           },
                         },
