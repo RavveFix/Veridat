@@ -1631,31 +1631,47 @@ async function executeFortnoxTool(
         const bArgs = toolArgs as BookSupplierInvoiceArgs;
         // Resolve casing — AI may send snake_case, camelCase, or PascalCase
         const bInvNum = (bArgs.invoice_number || bArgs.invoiceNumber || bArgs.InvoiceNumber || bArgs.given_number || bArgs.givenNumber || bArgs.GivenNumber) as string;
-        // Fortnox requires approval before booking for new supplier invoices
+        // Booking is non-critical — attempt but gracefully degrade if "enkel attest" is disabled
         try {
-          await callFortnoxWrite(
-            "approveSupplierInvoiceBookkeep",
-            { givenNumber: Number(bInvNum) },
-            "approve_supplier_invoice",
-            bInvNum,
-          );
-        } catch {
-          await callFortnoxWrite(
-            "bookSupplierInvoice",
-            { givenNumber: Number(bInvNum) },
-            "bookkeep_supplier_invoice",
-            bInvNum,
-          );
+          try {
+            await callFortnoxWrite(
+              "approveSupplierInvoiceBookkeep",
+              { givenNumber: Number(bInvNum) },
+              "approve_supplier_invoice",
+              bInvNum,
+            );
+          } catch {
+            await callFortnoxWrite(
+              "bookSupplierInvoice",
+              { givenNumber: Number(bInvNum) },
+              "bookkeep_supplier_invoice",
+              bInvNum,
+            );
+          }
+          void auditService.log({
+            userId,
+            companyId: companyId || undefined,
+            actorType: "ai",
+            action: "update",
+            resourceType: "supplier_invoice",
+            resourceId: bInvNum,
+          });
+          return `Leverantörsfaktura ${bInvNum} är nu bokförd.`;
+        } catch (bookingErr: unknown) {
+          logger.warn("book_supplier_invoice failed (non-critical)", {
+            invoiceNumber: bInvNum,
+            error: bookingErr instanceof Error ? bookingErr.message : "Unknown",
+          });
+          void auditService.log({
+            userId,
+            companyId: companyId || undefined,
+            actorType: "ai",
+            action: "update_skipped",
+            resourceType: "supplier_invoice",
+            resourceId: bInvNum,
+          });
+          return `⚠️ Leverantörsfaktura ${bInvNum} kunde inte bokföras automatiskt. Bokför manuellt i Fortnox under Leverantörsfakturor → Attestera/Bokför.`;
         }
-        void auditService.log({
-          userId,
-          companyId: companyId || undefined,
-          actorType: "ai",
-          action: "update",
-          resourceType: "supplier_invoice",
-          resourceId: bInvNum,
-        });
-        return `Leverantörsfaktura ${bInvNum} är nu bokförd.`;
       }
       case "create_invoice": {
         const ciArgs = toolArgs as Record<string, unknown>;
@@ -2528,40 +2544,54 @@ Deno.serve(async (req: Request) => {
                     }
                     case "book_supplier_invoice": {
                       const bsiInvoiceNum = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber || params.given_number || params.givenNumber || params.GivenNumber) as string | number;
-                      // Fortnox requires approval before booking for new supplier invoices
-                      // Use approvalbookkeep first, fall back to bookkeep if already approved
-                      // IMPORTANT: different operation keys to avoid idempotency collision
+                      // Booking is non-critical — attempt but gracefully degrade if "enkel attest" is disabled
                       try {
-                        await callFortnoxWrite(
-                          "approveSupplierInvoiceBookkeep",
-                          {
-                            givenNumber: Number(bsiInvoiceNum),
-                          },
-                          "approve_supplier_invoice",
-                          String(bsiInvoiceNum),
-                        );
-                      } catch (approveErr: unknown) {
-                        // If approval fails (e.g. already approved), try direct bookkeep
-                        logger.warn("approvalbookkeep failed, trying bookkeep", { error: approveErr instanceof Error ? approveErr.message : "Unknown" });
-                        await callFortnoxWrite(
-                          "bookSupplierInvoice",
-                          {
-                            givenNumber: Number(bsiInvoiceNum),
-                          },
-                          "bookkeep_supplier_invoice",
-                          String(bsiInvoiceNum),
-                        );
+                        try {
+                          await callFortnoxWrite(
+                            "approveSupplierInvoiceBookkeep",
+                            {
+                              givenNumber: Number(bsiInvoiceNum),
+                            },
+                            "approve_supplier_invoice",
+                            String(bsiInvoiceNum),
+                          );
+                        } catch (approveErr: unknown) {
+                          logger.warn("approvalbookkeep failed, trying bookkeep", { error: approveErr instanceof Error ? approveErr.message : "Unknown" });
+                          await callFortnoxWrite(
+                            "bookSupplierInvoice",
+                            {
+                              givenNumber: Number(bsiInvoiceNum),
+                            },
+                            "bookkeep_supplier_invoice",
+                            String(bsiInvoiceNum),
+                          );
+                        }
+                        resultText =
+                          `Leverantörsfaktura ${bsiInvoiceNum} bokförd`;
+                        void auditService.log({
+                          userId,
+                          companyId: resolvedCompanyId || undefined,
+                          actorType: "ai",
+                          action: "update",
+                          resourceType: "supplier_invoice",
+                          resourceId: String(bsiInvoiceNum),
+                        });
+                      } catch (bookingErr: unknown) {
+                        logger.warn("book_supplier_invoice failed in action plan (non-critical)", {
+                          invoiceNumber: String(bsiInvoiceNum),
+                          error: bookingErr instanceof Error ? bookingErr.message : "Unknown",
+                        });
+                        resultText =
+                          `⚠️ Leverantörsfaktura ${bsiInvoiceNum} kunde inte bokföras automatiskt. Bokför manuellt i Fortnox under Leverantörsfakturor → Attestera/Bokför.`;
+                        void auditService.log({
+                          userId,
+                          companyId: resolvedCompanyId || undefined,
+                          actorType: "ai",
+                          action: "update_skipped",
+                          resourceType: "supplier_invoice",
+                          resourceId: String(bsiInvoiceNum),
+                        });
                       }
-                      resultText =
-                        `Leverantörsfaktura ${bsiInvoiceNum} bokförd`;
-                      void auditService.log({
-                        userId,
-                        companyId: resolvedCompanyId || undefined,
-                        actorType: "ai",
-                        action: "update",
-                        resourceType: "supplier_invoice",
-                        resourceId: String(bsiInvoiceNum),
-                      });
                       break;
                     }
                     case "create_supplier": {
@@ -2685,34 +2715,51 @@ Deno.serve(async (req: Request) => {
                         new Date().toISOString().slice(0, 10);
 
                       if (payType === "supplier") {
-                        // Ensure invoice is booked before registering payment
+                        // Supplier payment is non-critical — approve+pay, but gracefully degrade
                         try {
+                          try {
+                            await callFortnoxWrite(
+                              "approveSupplierInvoiceBookkeep",
+                              { givenNumber: Number(invoiceNum) },
+                              "approve_supplier_invoice",
+                              invoiceNum,
+                            );
+                            logger.info("Auto-approved supplier invoice before payment", { invoiceNum });
+                          } catch (bookErr: unknown) {
+                            logger.info("Supplier invoice already booked or approval failed (continuing)", {
+                              invoiceNum,
+                              error: bookErr instanceof Error ? bookErr.message : "Unknown",
+                            });
+                          }
                           await callFortnoxWrite(
-                            "approveSupplierInvoiceBookkeep",
-                            { givenNumber: Number(invoiceNum) },
-                            "approve_supplier_invoice",
+                            "registerSupplierInvoicePayment",
+                            {
+                              payment: {
+                                InvoiceNumber: invoiceNum,
+                                Amount: payAmount,
+                                PaymentDate: payDate,
+                              },
+                            },
+                            "register_supplier_invoice_payment",
                             invoiceNum,
                           );
-                          logger.info("Auto-approved supplier invoice before payment", { invoiceNum });
-                        } catch (bookErr: unknown) {
-                          // Already booked or approved — safe to continue
-                          logger.info("Supplier invoice already booked or approval failed (continuing)", {
-                            invoiceNum,
-                            error: bookErr instanceof Error ? bookErr.message : "Unknown",
+                        } catch (payErr: unknown) {
+                          logger.warn("register_payment for supplier invoice failed (non-critical)", {
+                            invoiceNumber: invoiceNum,
+                            error: payErr instanceof Error ? payErr.message : "Unknown",
                           });
+                          resultText =
+                            `⚠️ Betalning kunde inte registreras — fakturan behöver attesteras och bokföras först i Fortnox.`;
+                          void auditService.log({
+                            userId,
+                            companyId: resolvedCompanyId || undefined,
+                            actorType: "ai",
+                            action: "update_skipped",
+                            resourceType: "supplier_invoice",
+                            resourceId: invoiceNum,
+                          });
+                          break;
                         }
-                        await callFortnoxWrite(
-                          "registerSupplierInvoicePayment",
-                          {
-                            payment: {
-                              InvoiceNumber: invoiceNum,
-                              Amount: payAmount,
-                              PaymentDate: payDate,
-                            },
-                          },
-                          "register_supplier_invoice_payment",
-                          invoiceNum,
-                        );
                       } else {
                         await callFortnoxWrite(
                           "registerInvoicePayment",
@@ -5816,36 +5863,57 @@ ANVÄNDARFRÅGA:
             const bsiArgs = args as BookSupplierInvoiceArgs;
             // Resolve casing — AI may send snake_case, camelCase, or PascalCase
             const bsi3InvNum = (bsiArgs.invoice_number || bsiArgs.invoiceNumber || bsiArgs.InvoiceNumber || bsiArgs.given_number || bsiArgs.givenNumber || bsiArgs.GivenNumber) as string;
-            // Fortnox requires approval before booking for new supplier invoices
+            // Booking is non-critical — attempt but gracefully degrade if "enkel attest" is disabled
             try {
-              toolResult = await callFortnoxWrite(
-                "approveSupplierInvoiceBookkeep",
-                { givenNumber: Number(bsi3InvNum) },
-                "approve_supplier_invoice",
-                bsi3InvNum,
-              );
-            } catch {
-              toolResult = await callFortnoxWrite(
-                "bookSupplierInvoice",
-                { givenNumber: Number(bsi3InvNum) },
-                "bookkeep_supplier_invoice",
-                bsi3InvNum,
-              );
+              try {
+                toolResult = await callFortnoxWrite(
+                  "approveSupplierInvoiceBookkeep",
+                  { givenNumber: Number(bsi3InvNum) },
+                  "approve_supplier_invoice",
+                  bsi3InvNum,
+                );
+              } catch {
+                toolResult = await callFortnoxWrite(
+                  "bookSupplierInvoice",
+                  { givenNumber: Number(bsi3InvNum) },
+                  "bookkeep_supplier_invoice",
+                  bsi3InvNum,
+                );
+              }
+              toolStructuredData = {
+                toolArgs: bsiArgs as Record<string, unknown>,
+                toolResult: toolResult as Record<string, unknown>,
+              };
+              responseText =
+                `Leverantörsfaktura ${bsi3InvNum} är nu bokförd i Fortnox.`;
+              void auditService.log({
+                userId,
+                companyId: resolvedCompanyId || undefined,
+                actorType: "ai",
+                action: "update",
+                resourceType: "supplier_invoice",
+                resourceId: bsi3InvNum,
+              });
+            } catch (bookingErr: unknown) {
+              logger.warn("book_supplier_invoice failed in non-streaming (non-critical)", {
+                invoiceNumber: bsi3InvNum,
+                error: bookingErr instanceof Error ? bookingErr.message : "Unknown",
+              });
+              const fallbackMsg = `⚠️ Leverantörsfaktura ${bsi3InvNum} kunde inte bokföras automatiskt. Bokför manuellt i Fortnox under Leverantörsfakturor → Attestera/Bokför.`;
+              toolStructuredData = {
+                toolArgs: bsiArgs as Record<string, unknown>,
+                toolResult: { error: "booking_skipped", message: fallbackMsg },
+              };
+              responseText = fallbackMsg;
+              void auditService.log({
+                userId,
+                companyId: resolvedCompanyId || undefined,
+                actorType: "ai",
+                action: "update_skipped",
+                resourceType: "supplier_invoice",
+                resourceId: bsi3InvNum,
+              });
             }
-            toolStructuredData = {
-              toolArgs: bsiArgs as Record<string, unknown>,
-              toolResult: toolResult as Record<string, unknown>,
-            };
-            responseText =
-              `Leverantörsfaktura ${bsi3InvNum} är nu bokförd i Fortnox.`;
-            void auditService.log({
-              userId,
-              companyId: resolvedCompanyId || undefined,
-              actorType: "ai",
-              action: "update",
-              resourceType: "supplier_invoice",
-              resourceId: bsi3InvNum,
-            });
             break;
           }
           case "propose_action_plan": {
