@@ -4148,6 +4148,7 @@ ANVÄNDARFRÅGA:
                         status: "pending" as const,
                       })),
                       assumptions: planArgs.assumptions || [],
+                      source_file: findSourceFile(Array.isArray(history) ? history : []),
                     };
 
                     // Stream the action plan as a special SSE event
