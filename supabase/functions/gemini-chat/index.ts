@@ -2470,6 +2470,15 @@ Deno.serve(async (req: Request) => {
                         }
                       }
 
+                      // Inject created GivenNumber into subsequent book/payment actions
+                      if (givenNumber) {
+                        for (const remaining of actions.slice(i + 1)) {
+                          if (remaining.action_type === "book_supplier_invoice" || remaining.action_type === "register_payment") {
+                            remaining.parameters = { ...remaining.parameters, invoice_number: String(givenNumber) };
+                            logger.info("Injected created supplier invoice number into next action", { givenNumber, actionType: remaining.action_type });
+                          }
+                        }
+                      }
                       resultText =
                         `Leverantörsfaktura skapad (nr ${givenNumber})${siAttachmentNote}`;
                       void auditService.log({
