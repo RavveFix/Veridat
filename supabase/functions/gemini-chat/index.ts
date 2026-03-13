@@ -2490,8 +2490,53 @@ Deno.serve(async (req: Request) => {
                         String(action.id || ""),
                       );
                       const voucher = (result as any).Voucher || result;
-                      resultText =
-                        `Verifikat exporterat: ${voucher.VoucherSeries || ""}${voucher.VoucherNumber || ""}`;
+
+                      // --- Attach source file to voucher (non-blocking) ---
+                      // `plan` is defined earlier: const plan = planMessage.metadata as Record<string, unknown>;
+                      const sourceFile = plan.source_file as SourceFile | undefined;
+                      let attachmentNote = '';
+                      if (sourceFile?.storage_path && voucher.VoucherNumber) {
+                        try {
+                          const transactionDate = (params.transaction_date as string) ||
+                            new Date().toISOString().slice(0, 10);
+                          const financialYearDate = transactionDate.slice(0, 4) + '-01-01';
+
+                          const attachResult = await callFortnoxWrite(
+                            "attachFileToVoucher",
+                            {
+                              storagePath: sourceFile.storage_path,
+                              fileName: sourceFile.file_name,
+                              mimeType: sourceFile.mime_type,
+                              voucherSeries: String(voucher.VoucherSeries || "A"),
+                              voucherNumber: Number(voucher.VoucherNumber),
+                              financialYearDate,
+                            },
+                            "attach_file_to_voucher",
+                            `attachment-${plan_id}`,
+                          );
+
+                          if ((attachResult as any)?.success) {
+                            logger.info('File attached to voucher', {
+                              fileId: (attachResult as any).fileId,
+                              voucherSeries: voucher.VoucherSeries,
+                              voucherNumber: voucher.VoucherNumber,
+                            });
+                            attachmentNote = ` med bifogat kvitto "${sourceFile.file_name}"`;
+                          } else {
+                            logger.warn('File attachment failed (non-blocking)', {
+                              error: (attachResult as any)?.error,
+                            });
+                          }
+                        } catch (attachError) {
+                          // Non-blocking: log and continue — voucher is already created
+                          logger.warn('File attachment to voucher failed', {
+                            error: attachError instanceof Error ? attachError.message : 'Unknown',
+                            storagePath: sourceFile.storage_path,
+                          });
+                        }
+                      }
+
+                      resultText = `Verifikat exporterat: ${voucher.VoucherSeries || ""}${voucher.VoucherNumber || ""}${attachmentNote}`;
                       break;
                     }
                     case "register_payment": {
