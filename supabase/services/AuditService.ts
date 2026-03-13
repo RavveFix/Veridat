@@ -39,7 +39,8 @@ export type FortnoxOperation =
     | 'update_voucher'
     | 'update_invoice'
     | 'import_vouchers'
-    | 'import_supplier_invoices';
+    | 'import_supplier_invoices'
+    | 'attach_file_to_voucher';
 
 export type SyncStatus = 'pending' | 'in_progress' | 'success' | 'failed' | 'cancelled';
 
