@@ -1652,6 +1652,61 @@ Deno.serve(async (req: Request) => {
                 break;
             }
 
+            case 'attachFileToVoucher': {
+                const storagePath = requireString(payload?.storagePath, 'payload.storagePath');
+                const fileName = requireString(payload?.fileName, 'payload.fileName');
+                const voucherSeries = requireString(payload?.voucherSeries, 'payload.voucherSeries');
+                const voucherNumber = requireNumber(payload?.voucherNumber, 'payload.voucherNumber');
+                const financialYearDate = requireString(payload?.financialYearDate, 'payload.financialYearDate');
+
+                // 1. Download file from Supabase Storage
+                const { data: fileBlob, error: downloadError } = await supabaseAdmin.storage
+                    .from('chat-files')
+                    .download(storagePath);
+
+                if (downloadError || !fileBlob) {
+                    logger.error('Failed to download file from Storage', { storagePath, error: downloadError?.message });
+                    result = { success: false, error: `Kunde inte hämta filen: ${downloadError?.message || 'okänt fel'}` };
+                    break;
+                }
+
+                const fileData = new Uint8Array(await fileBlob.arrayBuffer());
+
+                // 2. Validate file size (max 5 MB — Fortnox limit)
+                const MAX_FILE_SIZE = 5 * 1024 * 1024;
+                if (fileData.byteLength > MAX_FILE_SIZE) {
+                    logger.warn('File exceeds Fortnox 5 MB limit', { storagePath, size: fileData.byteLength });
+                    result = { success: false, error: `Filen överstiger Fortnox maxgräns på 5 MB (${(fileData.byteLength / 1024 / 1024).toFixed(1)} MB)` };
+                    break;
+                }
+
+                // 3. Upload to Fortnox Inbox
+                const fortnoxService = requireFortnoxService();
+                const inboxFile = await fortnoxService.uploadToInbox(fileData, fileName);
+                logger.info('File uploaded to Fortnox Inbox', { fileId: inboxFile.Id, fileName: inboxFile.Name });
+
+                // 4. Create voucher file connection
+                const connection = await fortnoxService.createVoucherFileConnection(
+                    inboxFile.Id,
+                    voucherNumber,
+                    voucherSeries,
+                    financialYearDate,
+                );
+                logger.info('Voucher file connection created', {
+                    fileId: inboxFile.Id,
+                    voucherNumber,
+                    voucherSeries,
+                });
+
+                result = {
+                    success: true,
+                    fileId: inboxFile.Id,
+                    fileName: inboxFile.Name,
+                    voucherFileConnection: connection.VoucherFileConnection,
+                };
+                break;
+            }
+
             case 'createPostingCorrectionVoucher': {
                 let correctionRequest;
                 try {
