@@ -1631,12 +1631,22 @@ async function executeFortnoxTool(
         const bArgs = toolArgs as BookSupplierInvoiceArgs;
         // Resolve casing — AI may send snake_case, camelCase, or PascalCase
         const bInvNum = (bArgs.invoice_number || bArgs.invoiceNumber || bArgs.InvoiceNumber || bArgs.given_number || bArgs.givenNumber || bArgs.GivenNumber) as string;
-        await callFortnoxWrite(
-          "bookSupplierInvoice",
-          { givenNumber: Number(bInvNum) },
-          "book_supplier_invoice",
-          bInvNum,
-        );
+        // Fortnox requires approval before booking for new supplier invoices
+        try {
+          await callFortnoxWrite(
+            "approveSupplierInvoiceBookkeep",
+            { givenNumber: Number(bInvNum) },
+            "book_supplier_invoice",
+            bInvNum,
+          );
+        } catch {
+          await callFortnoxWrite(
+            "bookSupplierInvoice",
+            { givenNumber: Number(bInvNum) },
+            "book_supplier_invoice",
+            bInvNum,
+          );
+        }
         void auditService.log({
           userId,
           companyId: companyId || undefined,
@@ -2494,14 +2504,29 @@ Deno.serve(async (req: Request) => {
                     }
                     case "book_supplier_invoice": {
                       const bsiInvoiceNum = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber || params.given_number || params.givenNumber || params.GivenNumber) as string | number;
-                      await callFortnoxWrite(
-                        "bookSupplierInvoice",
-                        {
-                          givenNumber: Number(bsiInvoiceNum),
-                        },
-                        "book_supplier_invoice",
-                        String(bsiInvoiceNum),
-                      );
+                      // Fortnox requires approval before booking for new supplier invoices
+                      // Use approvalbookkeep first, fall back to bookkeep if already approved
+                      try {
+                        await callFortnoxWrite(
+                          "approveSupplierInvoiceBookkeep",
+                          {
+                            givenNumber: Number(bsiInvoiceNum),
+                          },
+                          "book_supplier_invoice",
+                          String(bsiInvoiceNum),
+                        );
+                      } catch (approveErr: unknown) {
+                        // If approval fails (e.g. already approved), try direct bookkeep
+                        logger.warn("approvalbookkeep failed, trying bookkeep", { error: approveErr instanceof Error ? approveErr.message : "Unknown" });
+                        await callFortnoxWrite(
+                          "bookSupplierInvoice",
+                          {
+                            givenNumber: Number(bsiInvoiceNum),
+                          },
+                          "book_supplier_invoice",
+                          String(bsiInvoiceNum),
+                        );
+                      }
                       resultText =
                         `Leverantörsfaktura ${bsiInvoiceNum} bokförd`;
                       void auditService.log({
@@ -5750,12 +5775,22 @@ ANVÄNDARFRÅGA:
             const bsiArgs = args as BookSupplierInvoiceArgs;
             // Resolve casing — AI may send snake_case, camelCase, or PascalCase
             const bsi3InvNum = (bsiArgs.invoice_number || bsiArgs.invoiceNumber || bsiArgs.InvoiceNumber || bsiArgs.given_number || bsiArgs.givenNumber || bsiArgs.GivenNumber) as string;
-            toolResult = await callFortnoxWrite(
-              "bookSupplierInvoice",
-              { givenNumber: Number(bsi3InvNum) },
-              "book_supplier_invoice",
-              bsi3InvNum,
-            );
+            // Fortnox requires approval before booking for new supplier invoices
+            try {
+              toolResult = await callFortnoxWrite(
+                "approveSupplierInvoiceBookkeep",
+                { givenNumber: Number(bsi3InvNum) },
+                "book_supplier_invoice",
+                bsi3InvNum,
+              );
+            } catch {
+              toolResult = await callFortnoxWrite(
+                "bookSupplierInvoice",
+                { givenNumber: Number(bsi3InvNum) },
+                "book_supplier_invoice",
+                bsi3InvNum,
+              );
+            }
             toolStructuredData = {
               toolArgs: bsiArgs as Record<string, unknown>,
               toolResult: toolResult as Record<string, unknown>,
