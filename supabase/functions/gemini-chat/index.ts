@@ -107,6 +107,66 @@ function formatSek(value: number | null | undefined): string {
   );
 }
 
+// ============================================================
+// Voucher Attachment Helpers
+// ============================================================
+
+const ATTACHABLE_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp'];
+
+interface SourceFile {
+  storage_path: string;
+  file_name: string;
+  mime_type: string;
+}
+
+function isAttachableFile(fileName: string): boolean {
+  return ATTACHABLE_EXTENSIONS.some(ext => fileName.toLowerCase().endsWith(ext));
+}
+
+function inferMimeType(fileName: string): string {
+  const ext = (fileName.toLowerCase().split('.').pop() || '');
+  const map: Record<string, string> = {
+    pdf: 'application/pdf',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+function extractStoragePath(fileUrl: string): string {
+  try {
+    const url = new URL(fileUrl);
+    const match = url.pathname.match(/\/storage\/v1\/object\/sign\/chat-files\/(.+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  } catch {
+    return '';
+  }
+}
+
+// deno-lint-ignore no-explicit-any
+function findSourceFile(history: any[]): SourceFile | undefined {
+  // Search backwards for the most recent user message with an attachable file.
+  // History objects include file_name/file_url at runtime (from messages table)
+  // but these fields are not in the TS interface — use `any` like existing code (line 3661).
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (msg.role === 'user' && msg.file_name && isAttachableFile(msg.file_name) && msg.file_url) {
+      const storagePath = extractStoragePath(msg.file_url);
+      if (storagePath) {
+        return {
+          storage_path: storagePath,
+          file_name: msg.file_name,
+          mime_type: inferMimeType(msg.file_name),
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
 function buildSkillAssistSystemPrompt(): string {
   return [
     "SYSTEM: Du är Veridats Skill-assistent.",
