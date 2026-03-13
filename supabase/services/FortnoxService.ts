@@ -29,6 +29,7 @@ import type {
     FortnoxAccountListResponse,
     FortnoxFinancialYearListResponse,
     FortnoxCompanyInfoResponse,
+    FortnoxVoucherFileConnectionResponse,
 } from '../functions/fortnox/types.ts';
 
 export interface FortnoxConfig {
@@ -543,6 +544,28 @@ export class FortnoxService {
             }
             throw error;
         }
+    }
+
+    /**
+     * Create a connection between an uploaded file and a voucher.
+     * Uses standard request() since this is a JSON POST.
+     */
+    async createVoucherFileConnection(
+        fileId: string,
+        voucherNumber: number,
+        voucherSeries: string,
+        financialYearDate: string,
+    ): Promise<FortnoxVoucherFileConnectionResponse> {
+        return await this.request(`/voucherfileconnections?financialyeardate=${encodeURIComponent(financialYearDate)}`, {
+            method: 'POST',
+            body: JSON.stringify({
+                VoucherFileConnection: {
+                    FileId: fileId,
+                    VoucherNumber: voucherNumber,
+                    VoucherSeries: voucherSeries,
+                },
+            }),
+        });
     }
 
     /**
