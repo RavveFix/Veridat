@@ -1091,6 +1091,7 @@
 .journal-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     font-size: 0.825rem;
 }
@@ -1123,19 +1124,25 @@
 }
 
 .journal-table .col-account {
-    width: 60px;
+    width: 52px;
+    white-space: nowrap;
     font-weight: 600;
     color: var(--accent-secondary, #6366f1);
 }
 
 .journal-table .col-name {
-    min-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 0;
+    width: 100%;
 }
 
 .journal-table .col-amount {
     text-align: right;
     font-variant-numeric: tabular-nums;
-    width: 90px;
+    white-space: nowrap;
+    min-width: 72px;
 }
 
 .journal-table th.col-amount {
@@ -1155,6 +1162,9 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    max-width: none;
+    overflow: visible;
+    white-space: nowrap;
 }
 
 .journal-balance-ok {
@@ -1263,7 +1273,11 @@
     }
 
     .journal-table .col-amount {
-        width: 70px;
+        min-width: 60px;
+    }
+
+    .journal-table .col-comment {
+        display: none;
     }
 
     .journal-entry-actions {
@@ -1275,7 +1289,10 @@
 .journal-table .col-comment {
     font-size: 0.75rem;
     color: var(--text-secondary);
-    min-width: 80px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100px;
 }
 
 /* ============================================
@@ -1406,6 +1423,10 @@
     font-size: var(--text-sm);
     color: var(--text-secondary);
     line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 /* Steps list */
