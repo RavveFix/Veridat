@@ -50,7 +50,9 @@ const FORTNOX_SCOPES = [
     'bookkeeping',
     'companyinformation',
     'supplier',
-    'supplierinvoice'
+    'supplierinvoice',
+    'payment',
+    'connectfile'
 ].join(' ');
 
 type OAuthStatePayload = {
