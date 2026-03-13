@@ -6,12 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Veridat** is an AI-powered Swedish bookkeeping assistant for small businesses. It's a Progressive Web App (PWA) that helps users with accounting tasks, invoice creation, and tax document analysis.
 
-**Tech Stack:**
-- Frontend: Vite + TypeScript (vanilla, class-based components)
+**⚠️ Repo Structure — Two Apps:**
+- `veridat/` — **PRODUKTIONSAPP** (Next.js 16, App Router). Deployad till veridat.se via Vercel. **ALLA frontend-ändringar ska göras här.**
+- `apps/web/` — GAMMAL Vite-app. **ANVÄNDS INTE. IGNORERA.**
+
+**Tech Stack (Production — `veridat/`):**
+- Frontend: Next.js 16 (App Router, TypeScript)
 - Backend: Supabase Edge Functions (Deno)
 - AI: Google Gemini (chat/PDF), OpenAI (column mapping), Claude (fallback)
 - Integrations: Fortnox API for accounting operations
 - Database: Supabase PostgreSQL with RLS
+- Deployment: Vercel (veridat.se)
 
 ---
 
