@@ -55,6 +55,7 @@ const WRITE_ACTIONS_TO_OPERATION: Partial<Record<string, FortnoxOperation>> = {
     createCustomer: 'create_customer',
     findOrCreateCustomer: 'create_customer',
     updateInvoice: 'update_invoice',
+    attachFileToVoucher: 'attach_file_to_voucher',
 };
 
 const FAIL_CLOSED_RATE_LIMIT_ACTIONS = new Set<string>([
@@ -89,6 +90,7 @@ const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
     'findOrCreateSupplier',
     'createCustomer',
     'updateInvoice',
+    'attachFileToVoucher',
     'sync_profile',
     'getVATReport',
     'getFinancialStatements',
