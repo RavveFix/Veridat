@@ -2415,8 +2415,45 @@ Deno.serve(async (req: Request) => {
                       );
                       const givenNumber =
                         (result as any)?.SupplierInvoice?.GivenNumber || "";
+
+                      // --- Attach source file to supplier invoice (non-blocking) ---
+                      const siSourceFile = plan.source_file as SourceFile | undefined;
+                      let siAttachmentNote = '';
+                      if (siSourceFile?.storage_path && givenNumber) {
+                        try {
+                          const siAttachResult = await callFortnoxWrite(
+                            "attachFileToSupplierInvoice",
+                            {
+                              storagePath: siSourceFile.storage_path,
+                              fileName: siSourceFile.file_name,
+                              mimeType: siSourceFile.mime_type,
+                              supplierInvoiceNumber: String(givenNumber),
+                            },
+                            "attach_file_to_supplier_invoice",
+                            `si-attachment-${plan_id}`,
+                          );
+
+                          if ((siAttachResult as any)?.success) {
+                            logger.info('File attached to supplier invoice', {
+                              fileId: (siAttachResult as any).fileId,
+                              givenNumber,
+                            });
+                            siAttachmentNote = ` med bifogat kvitto "${siSourceFile.file_name}"`;
+                          } else {
+                            logger.warn('Supplier invoice file attachment failed (non-blocking)', {
+                              error: (siAttachResult as any)?.error,
+                            });
+                          }
+                        } catch (attachError) {
+                          logger.warn('File attachment to supplier invoice failed', {
+                            error: attachError instanceof Error ? attachError.message : 'Unknown',
+                            storagePath: siSourceFile.storage_path,
+                          });
+                        }
+                      }
+
                       resultText =
-                        `Leverantörsfaktura skapad (nr ${givenNumber})`;
+                        `Leverantörsfaktura skapad (nr ${givenNumber})${siAttachmentNote}`;
                       void auditService.log({
                         userId,
                         companyId: resolvedCompanyId || undefined,
@@ -2451,17 +2488,22 @@ Deno.serve(async (req: Request) => {
                     }
                     case "create_supplier": {
                       // Use findOrCreateSupplier to handle existing suppliers gracefully
+                      // AI sends PascalCase (Name) via propose_action_plan schema,
+                      // but direct tool uses lowercase (name) — handle both
+                      const supplierName = (params.Name || params.name) as string;
+                      const supplierOrg = (params.OrganisationNumber || params.org_number) as string | undefined;
+                      const supplierEmail = (params.Email || params.email) as string | undefined;
                       const result = await callFortnoxWrite(
                         "findOrCreateSupplier",
                         {
                           supplier: {
-                            Name: params.name,
-                            OrganisationNumber: params.org_number || undefined,
-                            Email: params.email || undefined,
+                            Name: supplierName,
+                            OrganisationNumber: supplierOrg || undefined,
+                            Email: supplierEmail || undefined,
                           },
                         },
                         "create_supplier",
-                        String(params.org_number || params.name),
+                        String(supplierOrg || supplierName),
                       );
                       const supplier = (result as any).Supplier || result;
                       createdSupplierNumber = supplier.SupplierNumber;
@@ -2475,7 +2517,7 @@ Deno.serve(async (req: Request) => {
                         }
                       }
                       resultText =
-                        `Leverantör skapad: ${supplier.Name || params.name} (nr ${supplier.SupplierNumber || "tilldelas"})`;
+                        `Leverantör skapad: ${supplier.Name || supplierName} (nr ${supplier.SupplierNumber || "tilldelas"})`;
                       break;
                     }
                     case "book_invoice":

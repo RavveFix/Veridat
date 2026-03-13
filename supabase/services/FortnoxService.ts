@@ -30,6 +30,7 @@ import type {
     FortnoxFinancialYearListResponse,
     FortnoxCompanyInfoResponse,
     FortnoxVoucherFileConnectionResponse,
+    FortnoxSupplierInvoiceFileConnectionResponse,
 } from '../functions/fortnox/types.ts';
 
 export interface FortnoxConfig {
@@ -563,6 +564,25 @@ export class FortnoxService {
                     FileId: fileId,
                     VoucherNumber: voucherNumber,
                     VoucherSeries: voucherSeries,
+                },
+            }),
+        });
+    }
+
+    /**
+     * Create a connection between an uploaded file and a supplier invoice.
+     * Uses standard request() since this is a JSON POST.
+     */
+    async createSupplierInvoiceFileConnection(
+        fileId: string,
+        supplierInvoiceNumber: string,
+    ): Promise<FortnoxSupplierInvoiceFileConnectionResponse> {
+        return await this.request('/supplierinvoicefileconnections', {
+            method: 'POST',
+            body: JSON.stringify({
+                SupplierInvoiceFileConnection: {
+                    FileId: fileId,
+                    SupplierInvoiceNumber: supplierInvoiceNumber,
                 },
             }),
         });

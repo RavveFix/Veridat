@@ -56,6 +56,7 @@ const WRITE_ACTIONS_TO_OPERATION: Partial<Record<string, FortnoxOperation>> = {
     findOrCreateCustomer: 'create_customer',
     updateInvoice: 'update_invoice',
     attachFileToVoucher: 'attach_file_to_voucher',
+    attachFileToSupplierInvoice: 'attach_file_to_supplier_invoice',
 };
 
 const FAIL_CLOSED_RATE_LIMIT_ACTIONS = new Set<string>([
@@ -91,6 +92,7 @@ const ACTIONS_REQUIRING_COMPANY_ID = new Set<string>([
     'createCustomer',
     'updateInvoice',
     'attachFileToVoucher',
+    'attachFileToSupplierInvoice',
     'sync_profile',
     'getVATReport',
     'getFinancialStatements',
@@ -1713,6 +1715,60 @@ Deno.serve(async (req: Request) => {
                     fileId: inboxFile.Id,
                     fileName: inboxFile.Name,
                     voucherFileConnection: connection.VoucherFileConnection,
+                };
+                break;
+            }
+
+            case 'attachFileToSupplierInvoice': {
+                const siStoragePath = requireString(payload?.storagePath, 'payload.storagePath');
+                const siFileName = requireString(payload?.fileName, 'payload.fileName');
+                const supplierInvoiceNumber = requireString(payload?.supplierInvoiceNumber, 'payload.supplierInvoiceNumber');
+
+                if (siStoragePath.includes('..') || siStoragePath.startsWith('/')) {
+                    logger.error('Invalid storage path', { storagePath: siStoragePath });
+                    result = { success: false, error: 'Ogiltig filsökväg' };
+                    break;
+                }
+
+                const siSanitizedFileName = siFileName.replace(/[^\w.\-]/g, '_');
+
+                const { data: siFileBlob, error: siDownloadError } = await supabaseAdmin.storage
+                    .from('chat-files')
+                    .download(siStoragePath);
+
+                if (siDownloadError || !siFileBlob) {
+                    logger.error('Failed to download file from Storage', { storagePath: siStoragePath, error: siDownloadError?.message });
+                    result = { success: false, error: `Kunde inte hämta filen: ${siDownloadError?.message || 'okänt fel'}` };
+                    break;
+                }
+
+                const siFileData = new Uint8Array(await siFileBlob.arrayBuffer());
+
+                const SI_MAX_FILE_SIZE = 5 * 1024 * 1024;
+                if (siFileData.byteLength > SI_MAX_FILE_SIZE) {
+                    logger.warn('File exceeds Fortnox 5 MB limit', { storagePath: siStoragePath, size: siFileData.byteLength });
+                    result = { success: false, error: `Filen överstiger Fortnox maxgräns på 5 MB (${(siFileData.byteLength / 1024 / 1024).toFixed(1)} MB)` };
+                    break;
+                }
+
+                const siFortnoxService = requireFortnoxService();
+                const siInboxFile = await siFortnoxService.uploadToInbox(siFileData, siSanitizedFileName);
+                logger.info('File uploaded to Fortnox Inbox (supplier invoice)', { fileId: siInboxFile.Id, fileName: siInboxFile.Name });
+
+                const siConnection = await siFortnoxService.createSupplierInvoiceFileConnection(
+                    siInboxFile.Id,
+                    supplierInvoiceNumber,
+                );
+                logger.info('Supplier invoice file connection created', {
+                    fileId: siInboxFile.Id,
+                    supplierInvoiceNumber,
+                });
+
+                result = {
+                    success: true,
+                    fileId: siInboxFile.Id,
+                    fileName: siInboxFile.Name,
+                    supplierInvoiceFileConnection: siConnection.SupplierInvoiceFileConnection,
                 };
                 break;
             }
