@@ -412,6 +412,9 @@ export class ChatController {
         }
 
         // Process PDF/image files
+        const startTime = Date.now();
+        const MIN_LOADING_MS = 600;
+
         try {
             let fileData: { data: string; mimeType: string } | null = null;
             let fileDataPages: Array<{ pageNumber?: number; data: string; mimeType: string }> | null = null;
@@ -439,6 +442,14 @@ export class ChatController {
             }
 
             // Check if file was cleared while processing
+            if (this.currentFile !== file) return;
+
+            // Ensure spinner shows for at least MIN_LOADING_MS so user sees feedback
+            const elapsed = Date.now() - startTime;
+            if (elapsed < MIN_LOADING_MS) {
+                await new Promise(resolve => setTimeout(resolve, MIN_LOADING_MS - elapsed));
+            }
+
             if (this.currentFile !== file) return;
 
             this.processedFileData = { fileData, fileDataPages, documentText };
