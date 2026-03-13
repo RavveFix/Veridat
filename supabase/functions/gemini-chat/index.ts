@@ -2385,8 +2385,9 @@ Deno.serve(async (req: Request) => {
                         ? 0
                         : Math.round((totalAmt - net) * 100) / 100;
 
-                      // Resolve SupplierNumber — try params first, then createdSupplierNumber from prior action
-                      const supplierNum = params.supplier_number || params.supplierNumber || params.SupplierNumber || createdSupplierNumber;
+                      // Resolve SupplierNumber — prefer createdSupplierNumber from prior create_supplier action
+                      // (AI often sends supplier name instead of number in params)
+                      const supplierNum = createdSupplierNumber || params.supplier_number || params.supplierNumber || params.SupplierNumber;
                       const siInvoiceNumber = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber || "") as string;
                       const siInvoiceDate = (params.invoice_date || params.invoiceDate || params.InvoiceDate ||
                               new Date().toISOString().slice(0, 10)) as string;
@@ -2525,10 +2526,11 @@ Deno.serve(async (req: Request) => {
                       );
                       const supplier = (result as any).Supplier || result;
                       createdSupplierNumber = supplier.SupplierNumber;
-                      // Inject SupplierNumber into subsequent supplier invoice actions
+                      // Always inject SupplierNumber into subsequent supplier invoice actions
+                      // AI often sends supplier name instead of number — override unconditionally
                       if (createdSupplierNumber) {
                         for (const remaining of actions.slice(i + 1)) {
-                          if (remaining.action_type === "create_supplier_invoice" && !(remaining.parameters?.supplier_number || remaining.parameters?.supplierNumber || remaining.parameters?.SupplierNumber)) {
+                          if (remaining.action_type === "create_supplier_invoice") {
                             remaining.parameters = { ...remaining.parameters, supplier_number: createdSupplierNumber };
                             logger.info("Injected createdSupplierNumber into supplier invoice action", { supplierNumber: createdSupplierNumber });
                           }
