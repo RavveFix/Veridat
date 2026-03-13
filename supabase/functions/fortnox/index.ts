@@ -1659,6 +1659,16 @@ Deno.serve(async (req: Request) => {
                 const voucherNumber = requireNumber(payload?.voucherNumber, 'payload.voucherNumber');
                 const financialYearDate = requireString(payload?.financialYearDate, 'payload.financialYearDate');
 
+                // Validate storage path (prevent path traversal)
+                if (storagePath.includes('..') || storagePath.startsWith('/')) {
+                    logger.error('Invalid storage path', { storagePath });
+                    result = { success: false, error: 'Ogiltig filsökväg' };
+                    break;
+                }
+
+                // Sanitize filename for Fortnox upload
+                const sanitizedFileName = fileName.replace(/[^\w.\-]/g, '_');
+
                 // 1. Download file from Supabase Storage
                 const { data: fileBlob, error: downloadError } = await supabaseAdmin.storage
                     .from('chat-files')
@@ -1682,7 +1692,7 @@ Deno.serve(async (req: Request) => {
 
                 // 3. Upload to Fortnox Inbox
                 const fortnoxService = requireFortnoxService();
-                const inboxFile = await fortnoxService.uploadToInbox(fileData, fileName);
+                const inboxFile = await fortnoxService.uploadToInbox(fileData, sanitizedFileName);
                 logger.info('File uploaded to Fortnox Inbox', { fileId: inboxFile.Id, fileName: inboxFile.Name });
 
                 // 4. Create voucher file connection

@@ -387,7 +387,7 @@ export class FortnoxService {
                     }
 
                     // Token is truly invalid — user needs to re-authenticate
-                    throw new FortnoxAuthError('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
+                    throw new Error('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
                 }
 
                 throw new Error(`Failed to refresh token: ${response.status} ${errorText}`);
