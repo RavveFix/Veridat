@@ -2,7 +2,7 @@
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { createLogger } from './LoggerService.ts';
-import { classifyFortnoxError, FortnoxTimeoutError, FortnoxApiError } from './FortnoxErrors.ts';
+import { classifyFortnoxError, FortnoxTimeoutError, FortnoxApiError, FortnoxAuthError } from './FortnoxErrors.ts';
 import { retryWithBackoff } from './RetryService.ts';
 import { FortnoxRateLimitService } from './FortnoxRateLimitService.ts';
 import type {
@@ -477,15 +477,10 @@ export class FortnoxService {
     }
 
     /**
-     * Generic method to make authenticated requests to Fortnox.
-     * Includes 30 s timeout and automatic retry with exponential backoff
-     * for transient errors (429, 500, 502, 503, 504).
+     * Single authenticated fetch with 30 s timeout.
+     * Separated from request() so the 401-retry can call it with a fresh token.
      */
-    async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-        await this.rateLimiter.waitIfNeeded();
-
-        const token = await this.getAccessToken();
-
+    private async authenticatedFetch<T>(endpoint: string, token: string, options: RequestInit = {}): Promise<T> {
         const url = `${this.baseUrl}${endpoint}`;
         const headers = {
             'Content-Type': 'application/json',
@@ -493,35 +488,79 @@ export class FortnoxService {
             ...options.headers
         };
 
-        return retryWithBackoff(async () => {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30_000);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
-            try {
-                const response = await fetch(url, {
-                    ...options,
-                    headers,
-                    signal: controller.signal,
-                });
-                clearTimeout(timeoutId);
+        try {
+            const response = await fetch(url, {
+                ...options,
+                headers,
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw classifyFortnoxError(new Error(errorText), response.status);
-                }
-
-                return await response.json();
-            } catch (error) {
-                clearTimeout(timeoutId);
-                if (error instanceof FortnoxApiError) throw error;
-                if (error instanceof Error && error.name === 'AbortError') {
-                    throw new FortnoxTimeoutError();
-                }
-                throw classifyFortnoxError(
-                    error instanceof Error ? error : new Error(String(error)),
-                );
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw classifyFortnoxError(new Error(errorText), response.status);
             }
-        });
+
+            return await response.json();
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error instanceof FortnoxApiError) throw error;
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new FortnoxTimeoutError();
+            }
+            throw classifyFortnoxError(
+                error instanceof Error ? error : new Error(String(error)),
+            );
+        }
+    }
+
+    /**
+     * Force-refresh the token regardless of expires_at.
+     * Used when Fortnox returns 401 despite our token not appearing expired.
+     */
+    private async forceRefreshToken(): Promise<string> {
+        const { data: tokenRow } = await this.supabase
+            .from('fortnox_tokens')
+            .select('id, refresh_token')
+            .eq('user_id', this.userId)
+            .eq('company_id', this.companyId)
+            .maybeSingle();
+
+        if (!tokenRow?.refresh_token) {
+            throw new FortnoxAuthError('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
+        }
+
+        return await this.refreshAccessToken(tokenRow.refresh_token, tokenRow.id);
+    }
+
+    /**
+     * Generic method to make authenticated requests to Fortnox.
+     * Includes 30 s timeout and automatic retry with exponential backoff
+     * for transient errors (429, 500, 502, 503, 504).
+     *
+     * On 401 (auth error): attempts one token refresh + retry before failing.
+     */
+    async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+        await this.rateLimiter.waitIfNeeded();
+
+        const token = await this.getAccessToken();
+
+        try {
+            return await retryWithBackoff(async () => {
+                return await this.authenticatedFetch<T>(endpoint, token, options);
+            });
+        } catch (error) {
+            // On 401: refresh token and retry exactly once
+            if (error instanceof FortnoxAuthError) {
+                logger.info('Got 401 from Fortnox, attempting token refresh and retry', { endpoint });
+                const freshToken = await this.forceRefreshToken();
+                return await this.authenticatedFetch<T>(endpoint, freshToken, options);
+            }
+            throw error;
+        }
     }
 
     async getCustomers(): Promise<FortnoxCustomerListResponse> {
@@ -893,30 +932,47 @@ export class FortnoxService {
             endpoint += `?financialyear=${financialYear}`;
         }
 
-        // SIE endpoint returns raw text, not JSON - use raw fetch with timeout
-        const token = await this.getAccessToken();
-        const url = `${this.baseUrl}${endpoint}`;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30_000);
+        const fetchSIE = async (token: string): Promise<Response> => {
+            const url = `${this.baseUrl}${endpoint}`;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
-        let response: Response;
-        try {
-            response = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` },
-                signal: controller.signal,
-            });
-            clearTimeout(timeoutId);
-        } catch (error) {
-            clearTimeout(timeoutId);
-            if (error instanceof Error && error.name === 'AbortError') {
-                throw new FortnoxTimeoutError();
+            try {
+                const response = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw classifyFortnoxError(new Error(errorText), response.status);
+                }
+
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error instanceof FortnoxApiError) throw error;
+                if (error instanceof Error && error.name === 'AbortError') {
+                    throw new FortnoxTimeoutError();
+                }
+                throw error;
             }
-            throw error;
-        }
+        };
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw classifyFortnoxError(new Error(errorText), response.status);
+        // SIE endpoint returns raw text, not JSON - use raw fetch with timeout
+        let response: Response;
+        const token = await this.getAccessToken();
+        try {
+            response = await fetchSIE(token);
+        } catch (error) {
+            if (error instanceof FortnoxAuthError) {
+                logger.info('Got 401 from Fortnox SIE export, attempting token refresh and retry');
+                const freshToken = await this.forceRefreshToken();
+                response = await fetchSIE(freshToken);
+            } else {
+                throw error;
+            }
         }
 
         // SIE files use CP-437 encoding per Swedish SIE standard.
