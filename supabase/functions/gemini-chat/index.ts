@@ -3633,6 +3633,13 @@ ANVÄNDARFRÅGA:
     }
     const disableTools = isSkillAssist;
 
+    // When a file is attached, restrict tools to only propose_action_plan and request_clarification.
+    // This prevents Gemini from ignoring the file and defaulting to Fortnox read-tools (get_suppliers etc.)
+    const fileAttachedTools = geminiFileData ? [
+      "propose_action_plan",
+      "request_clarification",
+    ] : undefined;
+
     const forceNonStreaming = isSkillAssist || streamParam === false;
 
     // Handle Gemini Streaming
@@ -3647,7 +3654,7 @@ ANVÄNDARFRÅGA:
           history,
           undefined,
           effectiveModel,
-          { disableTools },
+          { disableTools, allowedTools: fileAttachedTools },
         );
         logger.debug("Gemini stream created successfully");
         const encoder = new TextEncoder();
@@ -4829,7 +4836,7 @@ ANVÄNDARFRÅGA:
         history,
         undefined,
         effectiveModel,
-        { disableTools },
+        { disableTools, allowedTools: fileAttachedTools },
       ));
 
     // Handle Tool Calls (Non-streaming fallback)

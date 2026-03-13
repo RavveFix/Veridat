@@ -1347,7 +1347,7 @@ export const sendMessageToGemini = async (
     history?: Array<{ role: string, content: string }>,
     apiKey?: string,
     modelOverride?: string,
-    options?: { disableTools?: boolean; forceToolCall?: string | string[] }
+    options?: { disableTools?: boolean; forceToolCall?: string | string[]; allowedTools?: string[] }
 ): Promise<GeminiResponse> => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -1362,18 +1362,31 @@ export const sendMessageToGemini = async (
         const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3.1-flash-lite-preview";
         logger.info(`Using Gemini model: ${modelName}`);
 
-        const model = genAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: SYSTEM_INSTRUCTION,
-            tools: options?.disableTools ? undefined : tools,
-            toolConfig: options?.forceToolCall ? {
+        // Build toolConfig: forceToolCall (ANY) > allowedTools (AUTO with restrictions) > default (undefined)
+        let toolConfig: any = undefined;
+        if (options?.forceToolCall) {
+            toolConfig = {
                 functionCallingConfig: {
                     mode: "ANY" as any,
                     allowedFunctionNames: Array.isArray(options.forceToolCall)
                         ? options.forceToolCall
                         : [options.forceToolCall],
                 },
-            } : undefined,
+            };
+        } else if (options?.allowedTools) {
+            toolConfig = {
+                functionCallingConfig: {
+                    mode: "AUTO" as any,
+                    allowedFunctionNames: options.allowedTools,
+                },
+            };
+        }
+
+        const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: SYSTEM_INSTRUCTION,
+            tools: options?.disableTools ? undefined : tools,
+            toolConfig,
         });
 
         // Build conversation contents from history
@@ -1543,7 +1556,7 @@ export const sendMessageStreamToGemini = async (
     history?: Array<{ role: string, content: string }>,
     apiKey?: string,
     modelOverride?: string,
-    options?: { disableTools?: boolean; forceToolCall?: string | string[] }
+    options?: { disableTools?: boolean; forceToolCall?: string | string[]; allowedTools?: string[] }
 ) => {
     try {
         const key = apiKey || Deno.env.get("GEMINI_API_KEY");
@@ -1554,18 +1567,31 @@ export const sendMessageStreamToGemini = async (
         const modelName = modelOverride || Deno.env.get("GEMINI_MODEL") || "gemini-3.1-flash-lite-preview";
         logger.info(`Using Gemini model (streaming): ${modelName}`);
 
-        const model = genAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: SYSTEM_INSTRUCTION,
-            tools: options?.disableTools ? undefined : tools,
-            toolConfig: options?.forceToolCall ? {
+        // Build toolConfig: forceToolCall (ANY) > allowedTools (AUTO with restrictions) > default (undefined)
+        let toolConfig: any = undefined;
+        if (options?.forceToolCall) {
+            toolConfig = {
                 functionCallingConfig: {
                     mode: "ANY" as any,
                     allowedFunctionNames: Array.isArray(options.forceToolCall)
                         ? options.forceToolCall
                         : [options.forceToolCall],
                 },
-            } : undefined,
+            };
+        } else if (options?.allowedTools) {
+            toolConfig = {
+                functionCallingConfig: {
+                    mode: "AUTO" as any,
+                    allowedFunctionNames: options.allowedTools,
+                },
+            };
+        }
+
+        const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: SYSTEM_INSTRUCTION,
+            tools: options?.disableTools ? undefined : tools,
+            toolConfig,
         });
 
         const contents = [];
