@@ -5627,6 +5627,7 @@ ANVÄNDARFRÅGA:
                 status: "pending",
               })),
               assumptions: planArgs.assumptions || [],
+              source_file: findSourceFile(Array.isArray(history) ? history : []),
             };
             nonStreamMetadata = actionPlan;
             const actionsDesc = actionPlan.actions
