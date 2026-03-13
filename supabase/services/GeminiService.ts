@@ -879,6 +879,34 @@ const tools: Tool[] = [
                                                 type: SchemaType.STRING,
                                                 description: "Löpnummer för befintlig faktura (för book_supplier_invoice)"
                                             },
+                                            total_amount: {
+                                                type: SchemaType.NUMBER,
+                                                description: "Totalbelopp INKL moms i SEK (obligatoriskt för create_supplier_invoice)"
+                                            },
+                                            vat_rate: {
+                                                type: SchemaType.NUMBER,
+                                                description: "Momssats i procent: 25, 12, 6 eller 0 (default 25)"
+                                            },
+                                            is_reverse_charge: {
+                                                type: SchemaType.BOOLEAN,
+                                                description: "True om omvänd skattskyldighet (EU-köp). Sätter VATType=EUINTERNAL"
+                                            },
+                                            invoice_date: {
+                                                type: SchemaType.STRING,
+                                                description: "Fakturadatum YYYY-MM-DD (default idag)"
+                                            },
+                                            due_date: {
+                                                type: SchemaType.STRING,
+                                                description: "Förfallodatum YYYY-MM-DD (default 30 dagar)"
+                                            },
+                                            currency: {
+                                                type: SchemaType.STRING,
+                                                description: "Valutakod, t.ex. SEK, EUR, USD (default SEK)"
+                                            },
+                                            account: {
+                                                type: SchemaType.NUMBER,
+                                                description: "BAS-konto för kostnaden, t.ex. 5010, 6212, 6540 (default 5010)"
+                                            },
                                             DocumentNumber: {
                                                 type: SchemaType.NUMBER,
                                                 description: "Fortnox dokumentnummer för befintlig faktura (obligatoriskt för update_invoice)"

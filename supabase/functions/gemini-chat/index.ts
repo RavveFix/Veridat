@@ -2387,7 +2387,19 @@ Deno.serve(async (req: Request) => {
                       const isRC = (params.is_reverse_charge ?? params.isReverseCharge ?? params.IsReverseCharge) === true;
                       const vatMul = 1 +
                         (((params.vat_rate ?? params.vatRate ?? params.VatRate) as number || 25) / 100);
-                      const totalAmt = (params.total_amount ?? params.totalAmount ?? params.TotalAmount ?? params.Total) as number || 0;
+                      // Extract total from params, or calculate from posting_rows as fallback
+                      let totalAmt = (params.total_amount ?? params.totalAmount ?? params.TotalAmount ?? params.Total ?? params.amount ?? params.Amount) as number || 0;
+                      if (!totalAmt && action.posting_rows && Array.isArray(action.posting_rows)) {
+                        // posting_rows has debit/credit — the credit on 2440 (leverantörsskuld) = total
+                        const creditRow = action.posting_rows.find((r: any) => String(r.account) === "2440" && r.credit > 0);
+                        if (creditRow) {
+                          totalAmt = creditRow.credit as number;
+                        } else {
+                          // Fallback: sum all debits (cost + VAT = total)
+                          totalAmt = action.posting_rows.reduce((sum: number, r: any) => sum + ((r.debit as number) || 0), 0);
+                        }
+                        logger.info("Extracted totalAmt from posting_rows", { totalAmt, rows: action.posting_rows });
+                      }
                       const net = isRC
                         ? totalAmt
                         : Math.round((totalAmt / vatMul) * 100) / 100;
@@ -2405,7 +2417,16 @@ Deno.serve(async (req: Request) => {
                       const siDueDate = (params.due_date || params.dueDate || params.DueDate ||
                               new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)) as string;
                       const siCurrency = (params.currency || params.Currency || "SEK") as string;
-                      const siAccount = (params.account || params.Account || 5010) as number;
+                      // Extract cost account from posting_rows if not in params
+                      let siAccount = (params.account || params.Account) as number;
+                      if (!siAccount && action.posting_rows && Array.isArray(action.posting_rows)) {
+                        const costRow = action.posting_rows.find((r: any) => {
+                          const acct = Number(r.account);
+                          return acct >= 4000 && acct <= 6999 && (r.debit as number) > 0;
+                        });
+                        if (costRow) siAccount = Number(costRow.account);
+                      }
+                      if (!siAccount) siAccount = 5010;
 
                       const result = await callFortnoxWrite(
                         "exportSupplierInvoice",
