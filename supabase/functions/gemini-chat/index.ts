@@ -2743,6 +2743,8 @@ Deno.serve(async (req: Request) => {
                             "register_supplier_invoice_payment",
                             invoiceNum,
                           );
+                          resultText =
+                            `Betalning ${payAmount} kr registrerad för faktura ${invoiceNum}`;
                         } catch (payErr: unknown) {
                           logger.warn("register_payment for supplier invoice failed (non-critical)", {
                             invoiceNumber: invoiceNum,
@@ -2758,7 +2760,6 @@ Deno.serve(async (req: Request) => {
                             resourceType: "supplier_invoice",
                             resourceId: invoiceNum,
                           });
-                          break;
                         }
                       } else {
                         await callFortnoxWrite(
@@ -2773,9 +2774,9 @@ Deno.serve(async (req: Request) => {
                           "register_invoice_payment",
                           invoiceNum,
                         );
+                        resultText =
+                          `Betalning ${payAmount} kr registrerad för faktura ${invoiceNum}`;
                       }
-                      resultText =
-                        `Betalning ${payAmount} kr registrerad för faktura ${invoiceNum}`;
                       break;
                     }
                     case "create_invoice": {
