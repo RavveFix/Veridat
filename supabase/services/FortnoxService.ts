@@ -386,7 +386,7 @@ export class FortnoxService {
                     }
 
                     // Token is truly invalid — user needs to re-authenticate
-                    throw new Error('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
+                    throw new FortnoxAuthError('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
                 }
 
                 throw new Error(`Failed to refresh token: ${response.status} ${errorText}`);
@@ -472,6 +472,75 @@ export class FortnoxService {
             return access_token;
         } catch (error) {
             logger.error("Error refreshing Fortnox token", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Upload a file to Fortnox Inbox via multipart/form-data.
+     * Mirrors request()/authenticatedFetch() pattern but with FormData body.
+     * Includes rate limiting, 30s timeout, error classification, and 401-retry.
+     */
+    async uploadToInbox(
+        fileData: Uint8Array,
+        fileName: string,
+    ): Promise<{ Id: string; Name: string; Size: number }> {
+        await this.rateLimiter.waitIfNeeded();
+
+        const doUpload = async (token: string): Promise<{ Id: string; Name: string; Size: number }> => {
+            const url = `${this.baseUrl}/inbox`;
+            const formData = new FormData();
+            const blob = new Blob([fileData], { type: 'application/octet-stream' });
+            formData.append('file', blob, fileName);
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        // Do NOT set Content-Type — fetch sets it automatically with boundary for FormData
+                    },
+                    body: formData,
+                    signal: controller.signal,
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw classifyFortnoxError(new Error(errorText), response.status);
+                }
+
+                const result = await response.json();
+                return result.File;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error instanceof FortnoxApiError) throw error;
+                if (error instanceof Error && error.name === 'AbortError') {
+                    throw new FortnoxTimeoutError();
+                }
+                throw classifyFortnoxError(
+                    error instanceof Error ? error : new Error(String(error)),
+                );
+            }
+        };
+
+        const token = await this.getAccessToken();
+
+        try {
+            return await retryWithBackoff(async () => {
+                return await doUpload(token);
+            });
+        } catch (error) {
+            // On 401: refresh token and retry exactly once (same pattern as request())
+            if (error instanceof FortnoxAuthError) {
+                logger.info('Got 401 from Fortnox inbox upload, attempting token refresh and retry');
+                const freshToken = await this.forceRefreshToken();
+                return await doUpload(freshToken);
+            }
             throw error;
         }
     }
