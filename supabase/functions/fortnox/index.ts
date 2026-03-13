@@ -134,7 +134,7 @@ function requireString(value: unknown, field: string): string {
     if (typeof value !== 'string' || value.trim().length === 0) {
         throw new RequestValidationError(
             'INVALID_PAYLOAD',
-            `Missing or invalid string: ${field}`,
+            `Obligatoriskt fält saknas eller ogiltigt: ${field}`,
             { field }
         );
     }
@@ -145,7 +145,7 @@ function requireNumber(value: unknown, field: string): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         throw new RequestValidationError(
             'INVALID_PAYLOAD',
-            `Missing or invalid number: ${field}`,
+            `Obligatoriskt numeriskt fält saknas eller ogiltigt: ${field}`,
             { field }
         );
     }

@@ -2284,6 +2284,7 @@ Deno.serve(async (req: Request) => {
           async start(controller) {
             try {
               let createdCustomerNumber: string | undefined;
+              let createdSupplierNumber: string | undefined;
 
               for (let i = 0; i < actions.length; i++) {
                 let action = actions[i];
@@ -2351,7 +2352,7 @@ Deno.serve(async (req: Request) => {
                       throw new Error(
                         (typeof result?.error === "string"
                           ? result.error
-                          : `Fortnox write failed (${response.status})`) + detail,
+                          : `Fortnox-anrop misslyckades (${response.status})`) + detail,
                       );
                     }
                     return (result || {}) as Record<string, unknown>;
@@ -2373,11 +2374,14 @@ Deno.serve(async (req: Request) => {
                         ? 0
                         : Math.round((totalAmt - net) * 100) / 100;
 
+                      // Resolve SupplierNumber — try params first, then createdSupplierNumber from prior action
+                      const supplierNum = params.supplier_number || createdSupplierNumber;
+
                       const result = await callFortnoxWrite(
                         "exportSupplierInvoice",
                         {
                           invoice: {
-                            SupplierNumber: params.supplier_number,
+                            SupplierNumber: supplierNum,
                             InvoiceNumber: params.invoice_number || "",
                             InvoiceDate: params.invoice_date ||
                               new Date().toISOString().slice(0, 10),
@@ -2446,8 +2450,9 @@ Deno.serve(async (req: Request) => {
                       break;
                     }
                     case "create_supplier": {
+                      // Use findOrCreateSupplier to handle existing suppliers gracefully
                       const result = await callFortnoxWrite(
-                        "createSupplier",
+                        "findOrCreateSupplier",
                         {
                           supplier: {
                             Name: params.name,
@@ -2459,6 +2464,16 @@ Deno.serve(async (req: Request) => {
                         String(params.org_number || params.name),
                       );
                       const supplier = (result as any).Supplier || result;
+                      createdSupplierNumber = supplier.SupplierNumber;
+                      // Inject SupplierNumber into subsequent supplier invoice actions
+                      if (createdSupplierNumber) {
+                        for (const remaining of actions.slice(i + 1)) {
+                          if (remaining.action_type === "create_supplier_invoice" && !remaining.parameters?.supplier_number) {
+                            remaining.parameters = { ...remaining.parameters, supplier_number: createdSupplierNumber };
+                            logger.info("Injected createdSupplierNumber into supplier invoice action", { supplierNumber: createdSupplierNumber });
+                          }
+                        }
+                      }
                       resultText =
                         `Leverantör skapad: ${supplier.Name || params.name} (nr ${supplier.SupplierNumber || "tilldelas"})`;
                       break;
@@ -3186,6 +3201,33 @@ Deno.serve(async (req: Request) => {
                       }\n\n`,
                     ),
                   );
+
+                  // Abort remaining steps — downstream actions depend on earlier steps succeeding
+                  for (let j = i + 1; j < actions.length; j++) {
+                    const skipped = actions[j];
+                    executionResults.push({
+                      action_id: skipped.id,
+                      success: false,
+                      error: `Avbruten — föregående steg misslyckades`,
+                    });
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${
+                          JSON.stringify({
+                            actionStatus: {
+                              step: j + 1,
+                              total: actions.length,
+                              action_id: skipped.id,
+                              description: skipped.description,
+                              status: "skipped",
+                              error: `Avbruten — steg ${i + 1} misslyckades`,
+                            },
+                          })
+                        }\n\n`,
+                      ),
+                    );
+                  }
+                  break;
                 }
               }
 
@@ -3712,6 +3754,7 @@ ANVÄNDARFRÅGA:
         `Du har tillgång till Fortnox-verktyg. Använd dem så här:\n` +
         `- LÄSVERKTYG (search_invoices, search_supplier_invoices, search_customers, get_vat_report, get_company_info, get_financial_summary, get_account_balances, search_vouchers): Använd FRITT utan att fråga. Om användaren frågar om fakturor, leverantörsfakturor, kunder, moms, företagsinfo, ekonomisk översikt, kontosaldon eller verifikationer — anropa verktyget direkt.\n` +
         `- SKRIVVERKTYG (skapa/ändra faktura, bokföra, registrera betalning): Anropa ALLTID propose_action_plan med posting_rows. Utför ALDRIG en skrivoperation direkt.\n` +
+        `- LEVERANTÖRSFAKTURA: När du skapar en leverantörsfaktura, inkludera ALLTID ett create_supplier-steg FÖRE create_supplier_invoice i handlingsplanen. Leverantören kanske inte finns i Fortnox. Systemet hanterar dubbletter — om leverantören redan finns skapas ingen ny.\n` +
         `- SAKNAD INFO: Om pris, belopp, antal eller annan kritisk info saknas för en skrivoperation → anropa request_clarification.\n\n` +
         finalMessage;
     }
