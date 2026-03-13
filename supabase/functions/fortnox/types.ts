@@ -157,6 +157,30 @@ export interface FortnoxVoucherListResponse extends FortnoxResponse<FortnoxVouch
     }>;
 }
 
+// ============================================================
+// Inbox & File Connections
+// ============================================================
+
+export interface FortnoxInboxFileResponse {
+    File: {
+        Id: string;
+        Name: string;
+        Size: number;
+    };
+}
+
+export interface FortnoxVoucherFileConnection {
+    FileId: string;
+    VoucherNumber: string;
+    VoucherSeries: string;
+    VoucherDescription: string;
+    VoucherYear: number;
+}
+
+export interface FortnoxVoucherFileConnectionResponse {
+    VoucherFileConnection: FortnoxVoucherFileConnection;
+}
+
 // ============================================================================
 // SUPPLIER INVOICE TYPES (Leverantörsfakturor)
 // ============================================================================
