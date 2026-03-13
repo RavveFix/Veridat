@@ -1509,54 +1509,63 @@ async function executeFortnoxTool(
       }
       case "create_supplier_invoice": {
         const siArgs = toolArgs as CreateSupplierInvoiceArgs;
-        const isRC = siArgs.is_reverse_charge === true;
+        // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+        const siSupplierNum = (siArgs.supplier_number || siArgs.supplierNumber || siArgs.SupplierNumber) as string;
+        const siInvNum = (siArgs.invoice_number || siArgs.invoiceNumber || siArgs.InvoiceNumber) as string | undefined;
+        const siTotalAmt = (siArgs.total_amount ?? siArgs.totalAmount ?? siArgs.TotalAmount ?? siArgs.Total) as number;
+        const siVatRate = (siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number;
+        const siVatAmt = (siArgs.vat_amount ?? siArgs.vatAmount ?? siArgs.VatAmount) as number | undefined;
+        const siIsRC = (siArgs.is_reverse_charge ?? siArgs.isReverseCharge ?? siArgs.IsReverseCharge) === true;
+        const siAcct = (siArgs.account ?? siArgs.Account) as number;
+        const siDue = (siArgs.due_date || siArgs.dueDate || siArgs.DueDate) as string | undefined;
+        const siCurr = (siArgs.currency || siArgs.Currency || "SEK") as string;
 
         // For reverse charge: total_amount IS the net (no VAT charged by supplier)
         // For normal: calculate net from gross using VAT rate
-        const vatMul = 1 + (siArgs.vat_rate / 100);
-        const net = isRC
-          ? siArgs.total_amount
-          : Math.round((siArgs.total_amount / vatMul) * 100) / 100;
-        const vat = isRC
+        const vatMul = 1 + (siVatRate / 100);
+        const net = siIsRC
+          ? siTotalAmt
+          : Math.round((siTotalAmt / vatMul) * 100) / 100;
+        const vat = siIsRC
           ? 0
-          : (typeof siArgs.vat_amount === "number"
-            ? siArgs.vat_amount
-            : Math.round((siArgs.total_amount - net) * 100) / 100);
+          : (typeof siVatAmt === "number"
+            ? siVatAmt
+            : Math.round((siTotalAmt - net) * 100) / 100);
 
         // For reverse charge: Fortnox auto-creates VAT rows (2645/2614)
         // when VATType is EUINTERNAL — send only cost + payables rows
-        const fortnoxRows = isRC
+        const fortnoxRows = siIsRC
           ? [
-            { Account: siArgs.account, Debit: net, Credit: 0 },
+            { Account: siAcct, Debit: net, Credit: 0 },
             { Account: 2440, Debit: 0, Credit: net },
           ]
           : [
-            { Account: siArgs.account, Debit: net, Credit: 0 },
+            { Account: siAcct, Debit: net, Credit: 0 },
             { Account: 2640, Debit: vat, Credit: 0 },
-            { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
+            { Account: 2440, Debit: 0, Credit: siTotalAmt },
           ];
 
-        const vatType = isRC ? "EUINTERNAL" : "NORMAL";
+        const vatType = siIsRC ? "EUINTERNAL" : "NORMAL";
 
         const result = await callFortnoxWrite(
           "exportSupplierInvoice",
           {
             invoice: {
-              SupplierNumber: siArgs.supplier_number,
-              InvoiceNumber: siArgs.invoice_number || undefined,
+              SupplierNumber: siSupplierNum,
+              InvoiceNumber: siInvNum || undefined,
               InvoiceDate: new Date().toISOString().slice(0, 10),
-              DueDate: siArgs.due_date ||
+              DueDate: siDue ||
                 new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-              Total: siArgs.total_amount,
-              VAT: isRC ? 0 : vat,
+              Total: siTotalAmt,
+              VAT: siIsRC ? 0 : vat,
               VATType: vatType,
-              Currency: siArgs.currency || "SEK",
+              Currency: siCurr,
               AccountingMethod: "ACCRUAL",
               SupplierInvoiceRows: fortnoxRows,
             },
           },
           "export_supplier_invoice",
-          siArgs.invoice_number || String(siArgs.supplier_number),
+          siInvNum || String(siSupplierNum),
         );
         void auditService.log({
           userId,
@@ -1564,13 +1573,13 @@ async function executeFortnoxTool(
           actorType: "ai",
           action: "create",
           resourceType: "supplier_invoice",
-          resourceId: siArgs.invoice_number ||
-            `supplier-${siArgs.supplier_number}`,
+          resourceId: siInvNum ||
+            `supplier-${siSupplierNum}`,
           newState: result as unknown as Record<string, unknown>,
         });
-        const rcNote = isRC ? " (omvänd skattskyldighet)" : "";
-        return `Leverantörsfaktura skapad!${rcNote}\n- Belopp: ${siArgs.total_amount} kr${isRC ? "" : ` (${net} + ${vat} moms)`}\n- Konto: ${siArgs.account}\n- Förfallodatum: ${
-          siArgs.due_date || "30 dagar"
+        const rcNote = siIsRC ? " (omvänd skattskyldighet)" : "";
+        return `Leverantörsfaktura skapad!${rcNote}\n- Belopp: ${siTotalAmt} kr${siIsRC ? "" : ` (${net} + ${vat} moms)`}\n- Konto: ${siAcct}\n- Förfallodatum: ${
+          siDue || "30 dagar"
         }`;
       }
       case "export_journal_to_fortnox": {
@@ -1620,11 +1629,13 @@ async function executeFortnoxTool(
       }
       case "book_supplier_invoice": {
         const bArgs = toolArgs as BookSupplierInvoiceArgs;
+        // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+        const bInvNum = (bArgs.invoice_number || bArgs.invoiceNumber || bArgs.InvoiceNumber || bArgs.given_number || bArgs.givenNumber || bArgs.GivenNumber) as string;
         await callFortnoxWrite(
           "bookSupplierInvoice",
-          { givenNumber: Number(bArgs.invoice_number) },
+          { givenNumber: Number(bInvNum) },
           "book_supplier_invoice",
-          bArgs.invoice_number,
+          bInvNum,
         );
         void auditService.log({
           userId,
@@ -1632,9 +1643,9 @@ async function executeFortnoxTool(
           actorType: "ai",
           action: "update",
           resourceType: "supplier_invoice",
-          resourceId: bArgs.invoice_number,
+          resourceId: bInvNum,
         });
-        return `Leverantörsfaktura ${bArgs.invoice_number} är nu bokförd.`;
+        return `Leverantörsfaktura ${bInvNum} är nu bokförd.`;
       }
       case "create_invoice": {
         const ciArgs = toolArgs as Record<string, unknown>;
@@ -2363,10 +2374,10 @@ Deno.serve(async (req: Request) => {
 
                   switch (action.action_type) {
                     case "create_supplier_invoice": {
-                      const isRC = params.is_reverse_charge === true;
+                      const isRC = (params.is_reverse_charge ?? params.isReverseCharge ?? params.IsReverseCharge) === true;
                       const vatMul = 1 +
-                        ((params.vat_rate as number || 25) / 100);
-                      const totalAmt = params.total_amount as number || 0;
+                        (((params.vat_rate ?? params.vatRate ?? params.VatRate) as number || 25) / 100);
+                      const totalAmt = (params.total_amount ?? params.totalAmount ?? params.TotalAmount ?? params.Total) as number || 0;
                       const net = isRC
                         ? totalAmt
                         : Math.round((totalAmt / vatMul) * 100) / 100;
@@ -2375,23 +2386,29 @@ Deno.serve(async (req: Request) => {
                         : Math.round((totalAmt - net) * 100) / 100;
 
                       // Resolve SupplierNumber — try params first, then createdSupplierNumber from prior action
-                      const supplierNum = params.supplier_number || createdSupplierNumber;
+                      const supplierNum = params.supplier_number || params.supplierNumber || params.SupplierNumber || createdSupplierNumber;
+                      const siInvoiceNumber = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber || "") as string;
+                      const siInvoiceDate = (params.invoice_date || params.invoiceDate || params.InvoiceDate ||
+                              new Date().toISOString().slice(0, 10)) as string;
+                      const siDueDate = (params.due_date || params.dueDate || params.DueDate ||
+                              new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)) as string;
+                      const siCurrency = (params.currency || params.Currency || "SEK") as string;
+                      const siAccount = (params.account || params.Account || 5010) as number;
 
                       const result = await callFortnoxWrite(
                         "exportSupplierInvoice",
                         {
                           invoice: {
                             SupplierNumber: supplierNum,
-                            InvoiceNumber: params.invoice_number || "",
-                            InvoiceDate: params.invoice_date ||
-                              new Date().toISOString().slice(0, 10),
-                            DueDate: params.due_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                            InvoiceNumber: siInvoiceNumber,
+                            InvoiceDate: siInvoiceDate,
+                            DueDate: siDueDate,
                             Total: totalAmt,
-                            Currency: params.currency || "SEK",
+                            Currency: siCurrency,
                             VATType: isRC ? "EUINTERNAL" : undefined,
                             SupplierInvoiceRows: [
                               {
-                                Account: params.account || 5010,
+                                Account: siAccount,
                                 Debit: net,
                                 Credit: 0,
                               },
@@ -2411,7 +2428,7 @@ Deno.serve(async (req: Request) => {
                           },
                         },
                         "create_supplier_invoice",
-                        String(params.supplier_number),
+                        String(supplierNum),
                       );
                       const givenNumber =
                         (result as any)?.SupplierInvoice?.GivenNumber || "";
@@ -2466,23 +2483,24 @@ Deno.serve(async (req: Request) => {
                       break;
                     }
                     case "book_supplier_invoice": {
+                      const bsiInvoiceNum = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber || params.given_number || params.givenNumber || params.GivenNumber) as string | number;
                       await callFortnoxWrite(
                         "bookSupplierInvoice",
                         {
-                          givenNumber: Number(params.invoice_number),
+                          givenNumber: Number(bsiInvoiceNum),
                         },
                         "book_supplier_invoice",
-                        String(params.invoice_number),
+                        String(bsiInvoiceNum),
                       );
                       resultText =
-                        `Leverantörsfaktura ${params.invoice_number} bokförd`;
+                        `Leverantörsfaktura ${bsiInvoiceNum} bokförd`;
                       void auditService.log({
                         userId,
                         companyId: resolvedCompanyId || undefined,
                         actorType: "ai",
                         action: "update",
                         resourceType: "supplier_invoice",
-                        resourceId: String(params.invoice_number),
+                        resourceId: String(bsiInvoiceNum),
                       });
                       break;
                     }
@@ -2510,7 +2528,7 @@ Deno.serve(async (req: Request) => {
                       // Inject SupplierNumber into subsequent supplier invoice actions
                       if (createdSupplierNumber) {
                         for (const remaining of actions.slice(i + 1)) {
-                          if (remaining.action_type === "create_supplier_invoice" && !remaining.parameters?.supplier_number) {
+                          if (remaining.action_type === "create_supplier_invoice" && !(remaining.parameters?.supplier_number || remaining.parameters?.supplierNumber || remaining.parameters?.SupplierNumber)) {
                             remaining.parameters = { ...remaining.parameters, supplier_number: createdSupplierNumber };
                             logger.info("Injected createdSupplierNumber into supplier invoice action", { supplierNumber: createdSupplierNumber });
                           }
@@ -2532,14 +2550,14 @@ Deno.serve(async (req: Request) => {
                             Description: r.comment || r.accountName || action.description,
                           }))
                         : (params.voucher?.VoucherRows || []);
-                      const voucherDesc = action.description || params.voucher?.Description || "Verifikat från Veridat";
+                      const voucherDesc = action.description || params.voucher?.Description || params.description || params.Description || "Verifikat från Veridat";
                       const result = await callFortnoxWrite(
                         "exportVoucher",
                         {
                           voucher: {
                             Description: voucherDesc,
-                            TransactionDate: (params.transaction_date as string) || new Date().toISOString().slice(0, 10),
-                            VoucherSeries: (params.voucher_series as string) || "A",
+                            TransactionDate: (params.transaction_date || params.transactionDate || params.TransactionDate) as string || new Date().toISOString().slice(0, 10),
+                            VoucherSeries: (params.voucher_series || params.voucherSeries || params.VoucherSeries) as string || "A",
                             VoucherRows: voucherRows,
                           },
                         },
@@ -2554,7 +2572,7 @@ Deno.serve(async (req: Request) => {
                       let attachmentNote = '';
                       if (sourceFile?.storage_path && voucher.VoucherNumber) {
                         try {
-                          const transactionDate = (params.transaction_date as string) ||
+                          const transactionDate = (params.transaction_date || params.transactionDate || params.TransactionDate) as string ||
                             new Date().toISOString().slice(0, 10);
                           const financialYearDate = transactionDate.slice(0, 4) + '-01-01';
 
@@ -2597,12 +2615,12 @@ Deno.serve(async (req: Request) => {
                       break;
                     }
                     case "register_payment": {
-                      const payType = params.payment_type as string;
+                      const payType = (params.payment_type || params.paymentType || params.PaymentType) as string;
                       const invoiceNum = String(
-                        params.invoice_number || "",
+                        params.invoice_number || params.invoiceNumber || params.InvoiceNumber || "",
                       );
-                      const payAmount = params.amount as number || 0;
-                      const payDate = (params.payment_date as string) ||
+                      const payAmount = (params.amount || params.Amount) as number || 0;
+                      const payDate = (params.payment_date || params.paymentDate || params.PaymentDate) as string ||
                         new Date().toISOString().slice(0, 10);
 
                       if (payType === "supplier") {
@@ -4325,18 +4343,15 @@ ANVÄNDARFRÅGA:
                     });
                   } else if (toolName === "register_payment") {
                     // Handle payment registration via Fortnox
-                    const payArgs = toolArgs as {
-                      payment_type?: string;
-                      invoice_number?: string;
-                      amount?: number;
-                      payment_date?: string;
-                    };
-                    const paymentDate = payArgs.payment_date ||
+                    const payArgs = toolArgs as Record<string, unknown>;
+                    // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+                    const paymentDate = (payArgs.payment_date || payArgs.paymentDate || payArgs.PaymentDate) as string ||
                       new Date().toISOString().slice(0, 10);
-                    const invoiceNum = payArgs.invoice_number || "";
-                    const payAmount = payArgs.amount || 0;
+                    const invoiceNum = String(payArgs.invoice_number || payArgs.invoiceNumber || payArgs.InvoiceNumber || "");
+                    const payAmount = (payArgs.amount ?? payArgs.Amount) as number || 0;
+                    const payArgType = (payArgs.payment_type || payArgs.paymentType || payArgs.PaymentType) as string;
 
-                    if (payArgs.payment_type === "supplier") {
+                    if (payArgType === "supplier") {
                       const result = await callFortnoxWrite(
                         "registerSupplierInvoicePayment",
                         {
@@ -5505,69 +5520,79 @@ ANVÄNDARFRÅGA:
           }
           case "create_supplier_invoice": {
             const siArgs = args as CreateSupplierInvoiceArgs;
-            const isRC = siArgs.is_reverse_charge === true;
+            // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+            const si3SupplierNum = (siArgs.supplier_number || siArgs.supplierNumber || siArgs.SupplierNumber) as string;
+            const si3InvNum = (siArgs.invoice_number || siArgs.invoiceNumber || siArgs.InvoiceNumber) as string | undefined;
+            const si3TotalAmt = (siArgs.total_amount ?? siArgs.totalAmount ?? siArgs.TotalAmount ?? siArgs.Total) as number;
+            const si3VatRate = (siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number;
+            const si3VatAmt = (siArgs.vat_amount ?? siArgs.vatAmount ?? siArgs.VatAmount) as number | undefined;
+            const si3IsRC = (siArgs.is_reverse_charge ?? siArgs.isReverseCharge ?? siArgs.IsReverseCharge) === true;
+            const si3Acct = (siArgs.account ?? siArgs.Account) as number;
+            const si3Desc = (siArgs.description || siArgs.Description) as string;
+            const si3Due = (siArgs.due_date || siArgs.dueDate || siArgs.DueDate) as string | undefined;
+            const si3Curr = (siArgs.currency || siArgs.Currency || "SEK") as string;
 
-            const vatMultiplier = 1 + (siArgs.vat_rate / 100);
-            const netAmount = isRC
-              ? siArgs.total_amount
-              : Math.round((siArgs.total_amount / vatMultiplier) * 100) / 100;
-            const vatAmount = isRC
+            const vatMultiplier = 1 + (si3VatRate / 100);
+            const netAmount = si3IsRC
+              ? si3TotalAmt
+              : Math.round((si3TotalAmt / vatMultiplier) * 100) / 100;
+            const vatAmount = si3IsRC
               ? 0
-              : (typeof siArgs.vat_amount === "number"
-                ? siArgs.vat_amount
+              : (typeof si3VatAmt === "number"
+                ? si3VatAmt
                 : Math.round(
-                  (siArgs.total_amount - netAmount) * 100,
+                  (si3TotalAmt - netAmount) * 100,
                 ) / 100);
-            const rcVat = isRC
+            const rcVat = si3IsRC
               ? Math.round(
-                siArgs.total_amount * (siArgs.vat_rate / 100) * 100,
+                si3TotalAmt * (si3VatRate / 100) * 100,
               ) / 100
               : 0;
 
             // For reverse charge: Fortnox auto-creates VAT rows (2645/2614)
-            const fortnoxRows = isRC
+            const fortnoxRows = si3IsRC
               ? [
-                { Account: siArgs.account, Debit: netAmount, Credit: 0 },
+                { Account: si3Acct, Debit: netAmount, Credit: 0 },
                 { Account: 2440, Debit: 0, Credit: netAmount },
               ]
               : [
-                { Account: siArgs.account, Debit: netAmount, Credit: 0 },
+                { Account: si3Acct, Debit: netAmount, Credit: 0 },
                 { Account: 2640, Debit: vatAmount, Credit: 0 },
-                { Account: 2440, Debit: 0, Credit: siArgs.total_amount },
+                { Account: 2440, Debit: 0, Credit: si3TotalAmt },
               ];
 
-            const vatType = isRC ? "EUINTERNAL" : "NORMAL";
+            const vatType = si3IsRC ? "EUINTERNAL" : "NORMAL";
 
             toolResult = await callFortnoxWrite(
               "exportSupplierInvoice",
               {
                 invoice: {
-                  SupplierNumber: siArgs.supplier_number,
-                  InvoiceNumber: siArgs.invoice_number || undefined,
+                  SupplierNumber: si3SupplierNum,
+                  InvoiceNumber: si3InvNum || undefined,
                   InvoiceDate: new Date().toISOString().slice(0, 10),
-                  DueDate: siArgs.due_date ||
+                  DueDate: si3Due ||
                     new Date(Date.now() + 30 * 86400000).toISOString().slice(
                       0,
                       10,
                     ),
-                  Total: siArgs.total_amount,
-                  VAT: isRC ? 0 : vatAmount,
+                  Total: si3TotalAmt,
+                  VAT: si3IsRC ? 0 : vatAmount,
                   VATType: vatType,
-                  Currency: siArgs.currency || "SEK",
+                  Currency: si3Curr,
                   AccountingMethod: "ACCRUAL",
                   SupplierInvoiceRows: fortnoxRows,
                 },
               },
               "export_supplier_invoice",
-              siArgs.invoice_number || String(siArgs.supplier_number),
+              si3InvNum || String(si3SupplierNum),
             );
 
             // Chat display rows: show all rows including RC VAT for transparency
-            const displayRows = isRC
+            const displayRows = si3IsRC
               ? [
                 {
-                  account: siArgs.account,
-                  accountName: siArgs.description,
+                  account: si3Acct,
+                  accountName: si3Desc,
                   debit: netAmount,
                   credit: 0,
                   comment: "Kostnadsrad (omvänd skattskyldighet)",
@@ -5577,14 +5602,14 @@ ANVÄNDARFRÅGA:
                   accountName: "Ingående moms omvänd",
                   debit: rcVat,
                   credit: 0,
-                  comment: `Omvänd skattskyldighet ${siArgs.vat_rate}%`,
+                  comment: `Omvänd skattskyldighet ${si3VatRate}%`,
                 },
                 {
                   account: 2614,
                   accountName: "Utgående moms omvänd",
                   debit: 0,
                   credit: rcVat,
-                  comment: `Omvänd skattskyldighet ${siArgs.vat_rate}%`,
+                  comment: `Omvänd skattskyldighet ${si3VatRate}%`,
                 },
                 {
                   account: 2440,
@@ -5596,8 +5621,8 @@ ANVÄNDARFRÅGA:
               ]
               : [
                 {
-                  account: siArgs.account,
-                  accountName: siArgs.description,
+                  account: si3Acct,
+                  accountName: si3Desc,
                   debit: netAmount,
                   credit: 0,
                   comment: "Kostnadsrad",
@@ -5607,13 +5632,13 @@ ANVÄNDARFRÅGA:
                   accountName: "Ingående moms",
                   debit: vatAmount,
                   credit: 0,
-                  comment: `Moms ${siArgs.vat_rate}%`,
+                  comment: `Moms ${si3VatRate}%`,
                 },
                 {
                   account: 2440,
                   accountName: "Leverantörsskulder",
                   debit: 0,
-                  credit: siArgs.total_amount,
+                  credit: si3TotalAmt,
                   comment: "Total leverantörsskuld",
                 },
               ];
@@ -5623,10 +5648,10 @@ ANVÄNDARFRÅGA:
               toolResult: toolResult as Record<string, unknown>,
               postingRows: displayRows,
             };
-            const rcNote = isRC ? " (omvänd skattskyldighet)" : "";
+            const rcNote = si3IsRC ? " (omvänd skattskyldighet)" : "";
             responseText =
-              `Leverantörsfaktura skapad i Fortnox!${rcNote}\n- Belopp: ${siArgs.total_amount} kr${isRC ? "" : ` (${netAmount} + ${vatAmount} moms)`}\n- Konto: ${siArgs.account} (${siArgs.description})\n- Förfallodatum: ${
-                siArgs.due_date || "30 dagar"
+              `Leverantörsfaktura skapad i Fortnox!${rcNote}\n- Belopp: ${si3TotalAmt} kr${si3IsRC ? "" : ` (${netAmount} + ${vatAmount} moms)`}\n- Konto: ${si3Acct} (${si3Desc})\n- Förfallodatum: ${
+                si3Due || "30 dagar"
               }`;
             void auditService.log({
               userId,
@@ -5634,8 +5659,8 @@ ANVÄNDARFRÅGA:
               actorType: "ai",
               action: "create",
               resourceType: "supplier_invoice",
-              resourceId: siArgs.invoice_number ||
-                `supplier-${siArgs.supplier_number}`,
+              resourceId: si3InvNum ||
+                `supplier-${si3SupplierNum}`,
               newState: toolResult as Record<string, unknown>,
             });
             break;
@@ -5712,25 +5737,27 @@ ANVÄNDARFRÅGA:
           }
           case "book_supplier_invoice": {
             const bsiArgs = args as BookSupplierInvoiceArgs;
+            // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+            const bsi3InvNum = (bsiArgs.invoice_number || bsiArgs.invoiceNumber || bsiArgs.InvoiceNumber || bsiArgs.given_number || bsiArgs.givenNumber || bsiArgs.GivenNumber) as string;
             toolResult = await callFortnoxWrite(
               "bookSupplierInvoice",
-              { givenNumber: Number(bsiArgs.invoice_number) },
+              { givenNumber: Number(bsi3InvNum) },
               "book_supplier_invoice",
-              bsiArgs.invoice_number,
+              bsi3InvNum,
             );
             toolStructuredData = {
               toolArgs: bsiArgs as Record<string, unknown>,
               toolResult: toolResult as Record<string, unknown>,
             };
             responseText =
-              `Leverantörsfaktura ${bsiArgs.invoice_number} är nu bokförd i Fortnox.`;
+              `Leverantörsfaktura ${bsi3InvNum} är nu bokförd i Fortnox.`;
             void auditService.log({
               userId,
               companyId: resolvedCompanyId || undefined,
               actorType: "ai",
               action: "update",
               resourceType: "supplier_invoice",
-              resourceId: bsiArgs.invoice_number,
+              resourceId: bsi3InvNum,
             });
             break;
           }
@@ -5772,18 +5799,15 @@ ANVÄNDARFRÅGA:
             break;
           }
           case "register_payment": {
-            const payArgs = args as {
-              payment_type?: string;
-              invoice_number?: string;
-              amount?: number;
-              payment_date?: string;
-            };
-            const paymentDate = payArgs.payment_date ||
+            const payArgs = args as Record<string, unknown>;
+            // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+            const paymentDate = (payArgs.payment_date || payArgs.paymentDate || payArgs.PaymentDate) as string ||
               new Date().toISOString().slice(0, 10);
-            const invoiceNum = payArgs.invoice_number || "";
-            const payAmount = payArgs.amount || 0;
+            const invoiceNum = String(payArgs.invoice_number || payArgs.invoiceNumber || payArgs.InvoiceNumber || "");
+            const payAmount = (payArgs.amount ?? payArgs.Amount) as number || 0;
+            const payArgType = (payArgs.payment_type || payArgs.paymentType || payArgs.PaymentType) as string;
 
-            if (payArgs.payment_type === "supplier") {
+            if (payArgType === "supplier") {
               toolResult = await callFortnoxWrite(
                 "registerSupplierInvoicePayment",
                 {

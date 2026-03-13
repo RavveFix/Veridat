@@ -1302,6 +1302,13 @@ Deno.serve(async (req: Request) => {
                     isRecord(payload?.invoice) ? payload.invoice : payload,
                     'payload'
                 );
+                // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+                if (!invoiceData.CustomerNumber && (invoiceData.customerNumber || invoiceData.customer_number)) {
+                    invoiceData.CustomerNumber = invoiceData.customerNumber || invoiceData.customer_number;
+                }
+                if (!invoiceData.InvoiceRows && (invoiceData.invoiceRows || invoiceData.invoice_rows || invoiceData.rows)) {
+                    invoiceData.InvoiceRows = invoiceData.invoiceRows || invoiceData.invoice_rows || invoiceData.rows;
+                }
                 requireString(invoiceData.CustomerNumber, 'payload.CustomerNumber');
                 if (!Array.isArray(invoiceData.InvoiceRows) || invoiceData.InvoiceRows.length === 0) {
                     throw new RequestValidationError(
@@ -1339,7 +1346,9 @@ Deno.serve(async (req: Request) => {
             }
 
             case 'updateInvoice': {
-                const documentNumber = requireNumber(payload?.documentNumber, 'payload.documentNumber');
+                // Resolve casing for documentNumber
+                const rawDocNum = payload?.documentNumber ?? payload?.document_number ?? payload?.DocumentNumber;
+                const documentNumber = requireNumber(rawDocNum, 'payload.documentNumber');
                 const invoiceUpdateData = requireRecord(
                     isRecord(payload?.invoice) ? payload.invoice : payload,
                     'payload.invoice'
@@ -1456,6 +1465,16 @@ Deno.serve(async (req: Request) => {
 
             case 'registerInvoicePayment': {
                 const paymentPayload = requireRecord(payload?.payment, 'payload.payment');
+                // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+                if (paymentPayload.InvoiceNumber === undefined && (paymentPayload.invoiceNumber !== undefined || paymentPayload.invoice_number !== undefined)) {
+                    paymentPayload.InvoiceNumber = paymentPayload.invoiceNumber ?? paymentPayload.invoice_number;
+                }
+                if (paymentPayload.Amount === undefined && (paymentPayload.amount !== undefined)) {
+                    paymentPayload.Amount = paymentPayload.amount;
+                }
+                if (!paymentPayload.PaymentDate && (paymentPayload.paymentDate || paymentPayload.payment_date)) {
+                    paymentPayload.PaymentDate = paymentPayload.paymentDate || paymentPayload.payment_date;
+                }
                 requireNumber(paymentPayload.InvoiceNumber, 'payload.payment.InvoiceNumber');
                 requireNumber(paymentPayload.Amount, 'payload.payment.Amount');
                 requireString(paymentPayload.PaymentDate, 'payload.payment.PaymentDate');
@@ -1604,6 +1623,19 @@ Deno.serve(async (req: Request) => {
                 // Create voucher for VAT report export
                 const voucherDataRaw = requireRecord(payload?.voucher, 'payload.voucher');
                 const vatReportId = payload?.vatReportId as string | undefined;
+                // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+                if (!voucherDataRaw.Description && (voucherDataRaw.description)) {
+                    voucherDataRaw.Description = voucherDataRaw.description;
+                }
+                if (!voucherDataRaw.TransactionDate && (voucherDataRaw.transactionDate || voucherDataRaw.transaction_date)) {
+                    voucherDataRaw.TransactionDate = voucherDataRaw.transactionDate || voucherDataRaw.transaction_date;
+                }
+                if (!voucherDataRaw.VoucherSeries && (voucherDataRaw.voucherSeries || voucherDataRaw.voucher_series)) {
+                    voucherDataRaw.VoucherSeries = voucherDataRaw.voucherSeries || voucherDataRaw.voucher_series;
+                }
+                if (!voucherDataRaw.VoucherRows && (voucherDataRaw.voucherRows || voucherDataRaw.voucher_rows)) {
+                    voucherDataRaw.VoucherRows = voucherDataRaw.voucherRows || voucherDataRaw.voucher_rows;
+                }
                 requireString(voucherDataRaw.Description, 'payload.voucher.Description');
                 requireString(voucherDataRaw.TransactionDate, 'payload.voucher.TransactionDate');
                 requireString(voucherDataRaw.VoucherSeries, 'payload.voucher.VoucherSeries');
@@ -1891,6 +1923,16 @@ Deno.serve(async (req: Request) => {
 
             case 'registerSupplierInvoicePayment': {
                 const paymentPayload = requireRecord(payload?.payment, 'payload.payment');
+                // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+                if (!paymentPayload.InvoiceNumber && (paymentPayload.invoiceNumber || paymentPayload.invoice_number)) {
+                    paymentPayload.InvoiceNumber = paymentPayload.invoiceNumber || paymentPayload.invoice_number;
+                }
+                if (paymentPayload.Amount === undefined && (paymentPayload.amount !== undefined)) {
+                    paymentPayload.Amount = paymentPayload.amount;
+                }
+                if (!paymentPayload.PaymentDate && (paymentPayload.paymentDate || paymentPayload.payment_date)) {
+                    paymentPayload.PaymentDate = paymentPayload.paymentDate || paymentPayload.payment_date;
+                }
                 requireString(paymentPayload.InvoiceNumber, 'payload.payment.InvoiceNumber');
                 requireNumber(paymentPayload.Amount, 'payload.payment.Amount');
                 requireString(paymentPayload.PaymentDate, 'payload.payment.PaymentDate');
@@ -1993,6 +2035,22 @@ Deno.serve(async (req: Request) => {
                 const invoiceDataRaw = requireRecord(payload?.invoice, 'payload.invoice');
                 const transactionId = payload?.transactionId as string | undefined;
                 const aiDecisionId = payload?.aiDecisionId as string | undefined;
+                // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+                if (!invoiceDataRaw.SupplierNumber && (invoiceDataRaw.supplierNumber || invoiceDataRaw.supplier_number)) {
+                    invoiceDataRaw.SupplierNumber = invoiceDataRaw.supplierNumber || invoiceDataRaw.supplier_number;
+                }
+                if (!invoiceDataRaw.InvoiceNumber && (invoiceDataRaw.invoiceNumber || invoiceDataRaw.invoice_number)) {
+                    invoiceDataRaw.InvoiceNumber = invoiceDataRaw.invoiceNumber || invoiceDataRaw.invoice_number;
+                }
+                if (!invoiceDataRaw.InvoiceDate && (invoiceDataRaw.invoiceDate || invoiceDataRaw.invoice_date)) {
+                    invoiceDataRaw.InvoiceDate = invoiceDataRaw.invoiceDate || invoiceDataRaw.invoice_date;
+                }
+                if (!invoiceDataRaw.DueDate && (invoiceDataRaw.dueDate || invoiceDataRaw.due_date)) {
+                    invoiceDataRaw.DueDate = invoiceDataRaw.dueDate || invoiceDataRaw.due_date;
+                }
+                if (invoiceDataRaw.Total === undefined && (invoiceDataRaw.total !== undefined || invoiceDataRaw.total_amount !== undefined || invoiceDataRaw.totalAmount !== undefined)) {
+                    invoiceDataRaw.Total = invoiceDataRaw.total ?? invoiceDataRaw.total_amount ?? invoiceDataRaw.totalAmount;
+                }
                 requireString(invoiceDataRaw.SupplierNumber, 'payload.invoice.SupplierNumber');
                 requireString(invoiceDataRaw.InvoiceNumber, 'payload.invoice.InvoiceNumber');
                 requireString(invoiceDataRaw.InvoiceDate, 'payload.invoice.InvoiceDate');
@@ -2040,7 +2098,8 @@ Deno.serve(async (req: Request) => {
             }
 
             case 'bookSupplierInvoice': {
-                const givenNumber = requireNumber(payload?.givenNumber, 'payload.givenNumber');
+                const rawGivenNum = payload?.givenNumber ?? payload?.given_number ?? payload?.GivenNumber ?? payload?.invoiceNumber ?? payload?.invoice_number;
+                const givenNumber = requireNumber(rawGivenNum, 'payload.givenNumber');
                 const write = await prepareWriteAction(
                     'book_supplier_invoice',
                     { givenNumber },
@@ -2070,7 +2129,7 @@ Deno.serve(async (req: Request) => {
             }
 
             case 'approveSupplierInvoiceBookkeep': {
-                const givenNumber = requireNumber(payload?.givenNumber, 'payload.givenNumber');
+                const givenNumber = requireNumber(payload?.givenNumber ?? payload?.given_number ?? payload?.GivenNumber, 'payload.givenNumber');
                 const write = await prepareWriteAction(
                     'approve_supplier_invoice_bookkeep',
                     { givenNumber },
@@ -2100,7 +2159,7 @@ Deno.serve(async (req: Request) => {
             }
 
             case 'approveSupplierInvoicePayment': {
-                const givenNumber = requireNumber(payload?.givenNumber, 'payload.givenNumber');
+                const givenNumber = requireNumber(payload?.givenNumber ?? payload?.given_number ?? payload?.GivenNumber, 'payload.givenNumber');
                 const write = await prepareWriteAction(
                     'approve_supplier_invoice_payment',
                     { givenNumber },
@@ -2144,6 +2203,9 @@ Deno.serve(async (req: Request) => {
 
             case 'createSupplier': {
                 const supplierDataRaw = requireRecord(payload?.supplier, 'payload.supplier');
+                if (!supplierDataRaw.Name && (supplierDataRaw.name)) {
+                    supplierDataRaw.Name = supplierDataRaw.name;
+                }
                 requireString(supplierDataRaw.Name, 'payload.supplier.Name');
                 const supplierData = supplierDataRaw as unknown as FortnoxSupplier;
                 const write = await prepareWriteAction(
@@ -2184,6 +2246,9 @@ Deno.serve(async (req: Request) => {
 
             case 'findOrCreateSupplier': {
                 const supplierDataRaw = requireRecord(payload?.supplier, 'payload.supplier');
+                if (!supplierDataRaw.Name && (supplierDataRaw.name)) {
+                    supplierDataRaw.Name = supplierDataRaw.name;
+                }
                 requireString(supplierDataRaw.Name, 'payload.supplier.Name');
                 const supplierData = supplierDataRaw as unknown as FortnoxSupplier;
                 const write = await prepareWriteAction(
@@ -2216,6 +2281,9 @@ Deno.serve(async (req: Request) => {
 
             case 'createCustomer': {
                 const customerDataRaw = requireRecord(payload?.customer, 'payload.customer');
+                if (!customerDataRaw.Name && (customerDataRaw.name)) {
+                    customerDataRaw.Name = customerDataRaw.name;
+                }
                 requireString(customerDataRaw.Name, 'payload.customer.Name');
                 const customerData = customerDataRaw as unknown as FortnoxCustomer;
                 const write = await prepareWriteAction(
