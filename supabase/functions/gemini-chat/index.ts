@@ -3635,10 +3635,27 @@ ANVÄNDARFRÅGA:
 
     // When a file is attached, restrict tools to only propose_action_plan and request_clarification.
     // This prevents Gemini from ignoring the file and defaulting to Fortnox read-tools (get_suppliers etc.)
-    const fileAttachedTools = geminiFileData ? [
+    //
+    // Also carry forward the restriction for follow-up messages in a file analysis conversation.
+    // Without this, a text-only follow-up (e.g. answering a clarification question about a receipt)
+    // would lose the restriction and Gemini would call get_suppliers instead of propose_action_plan.
+    const hasRecentFileAnalysis = !geminiFileData && Array.isArray(history) &&
+      history.slice(-6).some((msg) =>
+        msg.role === "user" && typeof msg.content === "string" &&
+        msg.content.includes("[BIFOGAD FIL:")
+      );
+
+    const fileAttachedTools = (geminiFileData || hasRecentFileAnalysis) ? [
       "propose_action_plan",
       "request_clarification",
     ] : undefined;
+
+    if (hasRecentFileAnalysis) {
+      logger.info("Carrying forward file analysis tool restriction for follow-up message", {
+        historyLength: history?.length,
+        restrictedTools: fileAttachedTools,
+      });
+    }
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
 
