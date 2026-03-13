@@ -1644,7 +1644,22 @@ async function executeFortnoxTool(
     }
   } catch (err) {
     logger.error(`Fortnox tool ${toolName} failed`, err);
-    return `Ett fel uppstod vid ${toolName}: ${
+    const friendlyNames: Record<string, string> = {
+      get_customers: "hämtning av kunder",
+      get_suppliers: "hämtning av leverantörer",
+      get_articles: "hämtning av artiklar",
+      get_invoice: "hämtning av faktura",
+      get_supplier_invoice: "hämtning av leverantörsfaktura",
+      create_invoice: "skapande av faktura",
+      get_vat_report: "hämtning av momsrapport",
+      get_company_info: "hämtning av företagsinfo",
+      get_financial_summary: "hämtning av ekonomisk sammanfattning",
+      get_account_balances: "hämtning av kontosaldon",
+      create_voucher: "skapande av verifikation",
+      lookup_company: "sökning av företag",
+    };
+    const friendly = friendlyNames[toolName] || "åtgärden";
+    return `Ett fel uppstod vid ${friendly}: ${
       err instanceof Error ? err.message : "okänt fel"
     }`;
   }
