@@ -3639,11 +3639,31 @@ ANVÄNDARFRÅGA:
     // Also carry forward the restriction for follow-up messages in a file analysis conversation.
     // Without this, a text-only follow-up (e.g. answering a clarification question about a receipt)
     // would lose the restriction and Gemini would call get_suppliers instead of propose_action_plan.
-    const hasRecentFileAnalysis = !geminiFileData && Array.isArray(history) &&
-      history.slice(-6).some((msg) =>
-        msg.role === "user" && typeof msg.content === "string" &&
-        msg.content.includes("[BIFOGAD FIL:")
-      );
+    // Check if a recent message in history had a file attachment.
+    // History objects from the frontend include file_name/file_url from the messages table,
+    // even though the TypeScript interface only declares { role, content }.
+    const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
+    const hasRecentFileAnalysis = !geminiFileData && recentHistory.some((msg: any) =>
+      msg.role === "user" && (
+        // Primary: check file_name field from messages table (always present for file uploads)
+        (msg.file_name && msg.file_name.length > 0) ||
+        // Fallback: check for [BIFOGAD FIL:] marker (in case message was modified before saving)
+        (typeof msg.content === "string" && msg.content.includes("[BIFOGAD FIL:"))
+      )
+    );
+
+    if (!geminiFileData && Array.isArray(history)) {
+      const scanned = recentHistory.map((msg: any) => ({
+        role: msg.role,
+        hasFileName: Boolean(msg.file_name),
+        fileName: msg.file_name || null,
+        contentPreview: typeof msg.content === "string" ? msg.content.substring(0, 80) : null,
+      }));
+      logger.debug("hasRecentFileAnalysis scan", {
+        result: hasRecentFileAnalysis,
+        scannedMessages: scanned,
+      });
+    }
 
     const fileAttachedTools = (geminiFileData || hasRecentFileAnalysis) ? [
       "propose_action_plan",
