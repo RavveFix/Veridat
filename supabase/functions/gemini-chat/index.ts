@@ -2398,7 +2398,8 @@ Deno.serve(async (req: Request) => {
                       // Resolve SupplierNumber — prefer createdSupplierNumber from prior create_supplier action
                       // (AI often sends supplier name instead of number in params)
                       const supplierNum = createdSupplierNumber || params.supplier_number || params.supplierNumber || params.SupplierNumber;
-                      const siInvoiceNumber = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber || "") as string;
+                      const siInvoiceNumber = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber ||
+                              `KVITTO-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString(36).slice(-4).toUpperCase()}`) as string;
                       const siInvoiceDate = (params.invoice_date || params.invoiceDate || params.InvoiceDate ||
                               new Date().toISOString().slice(0, 10)) as string;
                       const siDueDate = (params.due_date || params.dueDate || params.DueDate ||

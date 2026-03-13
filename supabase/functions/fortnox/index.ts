@@ -2042,6 +2042,10 @@ Deno.serve(async (req: Request) => {
                 if (!invoiceDataRaw.InvoiceNumber && (invoiceDataRaw.invoiceNumber || invoiceDataRaw.invoice_number)) {
                     invoiceDataRaw.InvoiceNumber = invoiceDataRaw.invoiceNumber || invoiceDataRaw.invoice_number;
                 }
+                // Generate default InvoiceNumber for receipts that lack one
+                if (!invoiceDataRaw.InvoiceNumber || (typeof invoiceDataRaw.InvoiceNumber === 'string' && invoiceDataRaw.InvoiceNumber.trim() === '')) {
+                    invoiceDataRaw.InvoiceNumber = `KVITTO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+                }
                 if (!invoiceDataRaw.InvoiceDate && (invoiceDataRaw.invoiceDate || invoiceDataRaw.invoice_date)) {
                     invoiceDataRaw.InvoiceDate = invoiceDataRaw.invoiceDate || invoiceDataRaw.invoice_date;
                 }
