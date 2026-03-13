@@ -2661,6 +2661,22 @@ Deno.serve(async (req: Request) => {
                         new Date().toISOString().slice(0, 10);
 
                       if (payType === "supplier") {
+                        // Ensure invoice is booked before registering payment
+                        try {
+                          await callFortnoxWrite(
+                            "approveSupplierInvoiceBookkeep",
+                            { givenNumber: Number(invoiceNum) },
+                            "book_supplier_invoice",
+                            invoiceNum,
+                          );
+                          logger.info("Auto-approved supplier invoice before payment", { invoiceNum });
+                        } catch (bookErr: unknown) {
+                          // Already booked or approved — safe to continue
+                          logger.info("Supplier invoice already booked or approval failed (continuing)", {
+                            invoiceNum,
+                            error: bookErr instanceof Error ? bookErr.message : "Unknown",
+                          });
+                        }
                         await callFortnoxWrite(
                           "registerSupplierInvoicePayment",
                           {
