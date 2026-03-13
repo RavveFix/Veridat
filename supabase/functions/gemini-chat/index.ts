@@ -1636,14 +1636,14 @@ async function executeFortnoxTool(
           await callFortnoxWrite(
             "approveSupplierInvoiceBookkeep",
             { givenNumber: Number(bInvNum) },
-            "book_supplier_invoice",
+            "approve_supplier_invoice",
             bInvNum,
           );
         } catch {
           await callFortnoxWrite(
             "bookSupplierInvoice",
             { givenNumber: Number(bInvNum) },
-            "book_supplier_invoice",
+            "bookkeep_supplier_invoice",
             bInvNum,
           );
         }
@@ -2530,13 +2530,14 @@ Deno.serve(async (req: Request) => {
                       const bsiInvoiceNum = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber || params.given_number || params.givenNumber || params.GivenNumber) as string | number;
                       // Fortnox requires approval before booking for new supplier invoices
                       // Use approvalbookkeep first, fall back to bookkeep if already approved
+                      // IMPORTANT: different operation keys to avoid idempotency collision
                       try {
                         await callFortnoxWrite(
                           "approveSupplierInvoiceBookkeep",
                           {
                             givenNumber: Number(bsiInvoiceNum),
                           },
-                          "book_supplier_invoice",
+                          "approve_supplier_invoice",
                           String(bsiInvoiceNum),
                         );
                       } catch (approveErr: unknown) {
@@ -2547,7 +2548,7 @@ Deno.serve(async (req: Request) => {
                           {
                             givenNumber: Number(bsiInvoiceNum),
                           },
-                          "book_supplier_invoice",
+                          "bookkeep_supplier_invoice",
                           String(bsiInvoiceNum),
                         );
                       }
@@ -2689,7 +2690,7 @@ Deno.serve(async (req: Request) => {
                           await callFortnoxWrite(
                             "approveSupplierInvoiceBookkeep",
                             { givenNumber: Number(invoiceNum) },
-                            "book_supplier_invoice",
+                            "approve_supplier_invoice",
                             invoiceNum,
                           );
                           logger.info("Auto-approved supplier invoice before payment", { invoiceNum });
@@ -5820,14 +5821,14 @@ ANVÄNDARFRÅGA:
               toolResult = await callFortnoxWrite(
                 "approveSupplierInvoiceBookkeep",
                 { givenNumber: Number(bsi3InvNum) },
-                "book_supplier_invoice",
+                "approve_supplier_invoice",
                 bsi3InvNum,
               );
             } catch {
               toolResult = await callFortnoxWrite(
                 "bookSupplierInvoice",
                 { givenNumber: Number(bsi3InvNum) },
-                "book_supplier_invoice",
+                "bookkeep_supplier_invoice",
                 bsi3InvNum,
               );
             }

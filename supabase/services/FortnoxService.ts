@@ -915,7 +915,8 @@ export class FortnoxService {
      */
     async bookSupplierInvoice(givenNumber: number): Promise<FortnoxSupplierInvoiceResponse> {
         return await this.request<FortnoxSupplierInvoiceResponse>(`/supplierinvoices/${givenNumber}/bookkeep`, {
-            method: 'PUT'
+            method: 'PUT',
+            body: JSON.stringify({ SupplierInvoice: {} })
         });
     }
 
@@ -943,7 +944,8 @@ export class FortnoxService {
      */
     async approveSupplierInvoiceBookkeep(givenNumber: number): Promise<FortnoxSupplierInvoiceResponse> {
         return await this.request<FortnoxSupplierInvoiceResponse>(`/supplierinvoices/${givenNumber}/approvalbookkeep`, {
-            method: 'PUT'
+            method: 'PUT',
+            body: JSON.stringify({ SupplierInvoice: {} })
         });
     }
 
