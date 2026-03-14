@@ -2452,10 +2452,10 @@ Deno.serve(async (req: Request) => {
                       const isRC = (params.is_reverse_charge ?? params.isReverseCharge ?? params.IsReverseCharge) === true;
                       const vatMul = 1 +
                         (((params.vat_rate ?? params.vatRate ?? params.VatRate) as number || 25) / 100);
-                      // Extract total from params, or calculate from posting_rows as fallback
-                      let totalAmt = (params.total_amount ?? params.totalAmount ?? params.TotalAmount ?? params.Total ?? params.amount ?? params.Amount) as number || 0;
-                      if (!totalAmt && action.posting_rows && Array.isArray(action.posting_rows)) {
-                        // posting_rows has debit/credit — the credit on 2440 (leverantörsskuld) = total
+                      // Extract total from posting_rows (preferred — always SEK) or params as fallback
+                      let totalAmt = 0;
+                      if (action.posting_rows && Array.isArray(action.posting_rows) && action.posting_rows.length > 0) {
+                        // posting_rows has debit/credit in SEK — the credit on 2440 (leverantörsskuld) = total
                         const creditRow = action.posting_rows.find((r: any) => String(r.account) === "2440" && r.credit > 0);
                         if (creditRow) {
                           totalAmt = creditRow.credit as number;
@@ -2463,7 +2463,10 @@ Deno.serve(async (req: Request) => {
                           // Fallback: sum all debits (cost + VAT = total)
                           totalAmt = action.posting_rows.reduce((sum: number, r: any) => sum + ((r.debit as number) || 0), 0);
                         }
-                        logger.info("Extracted totalAmt from posting_rows", { totalAmt, rows: action.posting_rows });
+                        logger.info("Extracted totalAmt from posting_rows (SEK)", { totalAmt, rows: action.posting_rows });
+                      }
+                      if (!totalAmt) {
+                        totalAmt = (params.total_amount ?? params.totalAmount ?? params.TotalAmount ?? params.Total ?? params.amount ?? params.Amount) as number || 0;
                       }
                       const net = isRC
                         ? totalAmt
