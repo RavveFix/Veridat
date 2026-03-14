@@ -1523,7 +1523,7 @@ async function executeFortnoxTool(
       case "create_supplier": {
         const csArgs = toolArgs as CreateSupplierArgs;
         const result = await callFortnoxWrite(
-          "createSupplier",
+          "findOrCreateSupplier",
           {
             supplier: {
               Name: csArgs.name,
@@ -1544,9 +1544,9 @@ async function executeFortnoxTool(
           resourceId: supplier.SupplierNumber || "",
           newState: supplier,
         });
-        return `Leverantör skapad!\n- Namn: ${
+        return `Leverantör: ${
           supplier.Name || csArgs.name
-        }\n- Nr: ${supplier.SupplierNumber || "tilldelas"}`;
+        } (nr ${supplier.SupplierNumber || "tilldelas"})`;
       }
       case "create_supplier_invoice": {
         const siArgs = toolArgs as CreateSupplierInvoiceArgs;
@@ -5701,7 +5701,7 @@ ANVÄNDARFRÅGA:
           case "create_supplier": {
             const csArgs = args as CreateSupplierArgs;
             toolResult = await callFortnoxWrite(
-              "createSupplier",
+              "findOrCreateSupplier",
               {
                 supplier: {
                   Name: csArgs.name,
@@ -5713,9 +5713,9 @@ ANVÄNDARFRÅGA:
               csArgs.org_number || csArgs.name,
             );
             const supplier = toolResult.Supplier || toolResult;
-            responseText = `Leverantör skapad i Fortnox!\n- Namn: ${
+            responseText = `Leverantör: ${
               supplier.Name || csArgs.name
-            }\n- Leverantörsnr: ${supplier.SupplierNumber || "tilldelas"}`;
+            } (nr ${supplier.SupplierNumber || "tilldelas"})`;
             toolStructuredData = {
               toolArgs: csArgs as Record<string, unknown>,
               toolResult: toolResult as Record<string, unknown>,
