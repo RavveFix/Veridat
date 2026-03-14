@@ -402,7 +402,7 @@ export class FortnoxService {
             const newExpiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
             // 3. Update DB with optimistic lock (only if no concurrent refresh)
-            const primaryUpdate = await this.supabase
+            let primaryQuery = this.supabase
                 .from('fortnox_tokens')
                 .update({
                     access_token: access_token,
@@ -415,8 +415,16 @@ export class FortnoxService {
                 })
                 .eq('id', rowId)
                 .eq('user_id', this.userId)
-                .eq('company_id', this.companyId)
-                .eq('updated_at', previousUpdatedAt) // Optimistic lock
+                .eq('company_id', this.companyId);
+
+            // Optimistic lock: match previous updated_at (use .is(null) if undefined)
+            if (previousUpdatedAt) {
+                primaryQuery = primaryQuery.eq('updated_at', previousUpdatedAt);
+            } else {
+                primaryQuery = primaryQuery.is('updated_at', null);
+            }
+
+            const primaryUpdate = await primaryQuery
                 .select('access_token')
                 .maybeSingle();
 
@@ -424,7 +432,7 @@ export class FortnoxService {
             let updateError = primaryUpdate.error;
 
             if ((!updateResult || updateError) && legacyRow) {
-                const legacyUpdate = await this.supabase
+                let legacyQuery = this.supabase
                     .from('fortnox_tokens')
                     .update({
                         access_token: access_token,
@@ -437,8 +445,15 @@ export class FortnoxService {
                     })
                     .eq('id', rowId)
                     .eq('user_id', this.userId)
-                    .is('company_id', null)
-                    .eq('updated_at', previousUpdatedAt)
+                    .is('company_id', null);
+
+                if (previousUpdatedAt) {
+                    legacyQuery = legacyQuery.eq('updated_at', previousUpdatedAt);
+                } else {
+                    legacyQuery = legacyQuery.is('updated_at', null);
+                }
+
+                const legacyUpdate = await legacyQuery
                     .select('access_token')
                     .maybeSingle();
                 updateResult = legacyUpdate.data;
