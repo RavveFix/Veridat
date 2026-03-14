@@ -2517,21 +2517,19 @@ Deno.serve(async (req: Request) => {
 
                 // 4. Read VAT account balances directly from bookkeeping
                 // In SIE format, UB values are signed: positive = debit, negative = credit.
-                // All 26xx accounts are 2xxx (liabilities, credit-normal):
-                //   Utgående moms (2611-2616): negative UB = credit balance = VAT we owe
-                //   Ingående moms (2640-2645): negative UB = credit balance = VAT we can deduct
-                // We negate all to get positive amounts for display.
+                //   Utgående moms (2611-2616): CREDIT-normal → negative UB → negate to get positive
+                //   Ingående moms (2640-2645): DEBIT-normal → positive UB → use as-is
 
                 const bal = (num: number) => sieAccounts.get(num)?.ub ?? 0;
 
-                // Utgående moms — negate credit balance to get positive amount
+                // Utgående moms — credit-normal (negative UB in SIE), negate to get positive
                 const outgoing25 = -(bal(2611) + bal(2614)); // 2614 = omvänd skattskyldighet 25%
                 const outgoing12 = -(bal(2612) + bal(2615)); // 2615 = omvänd skattskyldighet 12%
                 const outgoing6  = -(bal(2613) + bal(2616)); // 2616 = omvänd skattskyldighet 6%
                 const totalOutgoingVat = outgoing25 + outgoing12 + outgoing6;
 
-                // Ingående moms — negate credit balance to get positive deductible amount
-                const incoming = -(bal(2640) + bal(2641) + bal(2645)); // 2645 = ingående omvänd moms
+                // Ingående moms — debit-normal (positive UB in SIE), use as-is
+                const incoming = bal(2640) + bal(2641) + bal(2645); // 2645 = ingående omvänd moms
 
                 const netVat = totalOutgoingVat - incoming;
 
