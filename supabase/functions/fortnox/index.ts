@@ -2810,7 +2810,7 @@ Deno.serve(async (req: Request) => {
                 result = {
                     type: 'financial_statements',
                     company: {
-                        name: fsCompany?.Name || '',
+                        name: fsCompany?.CompanyName || '',
                         orgNumber: fsCompany?.OrganizationNumber || '',
                     },
                     financialYear: {
