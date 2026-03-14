@@ -2564,6 +2564,26 @@ Deno.serve(async (req: Request) => {
                 const totalCostNet = suppDetails.reduce((s, inv) => s + inv.net, 0);
                 const totalCostVat = suppDetails.reduce((s, inv) => s + inv.vat, 0);
 
+                // Snap a calculated VAT percentage to the nearest valid Swedish rate.
+                // Swedish VAT rates are only 25%, 12%, 6%, and 0%. Calculating
+                // rate = vat/net * 100 from rounded amounts often yields values like
+                // 24.7, 11.8, 3.0 etc. — snap these to the correct legal rate.
+                const SWEDISH_VAT_RATES = [25, 12, 6, 0];
+                function snapToSwedishVATRate(calculatedRate: number, hasVat: boolean): number {
+                    if (calculatedRate <= 0 && !hasVat) return 0;
+                    // If there IS actual VAT charged, exclude 0% — it's not momsfri
+                    const candidates = hasVat
+                        ? SWEDISH_VAT_RATES.filter(r => r > 0)
+                        : SWEDISH_VAT_RATES;
+                    let best = candidates[0] ?? 0;
+                    let bestDist = Math.abs(calculatedRate - best);
+                    for (const r of candidates) {
+                        const dist = Math.abs(calculatedRate - r);
+                        if (dist < bestDist) { best = r; bestDist = dist; }
+                    }
+                    return best;
+                }
+
                 // 5. Group revenue by VAT rate
                 // Use InvoiceRows when available to correctly handle mixed-rate invoices
                 // (deriving rate from invoice-level vat/net gives wrong blended rates)
@@ -2574,14 +2594,16 @@ Deno.serve(async (req: Request) => {
                         for (const row of inv.rows) {
                             const rowNet = Number(row.price) || 0;
                             const rowVat = Number(row.vat) || 0;
-                            const rate = rowNet > 0 ? Math.round((rowVat / rowNet) * 100) : 0;
+                            const rawRate = rowNet > 0 ? (rowVat / rowNet) * 100 : 0;
+                            const rate = snapToSwedishVATRate(rawRate, rowVat > 0);
                             if (!revenueByRate[rate]) revenueByRate[rate] = { net: 0, vat: 0 };
                             revenueByRate[rate].net += rowNet;
                             revenueByRate[rate].vat += rowVat;
                         }
                     } else {
                         // Fallback: derive rate from invoice totals
-                        const rate = inv.net > 0 ? Math.round((inv.vat / inv.net) * 100) : 0;
+                        const rawRate = inv.net > 0 ? (inv.vat / inv.net) * 100 : 0;
+                        const rate = snapToSwedishVATRate(rawRate, inv.vat > 0);
                         if (!revenueByRate[rate]) revenueByRate[rate] = { net: 0, vat: 0 };
                         revenueByRate[rate].net += inv.net;
                         revenueByRate[rate].vat += inv.vat;
@@ -2599,7 +2621,8 @@ Deno.serve(async (req: Request) => {
                 // 6. Group costs by VAT rate
                 const costsByRate: Record<number, { net: number; vat: number }> = {};
                 for (const inv of suppDetails) {
-                    const rate = inv.net > 0 ? Math.round((inv.vat / inv.net) * 100) : 0;
+                    const rawRate = inv.net > 0 ? (inv.vat / inv.net) * 100 : 0;
+                    const rate = snapToSwedishVATRate(rawRate, inv.vat > 0);
                     if (!costsByRate[rate]) costsByRate[rate] = { net: 0, vat: 0 };
                     costsByRate[rate].net += inv.net;
                     costsByRate[rate].vat += inv.vat;
@@ -2614,11 +2637,15 @@ Deno.serve(async (req: Request) => {
                 vatCosts.sort((a, b) => b.rate - a.rate);
 
                 // 7. VAT summary
+                // Derive outgoing VAT from the snapped rate buckets so that
+                // outgoing_25 + outgoing_12 + outgoing_6 == total outgoing,
+                // keeping the breakdown and total consistent.
                 const outgoing25 = revenueByRate[25]?.vat || 0;
                 const outgoing12 = revenueByRate[12]?.vat || 0;
                 const outgoing6 = revenueByRate[6]?.vat || 0;
+                const totalOutgoingVat = outgoing25 + outgoing12 + outgoing6;
                 const incomingVat = totalCostVat;
-                const netVat = totalRevVat - incomingVat;
+                const netVat = totalOutgoingVat - incomingVat;
 
                 const vatSummaryData = {
                     outgoing_25: outgoing25, outgoing_12: outgoing12, outgoing_6: outgoing6,
