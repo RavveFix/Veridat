@@ -2501,7 +2501,7 @@ Deno.serve(async (req: Request) => {
                 type InvDetail = { Invoice: { DocumentNumber: number; CustomerName?: string; InvoiceDate?: string; Net?: number; Total?: number; TotalVAT?: number; VATIncluded?: boolean; Booked?: boolean; InvoiceRows?: Array<{ AccountNumber?: number; Price?: number; VAT?: number }> } };
                 type SuppInvDetail = { SupplierInvoice: { GivenNumber: number; SupplierName?: string; InvoiceDate?: string; Total: number; VAT?: number; Booked: boolean } };
 
-                const invDetails: Array<{ nr: number; customer: string; date: string; net: number; vat: number; total: number; booked: boolean }> = [];
+                const invDetails: Array<{ nr: number; customer: string; date: string; net: number; vat: number; total: number; booked: boolean; rows?: Array<{ price: number; vat: number }> }> = [];
                 for (let i = 0; i < allInvoices.length; i += 4) {
                     const batch = allInvoices.slice(i, i + 4);
                     const results = await Promise.all(
@@ -2522,6 +2522,10 @@ Deno.serve(async (req: Request) => {
                                 vat: Number(inv.TotalVAT) || 0,
                                 total: Number(inv.Total) || 0,
                                 booked: inv.Booked || false,
+                                rows: inv.InvoiceRows?.map(r => ({
+                                    price: Number(r.Price) || 0,
+                                    vat: Number(r.VAT) || 0,
+                                })),
                             });
                         }
                     }
@@ -2560,13 +2564,28 @@ Deno.serve(async (req: Request) => {
                 const totalCostNet = suppDetails.reduce((s, inv) => s + inv.net, 0);
                 const totalCostVat = suppDetails.reduce((s, inv) => s + inv.vat, 0);
 
-                // 5. Group revenue by VAT rate (derive rate from vat/net ratio)
+                // 5. Group revenue by VAT rate
+                // Use InvoiceRows when available to correctly handle mixed-rate invoices
+                // (deriving rate from invoice-level vat/net gives wrong blended rates)
                 const revenueByRate: Record<number, { net: number; vat: number }> = {};
                 for (const inv of invDetails) {
-                    const rate = inv.net > 0 ? Math.round((inv.vat / inv.net) * 100) : 0;
-                    if (!revenueByRate[rate]) revenueByRate[rate] = { net: 0, vat: 0 };
-                    revenueByRate[rate].net += inv.net;
-                    revenueByRate[rate].vat += inv.vat;
+                    if (inv.rows && inv.rows.length > 0) {
+                        // Split by actual row-level VAT rates
+                        for (const row of inv.rows) {
+                            const rowNet = Number(row.price) || 0;
+                            const rowVat = Number(row.vat) || 0;
+                            const rate = rowNet > 0 ? Math.round((rowVat / rowNet) * 100) : 0;
+                            if (!revenueByRate[rate]) revenueByRate[rate] = { net: 0, vat: 0 };
+                            revenueByRate[rate].net += rowNet;
+                            revenueByRate[rate].vat += rowVat;
+                        }
+                    } else {
+                        // Fallback: derive rate from invoice totals
+                        const rate = inv.net > 0 ? Math.round((inv.vat / inv.net) * 100) : 0;
+                        if (!revenueByRate[rate]) revenueByRate[rate] = { net: 0, vat: 0 };
+                        revenueByRate[rate].net += inv.net;
+                        revenueByRate[rate].vat += inv.vat;
+                    }
                 }
 
                 const vatSales: Array<{ description: string; net: number; vat: number; rate: number }> = [];
