@@ -1347,6 +1347,47 @@ async function callFortnoxRead(
   return result as Record<string, unknown>;
 }
 
+/**
+ * Resolve a supplier identifier to a numeric SupplierNumber.
+ * If the value is already numeric, return as-is.
+ * If it looks like a text name (e.g. "GOOGLE_IRELAND_LTD"), search Fortnox suppliers by name.
+ */
+async function resolveSupplierNumber(
+  supplierRef: string,
+  authHeader: string,
+  companyId: string,
+): Promise<string | null> {
+  // Already numeric → return as-is
+  if (/^\d+$/.test(supplierRef)) return supplierRef;
+
+  // Text name → search Fortnox suppliers
+  try {
+    const result = await callFortnoxRead("getSuppliers", {}, authHeader, companyId);
+    const suppliers = (result as any)?.Suppliers || (result as any)?.suppliers || [];
+    // Normalize search: lowercase, strip underscores/spaces
+    const normalize = (s: string) => s.toLowerCase().replace(/[_\s-]+/g, "");
+    const needle = normalize(supplierRef);
+    const match = suppliers.find((s: any) =>
+      normalize(s.Name || "") === needle ||
+      normalize(s.SupplierNumber || "") === needle
+    );
+    if (match?.SupplierNumber) {
+      logger.info("Resolved supplier name to number", {
+        input: supplierRef,
+        resolved: match.SupplierNumber,
+        name: match.Name,
+      });
+      return String(match.SupplierNumber);
+    }
+  } catch (err) {
+    logger.warn("Supplier lookup failed", {
+      supplierRef,
+      error: err instanceof Error ? err.message : "Unknown",
+    });
+  }
+  return null;
+}
+
 async function executeFortnoxTool(
   toolName: string,
   toolArgs: Record<string, unknown>,
@@ -1510,7 +1551,14 @@ async function executeFortnoxTool(
       case "create_supplier_invoice": {
         const siArgs = toolArgs as CreateSupplierInvoiceArgs;
         // Resolve casing — AI may send snake_case, camelCase, or PascalCase
-        const siSupplierNum = (siArgs.supplier_number || siArgs.supplierNumber || siArgs.SupplierNumber) as string;
+        const siSupplierRaw = (siArgs.supplier_number || siArgs.supplierNumber || siArgs.SupplierNumber) as string;
+        // If AI sent a text name instead of numeric SupplierNumber, resolve it
+        const siSupplierNum = companyId
+          ? (await resolveSupplierNumber(siSupplierRaw, authHeader, companyId)) || siSupplierRaw
+          : siSupplierRaw;
+        if (siSupplierNum !== siSupplierRaw) {
+          logger.info("Resolved supplier name to number for direct tool call", { from: siSupplierRaw, to: siSupplierNum });
+        }
         const siInvNum = (siArgs.invoice_number || siArgs.invoiceNumber || siArgs.InvoiceNumber) as string | undefined;
         const siTotalAmt = (siArgs.total_amount ?? siArgs.totalAmount ?? siArgs.TotalAmount ?? siArgs.Total) as number;
         const siVatRate = (siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number;
@@ -2426,7 +2474,10 @@ Deno.serve(async (req: Request) => {
 
                       // Resolve SupplierNumber — prefer createdSupplierNumber from prior create_supplier action
                       // (AI often sends supplier name instead of number in params)
-                      const supplierNum = createdSupplierNumber || params.supplier_number || params.supplierNumber || params.SupplierNumber;
+                      const supplierRaw = (createdSupplierNumber || params.supplier_number || params.supplierNumber || params.SupplierNumber) as string;
+                      const supplierNum = resolvedCompanyId
+                        ? (await resolveSupplierNumber(supplierRaw, authHeader, resolvedCompanyId)) || supplierRaw
+                        : supplierRaw;
                       const siInvoiceNumber = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber ||
                               `KVITTO-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString(36).slice(-4).toUpperCase()}`) as string;
                       const siInvoiceDate = (params.invoice_date || params.invoiceDate || params.InvoiceDate ||
@@ -3945,7 +3996,7 @@ ANVÄNDARFRÅGA:
         `Du har tillgång till Fortnox-verktyg. Använd dem så här:\n` +
         `- LÄSVERKTYG (search_invoices, search_supplier_invoices, search_customers, get_vat_report, get_company_info, get_financial_summary, get_account_balances, search_vouchers): Använd FRITT utan att fråga. Om användaren frågar om fakturor, leverantörsfakturor, kunder, moms, företagsinfo, ekonomisk översikt, kontosaldon eller verifikationer — anropa verktyget direkt.\n` +
         `- SKRIVVERKTYG (skapa/ändra faktura, bokföra, registrera betalning): Anropa ALLTID propose_action_plan med posting_rows. Utför ALDRIG en skrivoperation direkt.\n` +
-        `- LEVERANTÖRSFAKTURA: När du skapar en leverantörsfaktura, inkludera ALLTID ett create_supplier-steg FÖRE create_supplier_invoice i handlingsplanen. Leverantören kanske inte finns i Fortnox. Systemet hanterar dubbletter — om leverantören redan finns skapas ingen ny.\n` +
+        `- LEVERANTÖRSFAKTURA: När du skapar en leverantörsfaktura, inkludera ALLTID ett create_supplier-steg FÖRE create_supplier_invoice i handlingsplanen. Leverantören kanske inte finns i Fortnox. Systemet hanterar dubbletter — om leverantören redan finns skapas ingen ny. Referera ALLTID leverantörer med numeriskt SupplierNumber (t.ex. "1"), ALDRIG med textnamn (t.ex. "GOOGLE_IRELAND_LTD").\n` +
         `- SAKNAD INFO: Om pris, belopp, antal eller annan kritisk info saknas för en skrivoperation → anropa request_clarification.\n\n` +
         finalMessage;
     }
@@ -5684,7 +5735,11 @@ ANVÄNDARFRÅGA:
           case "create_supplier_invoice": {
             const siArgs = args as CreateSupplierInvoiceArgs;
             // Resolve casing — AI may send snake_case, camelCase, or PascalCase
-            const si3SupplierNum = (siArgs.supplier_number || siArgs.supplierNumber || siArgs.SupplierNumber) as string;
+            const si3SupplierRaw = (siArgs.supplier_number || siArgs.supplierNumber || siArgs.SupplierNumber) as string;
+            // If AI sent a text name instead of numeric SupplierNumber, resolve it
+            const si3SupplierNum = resolvedCompanyId
+              ? (await resolveSupplierNumber(si3SupplierRaw, authHeader, resolvedCompanyId)) || si3SupplierRaw
+              : si3SupplierRaw;
             const si3InvNum = (siArgs.invoice_number || siArgs.invoiceNumber || siArgs.InvoiceNumber) as string | undefined;
             const si3TotalAmt = (siArgs.total_amount ?? siArgs.totalAmount ?? siArgs.TotalAmount ?? siArgs.Total) as number;
             const si3VatRate = (siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number;
