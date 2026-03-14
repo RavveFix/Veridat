@@ -720,14 +720,19 @@ export class FortnoxService {
     }
 
     async findOrCreateCustomer(customerData: FortnoxCustomer): Promise<FortnoxCustomerResponse> {
+        const normalize = (s: string) => s.toLowerCase().replace(/[_\s-]+/g, '').replace(/\.$/, '');
+
         try {
-            const customers = await this.getCustomers();
-            const existing = customers.Customers?.find(
-                c => c.Name.toLowerCase() === customerData.Name.toLowerCase()
-            );
-            if (existing) {
-                logger.info('Found existing customer', { customerNumber: existing.CustomerNumber });
-                return { Customer: existing } as FortnoxCustomerResponse;
+            // Use Fortnox name filter to avoid pagination issues (max 100 per page)
+            if (customerData.Name) {
+                const encoded = encodeURIComponent(customerData.Name);
+                const filtered = await this.request<FortnoxCustomerListResponse>(`/customers?name=${encoded}`);
+                const needle = normalize(customerData.Name);
+                const byName = (filtered.Customers || []).find(c => c.Name && normalize(c.Name) === needle);
+                if (byName) {
+                    logger.info('Found existing customer by name', { customerNumber: byName.CustomerNumber, name: byName.Name });
+                    return { Customer: byName } as FortnoxCustomerResponse;
+                }
             }
         } catch (error) {
             logger.warn('Could not search customers', {
@@ -1037,13 +1042,14 @@ export class FortnoxService {
      * Find or create a supplier by organization number or name
      */
     async findOrCreateSupplier(supplierData: FortnoxSupplier): Promise<FortnoxSupplierResponse> {
-        try {
-            const suppliers = await this.getSuppliers();
-            const allSuppliers = suppliers.Suppliers || [];
+        const normalize = (s: string) => s.toLowerCase().replace(/[_\s-]+/g, '').replace(/\.$/, '');
 
-            // 1. Match by org number (exact)
+        try {
+            // 1. Match by org number using Fortnox filter
             if (supplierData.OrganisationNumber) {
-                const byOrg = allSuppliers.find(
+                const encoded = encodeURIComponent(supplierData.OrganisationNumber);
+                const filtered = await this.request<FortnoxSupplierListResponse>(`/suppliers?organisationnumber=${encoded}`);
+                const byOrg = (filtered.Suppliers || []).find(
                     s => s.OrganisationNumber === supplierData.OrganisationNumber
                 );
                 if (byOrg) {
@@ -1055,11 +1061,12 @@ export class FortnoxService {
                 }
             }
 
-            // 2. Match by name (normalized, case-insensitive)
+            // 2. Match by name using Fortnox filter (avoids pagination issues)
             if (supplierData.Name) {
-                const normalize = (s: string) => s.toLowerCase().replace(/[_\s-]+/g, '').replace(/\.$/, '');
+                const encoded = encodeURIComponent(supplierData.Name);
+                const filtered = await this.request<FortnoxSupplierListResponse>(`/suppliers?name=${encoded}`);
                 const needle = normalize(supplierData.Name);
-                const byName = allSuppliers.find(s => s.Name && normalize(s.Name) === needle);
+                const byName = (filtered.Suppliers || []).find(s => s.Name && normalize(s.Name) === needle);
                 if (byName) {
                     logger.info('Found existing supplier by name', {
                         supplierNumber: byName.SupplierNumber,
