@@ -4477,29 +4477,61 @@ ANVÄNDARFRÅGA:
                     const payArgType = (payArgs.payment_type || payArgs.paymentType || payArgs.PaymentType) as string;
 
                     if (payArgType === "supplier") {
-                      const result = await callFortnoxWrite(
-                        "registerSupplierInvoicePayment",
-                        {
-                          payment: {
-                            InvoiceNumber: invoiceNum,
-                            Amount: payAmount,
-                            PaymentDate: paymentDate,
+                      // Supplier payment is non-critical — approve+pay, but gracefully degrade
+                      try {
+                        try {
+                          await callFortnoxWrite(
+                            "approveSupplierInvoiceBookkeep",
+                            { givenNumber: Number(invoiceNum) },
+                            "approve_supplier_invoice",
+                            invoiceNum,
+                          );
+                          logger.info("Auto-approved supplier invoice before payment", { invoiceNum });
+                        } catch (bookErr: unknown) {
+                          logger.info("Supplier invoice already booked or approval failed (continuing)", {
+                            invoiceNum,
+                            error: bookErr instanceof Error ? bookErr.message : "Unknown",
+                          });
+                        }
+                        const result = await callFortnoxWrite(
+                          "registerSupplierInvoicePayment",
+                          {
+                            payment: {
+                              InvoiceNumber: invoiceNum,
+                              Amount: payAmount,
+                              PaymentDate: paymentDate,
+                            },
                           },
-                        },
-                        "register_supplier_invoice_payment",
-                        invoiceNum,
-                      );
-                      void auditService.log({
-                        userId,
-                        companyId: resolvedCompanyId || undefined,
-                        actorType: "ai",
-                        action: "create",
-                        resourceType: "supplier_invoice_payment",
-                        resourceId: invoiceNum,
-                        newState: result,
-                      });
-                      toolResponseText =
-                        `Betalning på ${payAmount} kr registrerad för leverantörsfaktura ${invoiceNum} (${paymentDate}).`;
+                          "register_supplier_invoice_payment",
+                          invoiceNum,
+                        );
+                        void auditService.log({
+                          userId,
+                          companyId: resolvedCompanyId || undefined,
+                          actorType: "ai",
+                          action: "create",
+                          resourceType: "supplier_invoice_payment",
+                          resourceId: invoiceNum,
+                          newState: result,
+                        });
+                        toolResponseText =
+                          `Betalning på ${payAmount} kr registrerad för leverantörsfaktura ${invoiceNum} (${paymentDate}).`;
+                      } catch (payErr: unknown) {
+                        logger.warn("register_payment for supplier invoice failed (non-critical)", {
+                          invoiceNumber: invoiceNum,
+                          error: payErr instanceof Error ? payErr.message : "Unknown",
+                        });
+                        toolResponseText =
+                          `⚠️ Leverantörsfaktura ${invoiceNum} skapad men betalning kunde inte registreras — fakturan behöver attesteras och bokföras först i Fortnox.`;
+                        void auditService.log({
+                          userId,
+                          companyId: resolvedCompanyId || undefined,
+                          actorType: "ai",
+                          action: "update_skipped",
+                          resourceType: "supplier_invoice",
+                          resourceId: invoiceNum,
+                        });
+                      }
                     } else {
                       const result = await callFortnoxWrite(
                         "registerInvoicePayment",
@@ -5964,29 +5996,61 @@ ANVÄNDARFRÅGA:
             const payArgType = (payArgs.payment_type || payArgs.paymentType || payArgs.PaymentType) as string;
 
             if (payArgType === "supplier") {
-              toolResult = await callFortnoxWrite(
-                "registerSupplierInvoicePayment",
-                {
-                  payment: {
-                    InvoiceNumber: invoiceNum,
-                    Amount: payAmount,
-                    PaymentDate: paymentDate,
+              // Supplier payment is non-critical — approve+pay, but gracefully degrade
+              try {
+                try {
+                  await callFortnoxWrite(
+                    "approveSupplierInvoiceBookkeep",
+                    { givenNumber: Number(invoiceNum) },
+                    "approve_supplier_invoice",
+                    invoiceNum,
+                  );
+                  logger.info("Auto-approved supplier invoice before payment", { invoiceNum });
+                } catch (bookErr: unknown) {
+                  logger.info("Supplier invoice already booked or approval failed (continuing)", {
+                    invoiceNum,
+                    error: bookErr instanceof Error ? bookErr.message : "Unknown",
+                  });
+                }
+                toolResult = await callFortnoxWrite(
+                  "registerSupplierInvoicePayment",
+                  {
+                    payment: {
+                      InvoiceNumber: invoiceNum,
+                      Amount: payAmount,
+                      PaymentDate: paymentDate,
+                    },
                   },
-                },
-                "register_supplier_invoice_payment",
-                invoiceNum,
-              );
-              void auditService.log({
-                userId,
-                companyId: resolvedCompanyId || undefined,
-                actorType: "ai",
-                action: "create",
-                resourceType: "supplier_invoice_payment",
-                resourceId: invoiceNum,
-                newState: toolResult,
-              });
-              responseText =
-                `Betalning på ${payAmount} kr registrerad för leverantörsfaktura ${invoiceNum} (${paymentDate}).`;
+                  "register_supplier_invoice_payment",
+                  invoiceNum,
+                );
+                void auditService.log({
+                  userId,
+                  companyId: resolvedCompanyId || undefined,
+                  actorType: "ai",
+                  action: "create",
+                  resourceType: "supplier_invoice_payment",
+                  resourceId: invoiceNum,
+                  newState: toolResult,
+                });
+                responseText =
+                  `Betalning på ${payAmount} kr registrerad för leverantörsfaktura ${invoiceNum} (${paymentDate}).`;
+              } catch (payErr: unknown) {
+                logger.warn("register_payment for supplier invoice failed (non-critical)", {
+                  invoiceNumber: invoiceNum,
+                  error: payErr instanceof Error ? payErr.message : "Unknown",
+                });
+                responseText =
+                  `⚠️ Leverantörsfaktura ${invoiceNum} skapad men betalning kunde inte registreras — fakturan behöver attesteras och bokföras först i Fortnox.`;
+                void auditService.log({
+                  userId,
+                  companyId: resolvedCompanyId || undefined,
+                  actorType: "ai",
+                  action: "update_skipped",
+                  resourceType: "supplier_invoice",
+                  resourceId: invoiceNum,
+                });
+              }
             } else {
               toolResult = await callFortnoxWrite(
                 "registerInvoicePayment",
