@@ -1357,6 +1357,8 @@ async function resolveSupplierNumber(
   authHeader: string,
   companyId: string,
 ): Promise<string | null> {
+  // Guard against undefined/empty input
+  if (!supplierRef) return null;
   // Already numeric → return as-is
   if (/^\d+$/.test(supplierRef)) return supplierRef;
 
@@ -1561,7 +1563,7 @@ async function executeFortnoxTool(
         }
         const siInvNum = (siArgs.invoice_number || siArgs.invoiceNumber || siArgs.InvoiceNumber) as string | undefined;
         const siTotalAmt = (siArgs.total_amount ?? siArgs.totalAmount ?? siArgs.TotalAmount ?? siArgs.Total) as number;
-        const siVatRate = (siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number;
+        const siVatRate = ((siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number) || 25;
         const siVatAmt = (siArgs.vat_amount ?? siArgs.vatAmount ?? siArgs.VatAmount) as number | undefined;
         const siIsRC = (siArgs.is_reverse_charge ?? siArgs.isReverseCharge ?? siArgs.IsReverseCharge) === true;
         const siAcct = (siArgs.account ?? siArgs.Account) as number;
@@ -1724,20 +1726,25 @@ async function executeFortnoxTool(
       }
       case "create_invoice": {
         const ciArgs = toolArgs as Record<string, unknown>;
+        // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+        const ciCustNum = (ciArgs.customer_number || ciArgs.customerNumber || ciArgs.CustomerNumber) as string;
+        if (!ciCustNum) {
+          return "Kundnummer saknas. Ange kundnummer för att skapa fakturan.";
+        }
         const result = await callFortnoxWrite(
           "createInvoice",
           {
             invoice: {
-              CustomerNumber: ciArgs.CustomerNumber,
-              InvoiceRows: ciArgs.InvoiceRows || [],
-              InvoiceDate: ciArgs.InvoiceDate ||
-                new Date().toISOString().slice(0, 10),
-              DueDate: ciArgs.DueDate || undefined,
-              Comments: ciArgs.Comments || undefined,
+              CustomerNumber: ciCustNum,
+              InvoiceRows: ciArgs.InvoiceRows || ciArgs.invoice_rows || [],
+              InvoiceDate: (ciArgs.InvoiceDate || ciArgs.invoice_date ||
+                new Date().toISOString().slice(0, 10)) as string,
+              DueDate: (ciArgs.DueDate || ciArgs.due_date || undefined) as string | undefined,
+              Comments: (ciArgs.Comments || ciArgs.comments || undefined) as string | undefined,
             },
           },
           "create_invoice",
-          String(ciArgs.CustomerNumber),
+          String(ciCustNum),
         );
         const inv = (result as any)?.Invoice || result;
         void auditService.log({
@@ -2822,20 +2829,30 @@ Deno.serve(async (req: Request) => {
                           });
                         }
                       } else {
-                        await callFortnoxWrite(
-                          "registerInvoicePayment",
-                          {
-                            payment: {
-                              InvoiceNumber: Number(invoiceNum),
-                              Amount: payAmount,
-                              PaymentDate: payDate,
+                        // Customer payment — graceful degradation like supplier path
+                        try {
+                          await callFortnoxWrite(
+                            "registerInvoicePayment",
+                            {
+                              payment: {
+                                InvoiceNumber: Number(invoiceNum),
+                                Amount: payAmount,
+                                PaymentDate: payDate,
+                              },
                             },
-                          },
-                          "register_invoice_payment",
-                          invoiceNum,
-                        );
-                        resultText =
-                          `Betalning ${payAmount} kr registrerad för faktura ${invoiceNum}`;
+                            "register_invoice_payment",
+                            invoiceNum,
+                          );
+                          resultText =
+                            `Betalning ${payAmount} kr registrerad för faktura ${invoiceNum}`;
+                        } catch (payErr: unknown) {
+                          logger.warn("register_payment for customer invoice failed (non-critical)", {
+                            invoiceNumber: invoiceNum,
+                            error: payErr instanceof Error ? payErr.message : "Unknown",
+                          });
+                          resultText =
+                            `⚠️ Betalning kunde inte registreras för faktura ${invoiceNum}. Kontrollera att fakturan är bokförd i Fortnox.`;
+                        }
                       }
                       break;
                     }
@@ -4593,29 +4610,39 @@ ANVÄNDARFRÅGA:
                         });
                       }
                     } else {
-                      const result = await callFortnoxWrite(
-                        "registerInvoicePayment",
-                        {
-                          payment: {
-                            InvoiceNumber: Number(invoiceNum),
-                            Amount: payAmount,
-                            PaymentDate: paymentDate,
+                      // Customer payment — graceful degradation like supplier path
+                      try {
+                        const result = await callFortnoxWrite(
+                          "registerInvoicePayment",
+                          {
+                            payment: {
+                              InvoiceNumber: Number(invoiceNum),
+                              Amount: payAmount,
+                              PaymentDate: paymentDate,
+                            },
                           },
-                        },
-                        "register_invoice_payment",
-                        invoiceNum,
-                      );
-                      void auditService.log({
-                        userId,
-                        companyId: resolvedCompanyId || undefined,
-                        actorType: "ai",
-                        action: "create",
-                        resourceType: "invoice_payment",
-                        resourceId: invoiceNum,
-                        newState: result,
-                      });
-                      toolResponseText =
-                        `Betalning på ${payAmount} kr registrerad för kundfaktura ${invoiceNum} (${paymentDate}).`;
+                          "register_invoice_payment",
+                          invoiceNum,
+                        );
+                        void auditService.log({
+                          userId,
+                          companyId: resolvedCompanyId || undefined,
+                          actorType: "ai",
+                          action: "create",
+                          resourceType: "invoice_payment",
+                          resourceId: invoiceNum,
+                          newState: result,
+                        });
+                        toolResponseText =
+                          `Betalning på ${payAmount} kr registrerad för kundfaktura ${invoiceNum} (${paymentDate}).`;
+                      } catch (payErr: unknown) {
+                        logger.warn("register_payment for customer invoice failed", {
+                          invoiceNumber: invoiceNum,
+                          error: payErr instanceof Error ? payErr.message : "Unknown",
+                        });
+                        toolResponseText =
+                          `⚠️ Betalning kunde inte registreras för faktura ${invoiceNum}. Kontrollera att fakturan är bokförd i Fortnox.`;
+                      }
                     }
                   } else if (toolName === "search_invoices") {
                     // Read-only: search/list invoices from Fortnox
@@ -5552,20 +5579,26 @@ ANVÄNDARFRÅGA:
             break;
           }
           case "create_invoice": {
+            // Resolve casing — AI may send snake_case, camelCase, or PascalCase
+            const ci3CustNum = ((args as any).customer_number || (args as any).customerNumber || (args as any).CustomerNumber) as string;
+            if (!ci3CustNum) {
+              responseText = "Kundnummer saknas. Ange kundnummer för att skapa fakturan.";
+              break;
+            }
             toolResult = await callFortnoxWrite(
               "createInvoice",
               {
                 invoice: {
-                  CustomerNumber: args.CustomerNumber,
-                  InvoiceRows: args.InvoiceRows || [],
-                  InvoiceDate: (args as any).InvoiceDate ||
-                    new Date().toISOString().slice(0, 10),
-                  DueDate: (args as any).DueDate || undefined,
-                  Comments: (args as any).Comments || undefined,
+                  CustomerNumber: ci3CustNum,
+                  InvoiceRows: (args as any).InvoiceRows || (args as any).invoice_rows || [],
+                  InvoiceDate: ((args as any).InvoiceDate || (args as any).invoice_date ||
+                    new Date().toISOString().slice(0, 10)) as string,
+                  DueDate: ((args as any).DueDate || (args as any).due_date || undefined) as string | undefined,
+                  Comments: ((args as any).Comments || (args as any).comments || undefined) as string | undefined,
                 },
               },
               "create_invoice",
-              String(args.CustomerNumber),
+              String(ci3CustNum),
             );
             const cInv = (toolResult as any)?.Invoice || toolResult;
             responseText = `Kundfaktura skapad som utkast (nr ${cInv.InvoiceNumber || "tilldelas"}) i Fortnox.`;
@@ -5745,7 +5778,7 @@ ANVÄNDARFRÅGA:
               : si3SupplierRaw;
             const si3InvNum = (siArgs.invoice_number || siArgs.invoiceNumber || siArgs.InvoiceNumber) as string | undefined;
             const si3TotalAmt = (siArgs.total_amount ?? siArgs.totalAmount ?? siArgs.TotalAmount ?? siArgs.Total) as number;
-            const si3VatRate = (siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number;
+            const si3VatRate = ((siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number) || 25;
             const si3VatAmt = (siArgs.vat_amount ?? siArgs.vatAmount ?? siArgs.VatAmount) as number | undefined;
             const si3IsRC = (siArgs.is_reverse_charge ?? siArgs.isReverseCharge ?? siArgs.IsReverseCharge) === true;
             const si3Acct = (siArgs.account ?? siArgs.Account) as number;
@@ -6117,29 +6150,39 @@ ANVÄNDARFRÅGA:
                 });
               }
             } else {
-              toolResult = await callFortnoxWrite(
-                "registerInvoicePayment",
-                {
-                  payment: {
-                    InvoiceNumber: Number(invoiceNum),
-                    Amount: payAmount,
-                    PaymentDate: paymentDate,
+              // Customer payment — graceful degradation like supplier path
+              try {
+                toolResult = await callFortnoxWrite(
+                  "registerInvoicePayment",
+                  {
+                    payment: {
+                      InvoiceNumber: Number(invoiceNum),
+                      Amount: payAmount,
+                      PaymentDate: paymentDate,
+                    },
                   },
-                },
-                "register_invoice_payment",
-                invoiceNum,
-              );
-              void auditService.log({
-                userId,
-                companyId: resolvedCompanyId || undefined,
-                actorType: "ai",
-                action: "create",
-                resourceType: "invoice_payment",
-                resourceId: invoiceNum,
-                newState: toolResult,
-              });
-              responseText =
-                `Betalning på ${payAmount} kr registrerad för kundfaktura ${invoiceNum} (${paymentDate}).`;
+                  "register_invoice_payment",
+                  invoiceNum,
+                );
+                void auditService.log({
+                  userId,
+                  companyId: resolvedCompanyId || undefined,
+                  actorType: "ai",
+                  action: "create",
+                  resourceType: "invoice_payment",
+                  resourceId: invoiceNum,
+                  newState: toolResult,
+                });
+                responseText =
+                  `Betalning på ${payAmount} kr registrerad för kundfaktura ${invoiceNum} (${paymentDate}).`;
+              } catch (payErr: unknown) {
+                logger.warn("register_payment for customer invoice failed", {
+                  invoiceNumber: invoiceNum,
+                  error: payErr instanceof Error ? payErr.message : "Unknown",
+                });
+                responseText =
+                  `⚠️ Betalning kunde inte registreras för faktura ${invoiceNum}. Kontrollera att fakturan är bokförd i Fortnox.`;
+              }
             }
             toolStructuredData = {
               toolArgs: payArgs as Record<string, unknown>,
