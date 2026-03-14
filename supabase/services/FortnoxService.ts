@@ -1002,28 +1002,48 @@ export class FortnoxService {
     }
 
     /**
-     * Find or create a supplier by organization number
+     * Find or create a supplier by organization number or name
      */
     async findOrCreateSupplier(supplierData: FortnoxSupplier): Promise<FortnoxSupplierResponse> {
-        // Try to find by org number first
-        if (supplierData.OrganisationNumber) {
-            try {
-                const suppliers = await this.getSuppliers();
-                const existing = suppliers.Suppliers?.find(
+        try {
+            const suppliers = await this.getSuppliers();
+            const allSuppliers = suppliers.Suppliers || [];
+
+            // 1. Match by org number (exact)
+            if (supplierData.OrganisationNumber) {
+                const byOrg = allSuppliers.find(
                     s => s.OrganisationNumber === supplierData.OrganisationNumber
                 );
-                if (existing) {
-                    logger.info('Found existing supplier', { supplierNumber: existing.SupplierNumber });
-                    return { Supplier: existing };
+                if (byOrg) {
+                    logger.info('Found existing supplier by org number', {
+                        supplierNumber: byOrg.SupplierNumber,
+                        name: byOrg.Name,
+                    });
+                    return { Supplier: byOrg };
                 }
-            } catch (error) {
-                logger.warn('Could not search suppliers', {
-                    error: error instanceof Error ? error.message : String(error),
-                });
             }
+
+            // 2. Match by name (normalized, case-insensitive)
+            if (supplierData.Name) {
+                const normalize = (s: string) => s.toLowerCase().replace(/[_\s-]+/g, '').replace(/\.$/, '');
+                const needle = normalize(supplierData.Name);
+                const byName = allSuppliers.find(s => s.Name && normalize(s.Name) === needle);
+                if (byName) {
+                    logger.info('Found existing supplier by name', {
+                        supplierNumber: byName.SupplierNumber,
+                        name: byName.Name,
+                        searchedName: supplierData.Name,
+                    });
+                    return { Supplier: byName };
+                }
+            }
+        } catch (error) {
+            logger.warn('Could not search suppliers', {
+                error: error instanceof Error ? error.message : String(error),
+            });
         }
 
-        // Create new supplier
+        // No match found — create new supplier
         return await this.createSupplier(supplierData);
     }
 
