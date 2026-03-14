@@ -2511,12 +2511,14 @@ Deno.serve(async (req: Request) => {
                             logger.warn('Supplier invoice file attachment failed (non-blocking)', {
                               error: (siAttachResult as any)?.error,
                             });
+                            siAttachmentNote = '. Filbifogning misslyckades — bifoga kvittot manuellt i Fortnox';
                           }
                         } catch (attachError) {
                           logger.warn('File attachment to supplier invoice failed', {
                             error: attachError instanceof Error ? attachError.message : 'Unknown',
                             storagePath: siSourceFile.storage_path,
                           });
+                          siAttachmentNote = '. Filbifogning misslyckades — bifoga kvittot manuellt i Fortnox';
                         }
                       }
 
@@ -2692,6 +2694,7 @@ Deno.serve(async (req: Request) => {
                             logger.warn('File attachment failed (non-blocking)', {
                               error: (attachResult as any)?.error,
                             });
+                            attachmentNote = '. Filbifogning misslyckades — bifoga kvittot manuellt i Fortnox';
                           }
                         } catch (attachError) {
                           // Non-blocking: log and continue — voucher is already created
@@ -2699,6 +2702,7 @@ Deno.serve(async (req: Request) => {
                             error: attachError instanceof Error ? attachError.message : 'Unknown',
                             storagePath: sourceFile.storage_path,
                           });
+                          attachmentNote = '. Filbifogning misslyckades — bifoga kvittot manuellt i Fortnox';
                         }
                       }
 
