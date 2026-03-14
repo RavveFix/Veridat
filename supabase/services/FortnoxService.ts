@@ -656,11 +656,28 @@ export class FortnoxService {
             .eq('company_id', this.companyId)
             .maybeSingle();
 
-        if (!tokenRow?.refresh_token) {
-            throw new FortnoxAuthError('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
+        if (tokenRow?.refresh_token) {
+            return await this.refreshAccessToken(tokenRow.refresh_token, tokenRow.id);
         }
 
-        return await this.refreshAccessToken(tokenRow.refresh_token, tokenRow.id);
+        // Fallback: try legacy token row without company_id
+        const { data: legacyTokenRow } = await this.supabase
+            .from('fortnox_tokens')
+            .select('id, refresh_token')
+            .eq('user_id', this.userId)
+            .is('company_id', null)
+            .maybeSingle();
+
+        if (legacyTokenRow?.refresh_token) {
+            logger.warn('forceRefreshToken: using legacy token row without company_id', {
+                userId: this.userId,
+                companyId: this.companyId,
+                rowId: legacyTokenRow.id,
+            });
+            return await this.refreshAccessToken(legacyTokenRow.refresh_token, legacyTokenRow.id);
+        }
+
+        throw new FortnoxAuthError('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
     }
 
     /**
