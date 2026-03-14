@@ -1402,13 +1402,17 @@ Deno.serve(async (req: Request) => {
                 break;
             }
 
-            case 'getCustomers':
-                result = await requireFortnoxService().getCustomers();
+            case 'getCustomers': {
+                const custResp = await requireFortnoxService().getCustomers();
+                result = { Customers: custResp?.Customers ?? [] };
                 break;
+            }
 
-            case 'getArticles':
-                result = await requireFortnoxService().getArticles();
+            case 'getArticles': {
+                const artResp = await requireFortnoxService().getArticles();
+                result = { Articles: artResp?.Articles ?? [] };
                 break;
+            }
 
             case 'getAccounts': {
                 const financialYear = typeof payload?.financialYear === 'number' ? payload.financialYear : undefined;
