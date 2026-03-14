@@ -1506,8 +1506,20 @@ Deno.serve(async (req: Request) => {
                     const created = await requireFortnoxService().createInvoicePayment(payment);
                     const number = created?.InvoicePayment?.Number;
                     if (number) {
-                        const bookkept = await requireFortnoxService().bookkeepInvoicePayment(number);
-                        result = { payment: created, bookkeep: bookkept };
+                        try {
+                            const bookkept = await requireFortnoxService().bookkeepInvoicePayment(number);
+                            result = { payment: created, bookkeep: bookkept };
+                        } catch (bookkeepError) {
+                            logger.error('Failed to bookkeep invoice payment, payment was created', {
+                                paymentNumber: number,
+                                error: bookkeepError instanceof Error ? bookkeepError.message : String(bookkeepError),
+                            });
+                            result = {
+                                payment: created,
+                                bookkeep: null,
+                                warning: `Betalningen skapades (nr ${number}) men kunde inte bokföras automatiskt. Bokför manuellt i Fortnox.`,
+                            };
+                        }
                     } else {
                         result = created;
                     }
