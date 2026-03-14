@@ -4857,21 +4857,38 @@ ANVÄNDARFRÅGA:
                         const report = result as any;
                         const reportData = report?.data || report;
 
-                        // Stream VAT report artifact if structured data is available
-                        if (reportData?.vat || reportData?.summary) {
-                          const vatReportArtifact = {
-                            type: "vat_report" as const,
+                        // Stream VAT report as vat_summary artifact for VATSummaryCard
+                        if (reportData?.vat || reportData?.sales) {
+                          const sales = (reportData.sales || []) as Array<{ description: string; rate: number; net: number; vat: number }>;
+                          const costs = (reportData.costs || []) as Array<{ description: string; rate: number; net: number; vat: number }>;
+                          const allRows = [
+                            ...sales.map((r: { description: string; rate: number; net: number; vat: number }) => ({
+                              description: r.description,
+                              rate: r.rate,
+                              net: r.net,
+                              vat: r.vat,
+                              gross: r.net + r.vat,
+                            })),
+                            ...costs.map((r: { description: string; rate: number; net: number; vat: number }) => ({
+                              description: r.description,
+                              rate: r.rate,
+                              net: -r.net,
+                              vat: -r.vat,
+                              gross: -(r.net + r.vat),
+                            })),
+                          ];
+                          const totalNet = allRows.reduce((s, r) => s + r.net, 0);
+                          const totalVat = allRows.reduce((s, r) => s + r.vat, 0);
+                          const vatSummaryArtifact = {
+                            type: "vat_summary" as const,
                             period: reportData.period || `${args.from_date} – ${args.to_date}`,
-                            company: reportData.company || {},
-                            summary: reportData.summary || {},
-                            sales: reportData.sales || [],
-                            costs: reportData.costs || [],
-                            vat: reportData.vat || {},
-                            journal_entries: reportData.journal_entries || [],
-                            validation: reportData.validation || {},
+                            rows: allRows,
+                            total_net: totalNet,
+                            total_vat: totalVat,
+                            total_gross: totalNet + totalVat,
                           };
-                          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ vatReport: vatReportArtifact })}\n\n`));
-                          streamingActionPlan = vatReportArtifact as any;
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ vatReport: vatSummaryArtifact })}\n\n`));
+                          streamingActionPlan = vatSummaryArtifact as any;
                         }
 
                         const vatData = reportData?.vat || {};
