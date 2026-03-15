@@ -4071,9 +4071,10 @@ ANVÄNDARFRÅGA:
 
     // File analysis tool restriction strategy:
     //
-    // FIRST message with file (geminiFileData): REMOVE propose_action_plan from tools.
-    // Gemini must respond in text first (describe what it sees, suggest accounts, ask for confirmation).
-    // Exception: if user explicitly says "bokför direkt", "kör", "skapa faktura nu" etc. — keep all tools.
+    // FIRST message with file (geminiFileData): DISABLE ALL tools.
+    // Gemini analyzes purely from knowledge (BAS accounts, VAT rules, etc.) and responds in text.
+    // This works even when Fortnox is not connected — no failed get_suppliers calls.
+    // Exception: if user explicitly says "bokför direkt", "kör", "skapa faktura nu" etc. — force action tools.
     //
     // FOLLOW-UP messages after file analysis (hasRecentFileAnalysis): FORCE propose_action_plan + request_clarification.
     // User has already seen the text analysis and is now confirming/adjusting — Gemini should act.
@@ -4105,12 +4106,14 @@ ANVÄNDARFRÅGA:
     // First file upload: exclude propose_action_plan so Gemini responds in text
     // Follow-up: force propose_action_plan + request_clarification (user is confirming)
     let fileAttachedTools: string[] | undefined = undefined;
-    let excludeToolsForFile: string[] | undefined = undefined;
+    let disableToolsForFile = false;
 
     if (geminiFileData && !userWantsImmediate) {
-      // First file message: remove propose_action_plan, keep all other tools
-      excludeToolsForFile = ["propose_action_plan"];
-      logger.info("First file upload: excluding propose_action_plan to enforce text-first response");
+      // First file message: disable ALL tools so Gemini analyzes purely from knowledge.
+      // This prevents failed Fortnox calls (get_suppliers etc.) when Fortnox isn't connected,
+      // and ensures a warm text response with accounting analysis before any action plan.
+      disableToolsForFile = true;
+      logger.info("First file upload: disabling all tools to enforce knowledge-based text analysis");
     } else if (geminiFileData && userWantsImmediate) {
       // User wants immediate action: force propose_action_plan
       fileAttachedTools = ["propose_action_plan", "request_clarification"];
@@ -4138,7 +4141,7 @@ ANVÄNDARFRÅGA:
           history,
           undefined,
           effectiveModel,
-          { disableTools, allowedTools: fileAttachedTools, excludeTools: excludeToolsForFile },
+          { disableTools: disableTools || disableToolsForFile, allowedTools: fileAttachedTools },
         );
         logger.debug("Gemini stream created successfully");
         const encoder = new TextEncoder();
@@ -5392,7 +5395,7 @@ ANVÄNDARFRÅGA:
         history,
         undefined,
         effectiveModel,
-        { disableTools, allowedTools: fileAttachedTools, excludeTools: excludeToolsForFile },
+        { disableTools: disableTools || disableToolsForFile, allowedTools: fileAttachedTools },
       ));
 
     // Handle Tool Calls (Non-streaming fallback)
