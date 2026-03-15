@@ -6,8 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Veridat** is an AI-powered Swedish bookkeeping assistant for small businesses. It's a Progressive Web App (PWA) that helps users with accounting tasks, invoice creation, and tax document analysis.
 
-**⚠️ Repo Structure — Two Apps:**
-- `veridat/` — **PRODUKTIONSAPP** (Next.js 16, App Router). Deployad till veridat.se via Vercel. **ALLA frontend-ändringar ska göras här.**
+## Repo-struktur
+
+- **Britta** (detta repo): Supabase Edge Functions, backend-logik
+  - `supabase/functions/gemini-chat/` — Huvudsaklig AI chat Edge Function
+  - `supabase/functions/gemini-chat/index.ts` — Huvudfilen (~6000+ rader)
+  - `supabase/services/FortnoxService.ts` — Fortnox API-klient
+  - `supabase/services/GeminiService.ts` — Gemini AI-klient med system prompt
+  - `supabase/functions/fortnox/` — Fortnox write/read dispatcher Edge Function
+- **veridat/** (Git submodule): Next.js frontend, deployar till Vercel
+  - Separat repo, ändras inte härifrån
 - `apps/web/` — GAMMAL Vite-app. **ANVÄNDS INTE. IGNORERA.**
 
 **Tech Stack (Production — `veridat/`):**
@@ -17,6 +25,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Integrations: Fortnox API for accounting operations
 - Database: Supabase PostgreSQL with RLS
 - Deployment: Vercel (veridat.se)
+
+---
+
+## Deploy
+
+- Edge Functions: `npx supabase functions deploy gemini-chat --project-ref baweorbvueghhkzlyncu`
+- Fortnox function: `npx supabase functions deploy fortnox --project-ref baweorbvueghhkzlyncu`
+- Frontend: Auto-deploy via Vercel vid push till veridat/ repo
+
+## Konventioner
+
+- Alla Fortnox-relaterade buggar fixas i Britta, inte i veridat/
+- Committa varje fix separat med conventional commits
+- Deploya gemini-chat OCH fortnox efter varje fix-batch (båda delar services/)
 
 ---
 
