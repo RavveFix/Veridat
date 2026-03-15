@@ -4069,8 +4069,21 @@ ANVÄNDARFRÅGA:
     }
     const disableTools = isSkillAssist;
 
-    // File uploads: Gemini uses all tools in AUTO mode.
-    // Action plan card shows kontering, sources, and explanation — no need for text-first step.
+    // File upload tool restriction:
+    // When a file is attached, exclude Fortnox READ tools so Gemini analyzes the PDF/image
+    // from its own knowledge (BAS accounts, VAT rules) instead of calling get_suppliers etc.
+    // Keep propose_action_plan + request_clarification so it can create kontering proposals.
+    const FORTNOX_READ_TOOLS = [
+      "get_suppliers", "get_customers", "get_articles",
+      "search_invoices", "get_invoice", "search_supplier_invoices",
+      "get_supplier_invoice", "get_company_info", "get_financial_summary",
+      "search_vouchers", "get_vouchers", "get_account_balances",
+      "get_vat_report",
+    ];
+    const excludeToolsForFile = geminiFileData ? FORTNOX_READ_TOOLS : undefined;
+    if (excludeToolsForFile) {
+      logger.info("File upload: excluding Fortnox read-tools, keeping propose_action_plan + request_clarification");
+    }
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
 
@@ -4086,7 +4099,7 @@ ANVÄNDARFRÅGA:
           history,
           undefined,
           effectiveModel,
-          { disableTools },
+          { disableTools, excludeTools: excludeToolsForFile },
         );
         logger.debug("Gemini stream created successfully");
         const encoder = new TextEncoder();
@@ -5340,7 +5353,7 @@ ANVÄNDARFRÅGA:
         history,
         undefined,
         effectiveModel,
-        { disableTools },
+        { disableTools, excludeTools: excludeToolsForFile },
       ));
 
     // Handle Tool Calls (Non-streaming fallback)
