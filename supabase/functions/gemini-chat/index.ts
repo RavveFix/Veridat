@@ -5204,8 +5204,24 @@ ANVÄNDARFRÅGA:
                   }
                 } catch (toolErr) {
                   logger.error("Tool execution error in stream", toolErr);
-                  toolResponseText =
-                    "Ett fel uppstod när jag försökte använda ett verktyg. Försök igen.";
+                  // Fallback: ask Gemini to answer from its knowledge
+                  const errMsg = toolErr instanceof Error ? toolErr.message : "okänt fel";
+                  try {
+                    const fallbackPrompt = `Verktyget "${toolName}" misslyckades med felet: "${errMsg}". Svara ändå på användarens fråga med din befintliga kunskap om möjligt. Om frågan kräver specifik Fortnox-data som du inte har, förklara kort att Fortnox-kopplingen inte svarar just nu och ge generella råd istället. Användarens fråga: "${message}"`;
+                    const fallbackResponse = await sendMessageToGemini(
+                      fallbackPrompt,
+                      undefined,
+                      history,
+                      undefined,
+                      effectiveModel,
+                      { disableTools: true },
+                    );
+                    toolResponseText = fallbackResponse.text ||
+                      `Jag kunde inte hämta data från Fortnox just nu (${errMsg}), men jag kan hjälpa dig med generella bokföringsfrågor.`;
+                  } catch {
+                    toolResponseText =
+                      `Jag kunde inte nå Fortnox just nu (${errMsg}). Försök igen om en stund.`;
+                  }
                   const sseData = `data: ${
                     JSON.stringify({ text: toolResponseText })
                   }\n\n`;
@@ -6432,6 +6448,7 @@ ANVÄNDARFRÅGA:
       } catch (err) {
         logger.error("Tool execution failed", err);
         toolExecutionFailed = true;
+        const errMsg = err instanceof Error ? err.message : "okänt fel";
         if (tool === "conversation_search" || tool === "recent_chats") {
           responseText =
             "Jag kunde inte söka i tidigare konversationer just nu.";
@@ -6442,10 +6459,23 @@ ANVÄNDARFRÅGA:
           responseText =
             "Ett fel uppstod när verifikatet skulle skapas. Försök igen.";
         } else {
-          responseText =
-            `Ett fel uppstod när jag försökte nå Fortnox (${tool}). ${
-              err instanceof Error ? err.message : "Försök igen."
-            }`;
+          // Fallback: ask Gemini to answer from its knowledge when Fortnox tools fail
+          try {
+            const fallbackPrompt = `Verktyget "${tool}" misslyckades med felet: "${errMsg}". Svara ändå på användarens fråga med din befintliga kunskap om möjligt. Om frågan kräver specifik Fortnox-data som du inte har, förklara kort att Fortnox-kopplingen inte svarar just nu och ge generella råd istället. Användarens fråga: "${message}"`;
+            const fallbackResponse = await sendMessageToGemini(
+              fallbackPrompt,
+              undefined,
+              history,
+              undefined,
+              effectiveModel,
+              { disableTools: true },
+            );
+            responseText = fallbackResponse.text ||
+              `Jag kunde inte hämta data från Fortnox just nu (${errMsg}), men jag kan hjälpa dig med generella bokföringsfrågor.`;
+          } catch {
+            responseText =
+              `Jag kunde inte nå Fortnox just nu (${errMsg}). Försök igen om en stund.`;
+          }
         }
       }
 
