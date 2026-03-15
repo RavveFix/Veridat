@@ -4047,7 +4047,7 @@ ANVÄNDARFRÅGA:
         mimeType: geminiFileData?.mimeType || "none",
       });
     }
-    // When a file is attached, tell Gemini to analyze it before using tools
+    // When a file is attached, tell Gemini to analyze it from its knowledge
     if (geminiFileData && geminiFileData.data && geminiFileData.data.length > 0) {
       const safeFileName = fileName || "okänd fil";
       const safeMime = geminiFileData.mimeType || "unknown";
@@ -4057,9 +4057,10 @@ ANVÄNDARFRÅGA:
         dataLength: geminiFileData.data.length,
       });
       finalMessage = `[BIFOGAD FIL: ${safeFileName} (${safeMime})]\n` +
-        `VIKTIGT: Användaren har bifogat en fil. Analysera filinnehållet FÖRST — ` +
-        `extrahera all relevant information (belopp, moms, leverantör, datum) ` +
-        `innan du använder Fortnox-verktyg. Basera ditt konteringsförslag på filens innehåll.\n\n` +
+        `Användaren har bifogat en fil. Analysera filinnehållet: ` +
+        `extrahera belopp, moms, leverantör, datum. ` +
+        `Föreslå kontering med BAS-konton och momssats baserat på din kunskap. ` +
+        `Använd propose_action_plan om du är säker, annars request_clarification.\n\n` +
         finalMessage;
     } else if (geminiFileData) {
       logger.warn("geminiFileData present but data is empty", {
@@ -4281,6 +4282,29 @@ ANVÄNDARFRÅGA:
                 let toolResponseText = "";
                 const toolName = toolCallDetected.name;
                 const toolArgs = toolCallDetected.args || {};
+
+                // RUNTIME GUARD: If Gemini calls an excluded tool (e.g. get_suppliers during file upload),
+                // block it and retry with tools fully disabled so Gemini answers from knowledge.
+                if (excludeToolsForFile && excludeToolsForFile.includes(toolName)) {
+                  logger.warn("Gemini called excluded tool despite filter — blocking and retrying from knowledge", {
+                    blockedTool: toolName,
+                    excludeList: excludeToolsForFile,
+                  });
+                  if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
+                  const knowledgeResponse = await sendMessageToGemini(
+                    finalMessage,
+                    geminiFileData,
+                    history,
+                    undefined,
+                    effectiveModel,
+                    { disableTools: true },
+                  );
+                  const knowledgeText = knowledgeResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
+                  fullText = knowledgeText;
+                  const sseData = `data: ${JSON.stringify({ text: knowledgeText })}\n\n`;
+                  controller.enqueue(encoder.encode(sseData));
+                  // Skip tool execution — go straight to save
+                } else {
 
                 // Emit tool step nested under "Formulerar svar..."
                 const TOOL_LABELS: Record<string, string> = {
@@ -5218,6 +5242,7 @@ ANVÄNDARFRÅGA:
                   parentId: formulerStepId ?? undefined,
                 });
                 if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
+              } // end else (non-excluded tool execution)
               } else {
                 // No tool call — complete "Formulerar svar..." after streaming ends
                 if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
@@ -5359,6 +5384,27 @@ ANVÄNDARFRÅGA:
     // Handle Tool Calls (Non-streaming fallback)
     if (geminiResponse.toolCall) {
       const { tool, args } = geminiResponse.toolCall;
+
+      // RUNTIME GUARD: Block excluded tools and retry from knowledge
+      if (excludeToolsForFile && excludeToolsForFile.includes(tool)) {
+        logger.warn("Non-streaming: Gemini called excluded tool — retrying from knowledge", {
+          blockedTool: tool,
+        });
+        const knowledgeResponse = await sendMessageToGemini(
+          finalMessage,
+          geminiFileData,
+          history,
+          undefined,
+          effectiveModel,
+          { disableTools: true },
+        );
+        const responseText = knowledgeResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
+        return new Response(
+          JSON.stringify({ type: "text", data: responseText }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       logger.info(`Executing tool: ${tool}`, { args });
 
       const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
