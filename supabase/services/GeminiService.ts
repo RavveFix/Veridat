@@ -1432,6 +1432,18 @@ export const sendMessageToGemini = async (
             })).filter((toolDef: any) => toolDef.functionDeclarations?.length > 0)
             : tools;
 
+        // Debug: log which tools are being sent to Gemini
+        const toolNames = effectiveTools.flatMap((t: any) =>
+            (t.functionDeclarations || []).map((fn: any) => fn.name)
+        );
+        logger.info("[sendMessageToGemini] Tools sent to Gemini", {
+            totalTools: toolNames.length,
+            toolNames,
+            disableTools: !!options?.disableTools,
+            excludeToolsCount: options?.excludeTools?.length || 0,
+            excludeToolsList: options?.excludeTools || [],
+        });
+
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
@@ -1646,6 +1658,18 @@ export const sendMessageStreamToGemini = async (
                 ),
             })).filter((toolDef: any) => toolDef.functionDeclarations?.length > 0)
             : tools;
+
+        // Debug: log which tools are being sent to Gemini (streaming)
+        const toolNames = effectiveTools.flatMap((t: any) =>
+            (t.functionDeclarations || []).map((fn: any) => fn.name)
+        );
+        logger.info("[sendMessageStreamToGemini] Tools sent to Gemini", {
+            totalTools: toolNames.length,
+            toolNames,
+            disableTools: !!options?.disableTools,
+            excludeToolsCount: options?.excludeTools?.length || 0,
+            excludeToolsList: options?.excludeTools || [],
+        });
 
         const model = genAI.getGenerativeModel({
             model: modelName,

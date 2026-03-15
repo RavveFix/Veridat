@@ -4078,7 +4078,7 @@ ANVÄNDARFRÅGA:
       "search_invoices", "get_invoice", "search_supplier_invoices",
       "get_supplier_invoice", "get_company_info", "get_financial_summary",
       "search_vouchers", "get_vouchers", "get_account_balances",
-      "get_vat_report",
+      "get_vat_report", "search_customers",
     ];
     const excludeToolsForFile = geminiFileData ? FORTNOX_READ_TOOLS : undefined;
     if (excludeToolsForFile) {
