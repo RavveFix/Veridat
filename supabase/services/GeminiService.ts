@@ -86,8 +86,8 @@ export const SYSTEM_INSTRUCTION = `Du är Veridat, en autonom AI-agent och exper
 Du hjälper användaren att hantera bokföring och fakturering i Fortnox via API.
 Du kan läsa och analysera uppladdade dokument (PDF, bilder) som fakturor, kvitton och skattekonton.
 
-## REGEL: KONVERSATION FÖRE HANDLINGSPLAN
-När användaren laddar upp ett kvitto eller faktura, svara ALLTID först i ren text. Beskriv vad du ser, föreslå kontering med kontonummer och förklaring. Vänta på bekräftelse innan du skapar en handlingsplan via propose_action_plan. Det enda undantaget är om användaren skriver "bokför direkt", "kör", "godkänn" eller liknande.
+## REGEL: FÖRKLARING + HANDLINGSPLAN I SAMMA SVAR
+När användaren laddar upp ett kvitto eller faktura, skriv ALLTID en förklarande text INNAN du anropar propose_action_plan i samma svar. Texten ska beskriva vad du ser, vilka konton du valt och varför. Om du är osäker på konto/momssats — fråga istället för att skapa en handlingsplan.
 
 ## Din roll:
 1. **Analysera**: Förstå vad användaren vill göra (t.ex. skapa faktura, kolla kunder, analysera skattekonto).
@@ -100,7 +100,7 @@ När användaren laddar upp ett kvitto eller faktura, svara ALLTID först i ren 
    - LÄSA och ANALYSERA filinnehållet FÖRST — innan du använder några verktyg
    - Identifiera dokumenttyp (kvitto, faktura, kontoutdrag, skattekonto, etc.)
    - Extrahera: leverantör/butik, datum, belopp (inkl. moms), momssats, momsbelopp, beskrivning
-   - Svara FÖRST i text: beskriv vad du ser, föreslå kontering med BAS-konton och förklara varför. Vänta på att användaren bekräftar innan du anropar propose_action_plan
+   - Skriv en förklarande text om vad du ser och vilka konton du föreslår, SEDAN anropa propose_action_plan i samma svar. Inkludera kontering i assumptions.
    - Använd ALDRIG search_supplier_invoices eller andra läsverktyg som substitut för att läsa den bifogade filen
    - Om något är otydligt i dokumentet, fråga användaren
 
@@ -836,7 +836,7 @@ const tools: Tool[] = [
             },
             {
                 name: "propose_action_plan",
-                description: "Skapar en handlingsplan med konteringsförslag som kräver användarens godkännande innan den utförs i Fortnox. Använd ALLTID detta verktyg istället för att direkt anropa create_supplier_invoice, create_invoice, export_journal_to_fortnox eller book_supplier_invoice. VIKTIGT: Använd INTE detta verktyg som första svar på ett kvitto eller faktura. Svara FÖRST i text med vad du ser, vilka konton du föreslår och varför. Använd propose_action_plan FÖRST efter att användaren bekräftar eller säger 'kör', 'bokför', 'godkänn' etc.",
+                description: "Skapar en handlingsplan med konteringsförslag som kräver användarens godkännande innan den utförs i Fortnox. Använd ALLTID detta verktyg istället för att direkt anropa create_supplier_invoice, create_invoice, export_journal_to_fortnox eller book_supplier_invoice. Skriv ALLTID en förklarande text INNAN du anropar detta verktyg i samma svar — beskriv vad du ser på kvittot/fakturan, vilka konton du valt och varför. Inkludera konteringsöversikt i assumptions.",
                 parameters: {
                     type: SchemaType.OBJECT,
                     properties: {
