@@ -4069,21 +4069,18 @@ ANVÄNDARFRÅGA:
     }
     const disableTools = isSkillAssist;
 
-    // When a file is attached, restrict tools to only propose_action_plan and request_clarification.
-    // This prevents Gemini from ignoring the file and defaulting to Fortnox read-tools (get_suppliers etc.)
+    // File analysis tool restriction strategy:
     //
-    // Also carry forward the restriction for follow-up messages in a file analysis conversation.
-    // Without this, a text-only follow-up (e.g. answering a clarification question about a receipt)
-    // would lose the restriction and Gemini would call get_suppliers instead of propose_action_plan.
-    // Check if a recent message in history had a file attachment.
-    // History objects from the frontend include file_name/file_url from the messages table,
-    // even though the TypeScript interface only declares { role, content }.
+    // FIRST message with file (geminiFileData): REMOVE propose_action_plan from tools.
+    // Gemini must respond in text first (describe what it sees, suggest accounts, ask for confirmation).
+    // Exception: if user explicitly says "bokför direkt", "kör", "skapa faktura nu" etc. — keep all tools.
+    //
+    // FOLLOW-UP messages after file analysis (hasRecentFileAnalysis): FORCE propose_action_plan + request_clarification.
+    // User has already seen the text analysis and is now confirming/adjusting — Gemini should act.
     const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
     const hasRecentFileAnalysis = !geminiFileData && recentHistory.some((msg: any) =>
       msg.role === "user" && (
-        // Primary: check file_name field from messages table (always present for file uploads)
         (msg.file_name && msg.file_name.length > 0) ||
-        // Fallback: check for [BIFOGAD FIL:] marker (in case message was modified before saving)
         (typeof msg.content === "string" && msg.content.includes("[BIFOGAD FIL:"))
       )
     );
@@ -4101,15 +4098,29 @@ ANVÄNDARFRÅGA:
       });
     }
 
-    const fileAttachedTools = (geminiFileData || hasRecentFileAnalysis) ? [
-      "propose_action_plan",
-      "request_clarification",
-    ] : undefined;
+    // Check if user explicitly wants immediate action (bypass conversational step)
+    const immediateActionPattern = /\b(bokför direkt|skapa faktura nu|kör|godkänn|bokför det|boka direkt)\b/i;
+    const userWantsImmediate = typeof finalMessage === "string" && immediateActionPattern.test(finalMessage);
 
-    if (hasRecentFileAnalysis) {
+    // First file upload: exclude propose_action_plan so Gemini responds in text
+    // Follow-up: force propose_action_plan + request_clarification (user is confirming)
+    let fileAttachedTools: string[] | undefined = undefined;
+    let excludeToolsForFile: string[] | undefined = undefined;
+
+    if (geminiFileData && !userWantsImmediate) {
+      // First file message: remove propose_action_plan, keep all other tools
+      excludeToolsForFile = ["propose_action_plan"];
+      logger.info("First file upload: excluding propose_action_plan to enforce text-first response");
+    } else if (geminiFileData && userWantsImmediate) {
+      // User wants immediate action: force propose_action_plan
+      fileAttachedTools = ["propose_action_plan", "request_clarification"];
+      logger.info("First file upload with immediate action request: forcing propose_action_plan");
+    } else if (hasRecentFileAnalysis) {
+      // Follow-up after file analysis: force action tools
+      fileAttachedTools = ["propose_action_plan", "request_clarification"];
       logger.info("Carrying forward file analysis tool restriction for follow-up message", {
         historyLength: history?.length,
-        restrictedTools: fileAttachedTools,
+        forcedTools: fileAttachedTools,
       });
     }
 
@@ -4127,7 +4138,7 @@ ANVÄNDARFRÅGA:
           history,
           undefined,
           effectiveModel,
-          { disableTools, allowedTools: fileAttachedTools },
+          { disableTools, allowedTools: fileAttachedTools, excludeTools: excludeToolsForFile },
         );
         logger.debug("Gemini stream created successfully");
         const encoder = new TextEncoder();
@@ -5381,7 +5392,7 @@ ANVÄNDARFRÅGA:
         history,
         undefined,
         effectiveModel,
-        { disableTools, allowedTools: fileAttachedTools },
+        { disableTools, allowedTools: fileAttachedTools, excludeTools: excludeToolsForFile },
       ));
 
     // Handle Tool Calls (Non-streaming fallback)
