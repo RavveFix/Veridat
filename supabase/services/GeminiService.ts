@@ -103,6 +103,12 @@ Du kan läsa och analysera uppladdade dokument (PDF, bilder) som fakturor, kvitt
 
 2. **Godkännande före åtgärd**: Använd ALLTID propose_action_plan istället för att direkt anropa create_supplier_invoice, create_invoice, export_journal_to_fortnox eller book_supplier_invoice. Visa förslaget med konteringstabell och vänta på användarens godkännande.
 
+## KRITISK REGEL — När INTE använda propose_action_plan:
+Skapa BARA handlingsplaner (action plans) när användaren ber dig GÖRA något i Fortnox (skapa faktura, bokföra, registrera betalning, exportera).
+För frågor som "hur ser det ut", "visa", "förklara", "vad kostar", "sammanfatta", "berätta" — svara DIREKT i text utan handlingsplan.
+Om användaren explicit säger att du ska svara i text (t.ex. "det räcker att du skriver här", "svara i chatten") — gör det, skapa ALDRIG en handlingsplan.
+Frågor om kostnader, saldon, ekonomisk status, eller översikter besvaras med läsverktyg (get_account_balances, get_financial_summary etc.) och en sammanfattande text — ALDRIG med propose_action_plan.
+
 3. **Mönsteranvändning**: Referera till inlärda mönster proaktivt. Exempel: "Baserat på 7 tidigare transaktioner bokför ni alltid Telia på konto 6212 — stämmer det?" Om du inte har mönster, fråga användaren om rätt konto.
 
 4. **Kedjade operationer**: Efter varje slutförd åtgärd, föreslå nästa logiska steg:
@@ -153,7 +159,7 @@ Du lär känna varje företag över tid. När du har kontext om företaget:
 - **get_invoice**: Hämtar en specifik kundfaktura från Fortnox med fakturanummer. Returnerar kund, belopp, moms, status.
 - **get_supplier_invoice**: Hämtar en specifik leverantörsfaktura från Fortnox med löpnummer. Returnerar leverantör, belopp, moms, status.
 - **create_supplier**: Skapar en ny leverantör i Fortnox med namn, organisationsnummer och kontaktuppgifter.
-- **create_supplier_invoice**: Skapar en leverantörsfaktura i Fortnox med kontering och momsbehandling.
+- **create_supplier_invoice**: Skapar en leverantörsfaktura i Fortnox med kontering och momsbehandling. VIKTIGT: Om fakturan är i utländsk valuta (EUR, USD etc.), ange ALLTID originalvalutan i currency-fältet. Konvertera INTE belopp till SEK — Fortnox hanterar valutakonvertering automatiskt.
 - **export_journal_to_fortnox**: Exporterar ett lokalt verifikat till Fortnox som en verifikation.
 - **book_supplier_invoice**: Bokför en befintlig leverantörsfaktura i Fortnox.
 - **propose_action_plan**: Skapar en handlingsplan med konteringsförslag som visas för användaren med debet/kredit-tabell. Användaren kan godkänna, ändra eller avbryta planen. Använd ALLTID detta istället för att direkt skapa fakturor eller verifikat.
@@ -884,7 +890,7 @@ const tools: Tool[] = [
                                             },
                                             total_amount: {
                                                 type: SchemaType.NUMBER,
-                                                description: "Totalbelopp INKL moms i SEK (obligatoriskt för create_supplier_invoice)"
+                                                description: "Totalbelopp INKL moms i fakturans valuta (obligatoriskt för create_supplier_invoice)"
                                             },
                                             vat_rate: {
                                                 type: SchemaType.NUMBER,
@@ -904,7 +910,7 @@ const tools: Tool[] = [
                                             },
                                             currency: {
                                                 type: SchemaType.STRING,
-                                                description: "Valutakod, t.ex. SEK, EUR, USD (default SEK)"
+                                                description: "Valutakod, t.ex. SEK, EUR, USD. VIKTIGT: Ange fakturans originalvaluta — konvertera INTE till SEK. Fortnox hanterar valutakonvertering automatiskt. (default SEK)"
                                             },
                                             account: {
                                                 type: SchemaType.NUMBER,

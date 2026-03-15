@@ -1568,8 +1568,8 @@ async function executeFortnoxTool(
         const siIsRC = (siArgs.is_reverse_charge ?? siArgs.isReverseCharge ?? siArgs.IsReverseCharge) === true;
         const siAcct = (siArgs.account ?? siArgs.Account) as number;
         const siDue = (siArgs.due_date || siArgs.dueDate || siArgs.DueDate) as string | undefined;
-        // Always SEK — AI converts foreign amounts to SEK before sending
-        const siCurr = "SEK";
+        // Use currency from AI parameters — Fortnox handles conversion for foreign currencies
+        const siCurr = ((siArgs.currency || siArgs.Currency) as string) || "SEK";
 
         // For reverse charge: total_amount IS the net (no VAT charged by supplier)
         // For normal: calculate net from gross using VAT rate
@@ -2494,8 +2494,8 @@ Deno.serve(async (req: Request) => {
                               new Date().toISOString().slice(0, 10)) as string;
                       const siDueDate = (params.due_date || params.dueDate || params.DueDate ||
                               new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)) as string;
-                      // Always SEK — AI converts foreign amounts to SEK before sending
-                      const siCurrency = "SEK";
+                      // Use currency from AI parameters — Fortnox handles conversion for foreign currencies
+                      const siCurrency = ((params.currency || params.Currency) as string) || "SEK";
                       // Extract cost account from posting_rows if not in params
                       let siAccount = (params.account || params.Account) as number;
                       if (!siAccount && action.posting_rows && Array.isArray(action.posting_rows)) {
@@ -5817,8 +5817,8 @@ ANVÄNDARFRÅGA:
             const si3Acct = (siArgs.account ?? siArgs.Account) as number;
             const si3Desc = (siArgs.description || siArgs.Description) as string;
             const si3Due = (siArgs.due_date || siArgs.dueDate || siArgs.DueDate) as string | undefined;
-            // Always SEK — AI converts foreign amounts to SEK before sending
-            const si3Curr = "SEK";
+            // Use currency from AI parameters — Fortnox handles conversion for foreign currencies
+            const si3Curr = ((siArgs.currency || siArgs.Currency) as string) || "SEK";
 
             const vatMultiplier = 1 + (si3VatRate / 100);
             const netAmount = si3IsRC
