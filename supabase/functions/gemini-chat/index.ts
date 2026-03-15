@@ -67,9 +67,9 @@ const MODEL_MAP = {
 type EdgeSupabaseClient = SupabaseClient<any, any, any, any, any>;
 
 const ACCOUNTING_TOOL_RESPONSE_NAMES = new Set([
-  "get_customers",
-  "get_articles",
-  "get_suppliers",
+  // Only write/action tools get the accounting template format.
+  // Read-only tools (get_customers, get_suppliers, get_articles) return
+  // Gemini's natural response — no forced "Kort svar / Kontering" template.
   "create_supplier",
   "create_supplier_invoice",
   "create_journal_entry",

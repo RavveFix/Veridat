@@ -26,10 +26,8 @@ export type FormatToolResponseInput = {
 };
 
 const ACCOUNTING_TOOLS = new Set([
-  "get_customers",
-  "get_articles",
-  "get_suppliers",
-  "get_vouchers",
+  // Only write/action tools trigger the accounting response template.
+  // Read-only tools (get_customers, get_suppliers, etc.) use Gemini's natural response.
   "create_supplier",
   "create_supplier_invoice",
   "create_journal_entry",
@@ -37,7 +35,6 @@ const ACCOUNTING_TOOLS = new Set([
   "book_supplier_invoice",
   "propose_action_plan",
   "register_payment",
-  "web_search",
 ]);
 
 const ACCOUNTING_SIGNAL_REGEX =
@@ -107,9 +104,9 @@ export function buildAccountingContract(
     "- Svara på svenska utan emoji.",
     "- Följ sektionerna i exakt ordning nedan.",
     "- Skriv sektionerna som Markdown-rubriker, inte som numrerad lista.",
-    "- Använd exakt dessa rubriker:",
+    "- Använd exakt dessa rubriker (hoppa över sektioner som inte är relevanta):",
     "  ### Kort svar",
-    "  ### Kontering",
+    "  ### Kontering (bara om det finns konteringsrader)",
     "  ### Antaganden / behöver bekräftas",
     "  ### Nästa steg",
     "  ### Källa + datum",
@@ -119,7 +116,7 @@ export function buildAccountingContract(
     "",
     "Kontering",
     `- Layout: ${postingLayout}`,
-    "- Om exakt kontering saknas, visa ändå tabellen och markera osäkerhet i Kommentar.",
+    "- Visa BARA om det finns faktiska konteringsrader. Hoppa över sektionen helt om ingen kontering är relevant.",
     "",
     "Antaganden / behöver bekräftas",
     `- Policy: ${assumptionPolicy}`,
@@ -334,14 +331,6 @@ function buildShortAnswer(
   );
 
   switch (toolName) {
-    case "get_customers":
-      return "Jag har hämtat kundinformationen i Fortnox och sammanfattat nästa steg nedan.";
-    case "get_articles":
-      return "Jag har hämtat artikelinformationen i Fortnox och sammanfattat vad du kan göra härnäst.";
-    case "get_suppliers":
-      return "Jag har hämtat leverantörerna från Fortnox och sammanfattat nästa steg.";
-    case "get_vouchers":
-      return "Jag har hämtat verifikationerna från Fortnox och sammanfattat hur du går vidare.";
     case "create_supplier":
       return "Leverantören är skapad i Fortnox och kan nu användas i leverantörsfakturor.";
     case "create_supplier_invoice":
@@ -354,11 +343,9 @@ function buildShortAnswer(
       return verificationId
         ? `Verifikat ${verificationId} är skapat och sammanfattat nedan.`
         : "Verifikatet är skapat och sammanfattat nedan.";
-    case "web_search":
-      return "Jag har sammanfattat den relevanta regelinformationen och vad du bör göra nu.";
     default:
       return extractFirstSentence(rawText) ||
-        "Jag har sammanfattat resultatet och nästa steg nedan.";
+        "Åtgärden är utförd — se detaljer nedan.";
   }
 }
 
@@ -490,21 +477,15 @@ function buildSourceLine(
   return null;
 }
 
-function renderPostingTable(rows: PostingRow[]): string {
-  const normalizedRows = rows.length > 0 ? rows : [{
-    account: "—",
-    accountName: "Ej tillämpligt",
-    debit: null,
-    credit: null,
-    comment: "Ingen kontering skapades i detta steg.",
-  }];
+function renderPostingTable(rows: PostingRow[]): string | null {
+  if (rows.length === 0) return null;
 
   const lines = [
     "| Konto | Kontonamn | Debet | Kredit | Kommentar |",
     "|---|---|---:|---:|---|",
   ];
 
-  for (const row of normalizedRows) {
+  for (const row of rows) {
     lines.push(
       `| ${escapeCell(row.account)} | ${escapeCell(row.accountName)} | ${
         formatAmount(row.debit)
@@ -529,7 +510,10 @@ export function formatToolResponse(input: FormatToolResponseInput): string {
   const sections: string[] = [];
 
   sections.push(`### Kort svar\n${shortAnswer}`);
-  sections.push(`### Kontering\n${renderPostingTable(postingRows)}`);
+  const postingTable = renderPostingTable(postingRows);
+  if (postingTable) {
+    sections.push(`### Kontering\n${postingTable}`);
+  }
 
   if (assumptions.items.length > 0) {
     const assumptionLines = assumptions.items.map((item) => `- ${item}`);

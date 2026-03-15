@@ -67,8 +67,8 @@ Deno.test("formatToolResponse visar antaganden och bekräftelsefråga när under
 
 Deno.test("formatToolResponse visar kort källrad med datum", () => {
   const formatted = formatToolResponse({
-    toolName: "web_search",
-    rawText: "Regler uppdaterade.",
+    toolName: "export_journal_to_fortnox",
+    rawText: "Verifikatet exporterat.",
     structuredData: {
       source: "Skatteverket",
       date: "2026-02-17",
@@ -79,13 +79,30 @@ Deno.test("formatToolResponse visar kort källrad med datum", () => {
   assertStringIncludes(formatted, "Källa: Skatteverket, 2026-02-17");
 });
 
-Deno.test("formatToolResponse sektionerar Fortnox-tool-svar", () => {
+Deno.test("formatToolResponse hoppar över Kontering-sektion när inga rader finns", () => {
   const formatted = formatToolResponse({
-    toolName: "get_vouchers",
-    rawText: "Hittade 3 verifikationer.",
+    toolName: "create_supplier",
+    rawText: "Leverantör skapad.",
+    structuredData: {},
+  });
+
+  assertStringIncludes(formatted, "### Kort svar");
+  // Should NOT contain Kontering section when there are no posting rows
+  assertEquals(formatted.includes("### Kontering"), false);
+  assertEquals(formatted.includes("Ej tillämpligt"), false);
+  assertEquals(formatted.includes("Ingen kontering"), false);
+  assertStringIncludes(formatted, "### Nästa steg");
+});
+
+Deno.test("formatToolResponse visar kontering för leverantörsfaktura", () => {
+  const formatted = formatToolResponse({
+    toolName: "create_supplier_invoice",
+    rawText: "Faktura skapad.",
     structuredData: {
       toolArgs: {
-        financial_year: 2026,
+        account: "6540",
+        total_amount: 1250,
+        vat_rate: 25,
       },
     },
   });
