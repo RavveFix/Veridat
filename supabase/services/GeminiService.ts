@@ -1439,7 +1439,7 @@ export const sendMessageToGemini = async (
         const toolNames = effectiveTools.flatMap((t: any) =>
             (t.functionDeclarations || []).map((fn: any) => fn.name)
         );
-        logger.info("[sendMessageToGemini] Tools sent to Gemini", {
+        logger.debug("[sendMessageToGemini] Tools sent to Gemini", {
             totalTools: toolNames.length,
             toolNames,
             disableTools: !!options?.disableTools,
@@ -1666,7 +1666,7 @@ export const sendMessageStreamToGemini = async (
         const toolNames = effectiveTools.flatMap((t: any) =>
             (t.functionDeclarations || []).map((fn: any) => fn.name)
         );
-        logger.info("[sendMessageStreamToGemini] Tools sent to Gemini", {
+        logger.debug("[sendMessageStreamToGemini] Tools sent to Gemini", {
             totalTools: toolNames.length,
             toolNames,
             disableTools: !!options?.disableTools,

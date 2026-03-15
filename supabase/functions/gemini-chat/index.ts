@@ -4049,8 +4049,8 @@ ANVÄNDARFRÅGA:
     }
     // When a file is attached, tell Gemini to analyze it from its knowledge
     if (geminiFileData && geminiFileData.data && geminiFileData.data.length > 0) {
-      const safeFileName = fileName || "okänd fil";
-      const safeMime = geminiFileData.mimeType || "unknown";
+      const safeFileName = (fileName || "okänd fil").replace(/[\n\r]/g, " ").substring(0, 100);
+      const safeMime = (geminiFileData.mimeType || "unknown").replace(/[\n\r]/g, "");
       logger.info("File attached for Gemini", {
         fileName: safeFileName,
         mimeType: safeMime,
@@ -4081,6 +4081,12 @@ ANVÄNDARFRÅGA:
       "search_vouchers", "get_vouchers", "get_account_balances",
       "get_vat_report", "search_customers",
     ];
+    const FORTNOX_WRITE_TOOLS = [
+      "create_invoice", "create_supplier", "create_supplier_invoice",
+      "create_journal_entry", "export_journal_to_fortnox",
+      "book_supplier_invoice", "register_payment",
+    ];
+    const ALL_FORTNOX_TOOLS = [...FORTNOX_READ_TOOLS, ...FORTNOX_WRITE_TOOLS];
     const excludeToolsForFile = geminiFileData ? FORTNOX_READ_TOOLS : undefined;
     if (excludeToolsForFile) {
       logger.info("File upload: excluding Fortnox read-tools, keeping propose_action_plan + request_clarification");
@@ -4290,22 +4296,15 @@ ANVÄNDARFRÅGA:
                     blockedTool: toolName,
                   });
                   if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
-                  // Exclude ALL Fortnox tools (read + write) but keep propose_action_plan + request_clarification
-                  const allFortnoxTools = [
-                    ...excludeToolsForFile,
-                    "create_invoice", "create_supplier", "create_supplier_invoice",
-                    "create_journal_entry", "export_journal_to_fortnox",
-                    "book_supplier_invoice", "register_payment",
-                  ];
                   const retryResponse = await sendMessageToGemini(
                     finalMessage,
                     geminiFileData,
                     history,
                     undefined,
                     effectiveModel,
-                    { excludeTools: allFortnoxTools },
+                    { excludeTools: ALL_FORTNOX_TOOLS },
                   );
-                  // If retry returned a tool call (propose_action_plan), handle it as streaming action plan
+                  // Handle tool calls from retry (propose_action_plan or request_clarification)
                   if (retryResponse.toolCall && retryResponse.toolCall.tool === "propose_action_plan") {
                     const planArgs = retryResponse.toolCall.args as any;
                     const planId = crypto.randomUUID();
@@ -4320,6 +4319,17 @@ ANVÄNDARFRÅGA:
                     const planSSE = `data: ${JSON.stringify(streamingActionPlan)}\n\n`;
                     controller.enqueue(encoder.encode(planSSE));
                     fullText = retryResponse.text || planArgs.summary || "Konteringsförslag";
+                  } else if (retryResponse.toolCall && retryResponse.toolCall.tool === "request_clarification") {
+                    const clarArgs = retryResponse.toolCall.args as any;
+                    const clarText = clarArgs.message || "Jag behöver mer information för att kunna bokföra.";
+                    const clarificationEvent = {
+                      clarification: {
+                        message: clarText,
+                        missing_fields: clarArgs.missing_fields || [],
+                      },
+                    };
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(clarificationEvent)}\n\n`));
+                    fullText = clarText;
                   } else {
                     const retryText = retryResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
                     fullText = retryText;
@@ -5413,21 +5423,15 @@ ANVÄNDARFRÅGA:
         logger.warn("Non-streaming: Gemini called excluded tool — retrying with action plan tools only", {
           blockedTool: tool,
         });
-        const allFortnoxTools = [
-          ...excludeToolsForFile,
-          "create_invoice", "create_supplier", "create_supplier_invoice",
-          "create_journal_entry", "export_journal_to_fortnox",
-          "book_supplier_invoice", "register_payment",
-        ];
         const retryResponse = await sendMessageToGemini(
           finalMessage,
           geminiFileData,
           history,
           undefined,
           effectiveModel,
-          { excludeTools: allFortnoxTools },
+          { excludeTools: ALL_FORTNOX_TOOLS },
         );
-        // If propose_action_plan was called, return it as action plan
+        // Handle tool calls from retry
         if (retryResponse.toolCall && retryResponse.toolCall.tool === "propose_action_plan") {
           const planArgs = retryResponse.toolCall.args as any;
           const planId = crypto.randomUUID();
@@ -5441,6 +5445,17 @@ ANVÄNDARFRÅGA:
           };
           return new Response(
             JSON.stringify({ type: "text", data: retryResponse.text || planArgs.summary, actionPlan }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        } else if (retryResponse.toolCall && retryResponse.toolCall.tool === "request_clarification") {
+          const clarArgs = retryResponse.toolCall.args as any;
+          const clarText = clarArgs.message || "Jag behöver mer information för att kunna bokföra.";
+          return new Response(
+            JSON.stringify({
+              type: "text",
+              data: clarText,
+              clarification: { message: clarText, missing_fields: clarArgs.missing_fields || [] },
+            }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } },
           );
         }

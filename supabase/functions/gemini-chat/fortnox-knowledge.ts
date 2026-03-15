@@ -327,14 +327,15 @@ När Fortnox inte är kopplat:
 - Förklara momssats och eventuella specialregler
 - Nämn att användaren kan koppla Fortnox för att bokföra direkt
 
-Exempel: 'Jag ser att det är en Google Workspace-faktura på 16,20 EUR.
+Exempel: 'Jag ser att det är en Google Workspace-faktura på 16,20 EUR (~186 SEK).
 Eftersom leverantören sitter i Irland (EU) gäller omvänd skattskyldighet (25%).
 
 Konto | Kontonamn                    | Debet    | Kredit
-6540  | IT-tjänster                  | 16,20    |
-2440  | Leverantörsskulder           |          | 16,20
-2645  | Ingående moms (omvänd)       |  4,05    |
-2614  | Utgående moms omvänd skattsk |          |  4,05
+6540  | IT-tjänster                  | ~186     |
+2440  | Leverantörsskulder           |          | ~186
+2645  | Ingående moms (omvänd)       |  ~47     |
+2614  | Utgående moms omvänd skattsk |          |  ~47
+(Ungefärlig kurs: 1 EUR ≈ 11,50 SEK — exakt kurs sätts vid bokföring)
 
 Vill du bokföra det direkt? Koppla Fortnox under Inställningar → Integrationer så kan jag göra det åt dig.'
 
