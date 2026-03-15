@@ -1423,7 +1423,7 @@ export const sendMessageToGemini = async (
         }
 
         // excludeTools: remove specific tools from the array but keep mode AUTO (Gemini can choose text)
-        const effectiveTools = options?.disableTools ? undefined
+        const effectiveTools = options?.disableTools ? []
             : options?.excludeTools ? tools.map((toolDef: any) => ({
                 ...toolDef,
                 functionDeclarations: toolDef.functionDeclarations?.filter(
@@ -1435,8 +1435,8 @@ export const sendMessageToGemini = async (
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
-            tools: effectiveTools,
-            toolConfig,
+            ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
+            ...(effectiveTools.length > 0 && toolConfig ? { toolConfig } : {}),
         });
 
         // Build conversation contents from history
@@ -1638,7 +1638,7 @@ export const sendMessageStreamToGemini = async (
         }
 
         // excludeTools: remove specific tools from the array but keep mode AUTO (Gemini can choose text)
-        const effectiveTools = options?.disableTools ? undefined
+        const effectiveTools = options?.disableTools ? []
             : options?.excludeTools ? tools.map((toolDef: any) => ({
                 ...toolDef,
                 functionDeclarations: toolDef.functionDeclarations?.filter(
@@ -1650,8 +1650,8 @@ export const sendMessageStreamToGemini = async (
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: SYSTEM_INSTRUCTION,
-            tools: effectiveTools,
-            toolConfig,
+            ...(effectiveTools.length > 0 ? { tools: effectiveTools } : {}),
+            ...(effectiveTools.length > 0 && toolConfig ? { toolConfig } : {}),
         });
 
         const contents = [];

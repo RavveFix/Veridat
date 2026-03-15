@@ -4103,7 +4103,7 @@ ANVÄNDARFRÅGA:
     const immediateActionPattern = /\b(bokför direkt|skapa faktura nu|kör|godkänn|bokför det|boka direkt)\b/i;
     const userWantsImmediate = typeof finalMessage === "string" && immediateActionPattern.test(finalMessage);
 
-    // First file upload: exclude propose_action_plan so Gemini responds in text
+    // First file upload: disable ALL tools so Gemini responds in pure text
     // Follow-up: force propose_action_plan + request_clarification (user is confirming)
     let fileAttachedTools: string[] | undefined = undefined;
     let disableToolsForFile = false;
