@@ -24,7 +24,7 @@ function normalizeHost(value: string): string {
         .toLowerCase();
 }
 
-function getAllowedOrigins(): string[] {
+export function getAllowedOrigins(): string[] {
     const raw = Deno.env.get('ALLOWED_ORIGINS') || Deno.env.get('ALLOWED_ORIGIN') || '';
     return raw
         .split(',')

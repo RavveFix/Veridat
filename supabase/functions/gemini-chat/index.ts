@@ -39,6 +39,7 @@ import { ConversationService } from "../../services/ConversationService.ts";
 import {
   createForbiddenOriginResponse,
   createOptionsResponse,
+  getAllowedOrigins,
   getCorsHeaders,
   isOriginAllowed,
 } from "../../services/CorsService.ts";
@@ -1859,6 +1860,9 @@ async function fetchWebSearchResults(
   }
 }
 
+// Boot: log allowed origins so we can verify localhost is NOT present in production
+logger.info("[cors] allowed origins", { origins: getAllowedOrigins() });
+
 Deno.serve(async (req: Request) => {
   const requestOrigin = req.headers.get("origin") || req.headers.get("Origin");
   const corsHeaders = getCorsHeaders(requestOrigin);
@@ -1916,6 +1920,16 @@ Deno.serve(async (req: Request) => {
     if (!message) {
       return new Response(
         JSON.stringify({ error: "Message is required" }),
+        {
+          status: 400,
+          headers: { ...responseHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    if (message.length > 10000) {
+      return new Response(
+        JSON.stringify({ error: "Meddelandet är för långt (max 10 000 tecken)" }),
         {
           status: 400,
           headers: { ...responseHeaders, "Content-Type": "application/json" },
