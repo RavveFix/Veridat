@@ -148,34 +148,39 @@ Deno.serve(async (req: Request) => {
         }
 
         const token = authHeader.replace(/^Bearer\s+/i, "");
-        const decoded = decodeJwtPayload(token);
-        const userId = typeof decoded?.sub === "string" ? decoded.sub : null;
-        const exp = typeof decoded?.exp === "number" ? decoded.exp : null;
-        if (!userId || (exp && exp < Math.floor(Date.now() / 1000) - 60)) {
-            return new Response(JSON.stringify({ error: "Unauthorized" }), {
-                status: 401,
-                headers: { ...corsHeaders, "Content-Type": "application/json" }
-            });
-        }
 
         const supabaseUrl = getEnv(["SUPABASE_URL", "SB_SUPABASE_URL", "API_URL"]);
-        const supabaseAnonKey = getEnv(["SUPABASE_ANON_KEY", "SB_SUPABASE_ANON_KEY", "ANON_KEY"]);
         const supabaseServiceKey = getEnv(["SUPABASE_SERVICE_ROLE_KEY", "SB_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY"]);
+        const supabaseAnonKey = getEnv(["SUPABASE_ANON_KEY", "SB_SUPABASE_ANON_KEY", "ANON_KEY"]);
 
-        if (!supabaseUrl || !supabaseAnonKey) {
+        if (!supabaseUrl || !supabaseServiceKey) {
             return new Response(JSON.stringify({ error: "Missing Supabase configuration" }), {
                 status: 500,
                 headers: { ...corsHeaders, "Content-Type": "application/json" }
             });
         }
 
-        const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-            global: { headers: { Authorization: authHeader } }
-        });
+        // Server-side JWT verification (not manual decode)
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+        const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+        if (userError || !user) {
+            return new Response(JSON.stringify({ error: "Unauthorized" }), {
+                status: 401,
+                headers: { ...corsHeaders, "Content-Type": "application/json" }
+            });
+        }
+        const userId = user.id;
+
+        // RLS-enforced client for data queries
+        const supabase = supabaseAnonKey
+            ? createClient(supabaseUrl, supabaseAnonKey, {
+                global: { headers: { Authorization: authHeader } }
+            })
+            : createClient(supabaseUrl, supabaseServiceKey);
 
         // Rate limiting (uses service role to access api_usage table)
-        if (supabaseServiceKey) {
-            const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+        // Rate limiting (reuse supabaseAdmin from auth verification above)
+        {
             const rateLimiter = new RateLimiterService(supabaseAdmin, {
                 requestsPerHour: 30,
                 requestsPerDay: 150,

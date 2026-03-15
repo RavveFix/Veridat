@@ -1152,8 +1152,7 @@ async function triggerMemoryGenerator(
     });
   } catch (error) {
     logger.warn("Failed to trigger memory generator", {
-      conversationId,
-      error,
+      error: error instanceof Error ? error.message : "unknown",
     });
   }
 }
@@ -1316,7 +1315,7 @@ async function lookupCompanyOnAllabolag(companyName: string): Promise<string> {
       clearTimeout(timeoutId);
     }
   } catch (err) {
-    logger.warn("Allabolag lookup failed", err);
+    logger.warn("Allabolag lookup failed", { error: err instanceof Error ? err.message : "unknown" });
     return `Uppslag på allabolag.se misslyckades. Skapa kunden utan företagsuppgifter.`;
   }
 }
@@ -1796,7 +1795,7 @@ async function executeFortnoxTool(
         return null;
     }
   } catch (err) {
-    logger.error(`Fortnox tool ${toolName} failed`, err);
+    logger.error(`Fortnox tool ${toolName} failed`, { error: err instanceof Error ? err.message : "unknown" });
     const friendlyNames: Record<string, string> = {
       get_customers: "hämtning av kunder",
       get_suppliers: "hämtning av leverantörer",
@@ -1812,9 +1811,8 @@ async function executeFortnoxTool(
       lookup_company: "sökning av företag",
     };
     const friendly = friendlyNames[toolName] || "åtgärden";
-    return `Ett fel uppstod vid ${friendly}: ${
-      err instanceof Error ? err.message : "okänt fel"
-    }`;
+    // Return generic error to user/AI — raw error details only in server logs
+    return `Ett fel uppstod vid ${friendly}. Försök igen om en stund.`;
   }
 }
 
@@ -1848,8 +1846,7 @@ async function fetchWebSearchResults(
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      logger.warn("Web search failed", { status: response.status, errorText });
+      logger.warn("Web search failed", { status: response.status });
       return null;
     }
 
@@ -5203,11 +5200,10 @@ ANVÄNDARFRÅGA:
                     controller.enqueue(encoder.encode(sseData));
                   }
                 } catch (toolErr) {
-                  logger.error("Tool execution error in stream", toolErr);
-                  // Fallback: ask Gemini to answer from its knowledge
-                  const errMsg = toolErr instanceof Error ? toolErr.message : "okänt fel";
+                  logger.error("Tool execution error in stream", { tool: toolName, error: toolErr instanceof Error ? toolErr.message : "unknown" });
+                  // Fallback: ask Gemini to answer from its knowledge — no raw error in prompt
                   try {
-                    const fallbackPrompt = `Verktyget "${toolName}" misslyckades med felet: "${errMsg}". Svara ändå på användarens fråga med din befintliga kunskap om möjligt. Om frågan kräver specifik Fortnox-data som du inte har, förklara kort att Fortnox-kopplingen inte svarar just nu och ge generella råd istället. Användarens fråga: "${message}"`;
+                    const fallbackPrompt = `Verktyget "${toolName}" misslyckades. Svara ändå på användarens fråga med din befintliga kunskap om möjligt. Om frågan kräver specifik Fortnox-data som du inte har, förklara kort att Fortnox-kopplingen inte svarar just nu och ge generella råd istället.`;
                     const fallbackResponse = await sendMessageToGemini(
                       fallbackPrompt,
                       undefined,
@@ -5217,10 +5213,10 @@ ANVÄNDARFRÅGA:
                       { disableTools: true },
                     );
                     toolResponseText = fallbackResponse.text ||
-                      `Jag kunde inte hämta data från Fortnox just nu (${errMsg}), men jag kan hjälpa dig med generella bokföringsfrågor.`;
+                      "Jag kunde inte hämta data från Fortnox just nu, men jag kan hjälpa dig med generella bokföringsfrågor.";
                   } catch {
                     toolResponseText =
-                      `Jag kunde inte nå Fortnox just nu (${errMsg}). Försök igen om en stund.`;
+                      "Jag kunde inte nå Fortnox just nu. Försök igen om en stund.";
                   }
                   const sseData = `data: ${
                     JSON.stringify({ text: toolResponseText })

@@ -355,7 +355,7 @@ async function handleInitiate(
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('access_type', 'offline');
 
-    logger.info('Generated Fortnox authorization URL', { userId, companyId, redirectUri, scopes: FORTNOX_SCOPES, fullUrl: authUrl.toString() });
+    logger.info('Generated Fortnox authorization URL', { scopes: FORTNOX_SCOPES });
 
     return new Response(
         JSON.stringify({
@@ -459,8 +459,7 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
         });
 
         if (!tokenResponse.ok) {
-            const errorText = await tokenResponse.text();
-            logger.error('Token exchange failed', { status: tokenResponse.status, error: errorText });
+            logger.error('Token exchange failed', { status: tokenResponse.status });
             return Response.redirect(`${appUrl}?fortnox_error=token_exchange_failed`, 302);
         }
 
@@ -476,12 +475,8 @@ async function handleOAuthCallback(req: Request, corsHeaders: Record<string, str
         });
 
         if (!companyInfoResponse.ok) {
-            const companyInfoError = await companyInfoResponse.text();
             logger.error('Failed to fetch Fortnox company information', {
-                userId,
-                companyId,
                 status: companyInfoResponse.status,
-                error: companyInfoError,
             });
             return Response.redirect(`${appUrl}?fortnox_error=callback_failed`, 302);
         }
