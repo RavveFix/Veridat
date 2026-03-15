@@ -3,6 +3,7 @@
 /// <reference path="../functions/types/deno.d.ts" />
 
 import { createLogger } from "./LoggerService.ts";
+import { FORTNOX_KNOWLEDGE } from "../functions/gemini-chat/fortnox-knowledge.ts";
 
 import { GoogleGenerativeAI, SchemaType, type Tool } from "npm:@google/generative-ai@0.21.0";
 
@@ -539,6 +540,8 @@ Förklara verifikatet tydligt:
 Bokföringen är balanserad."
 
 **VIKTIGT**: Använd verktyget create_journal_entry för att skapa verifikatet.
+
+${FORTNOX_KNOWLEDGE}
 `;
 
 const tools: Tool[] = [
