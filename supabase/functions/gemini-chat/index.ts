@@ -4284,25 +4284,48 @@ ANVÄNDARFRÅGA:
                 const toolArgs = toolCallDetected.args || {};
 
                 // RUNTIME GUARD: If Gemini calls an excluded tool (e.g. get_suppliers during file upload),
-                // block it and retry with tools fully disabled so Gemini answers from knowledge.
+                // block it and retry with ONLY propose_action_plan + request_clarification available.
                 if (excludeToolsForFile && excludeToolsForFile.includes(toolName)) {
-                  logger.warn("Gemini called excluded tool despite filter — blocking and retrying from knowledge", {
+                  logger.warn("Gemini called excluded tool despite filter — blocking and retrying with action plan tools only", {
                     blockedTool: toolName,
-                    excludeList: excludeToolsForFile,
                   });
                   if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
-                  const knowledgeResponse = await sendMessageToGemini(
+                  // Exclude ALL Fortnox tools (read + write) but keep propose_action_plan + request_clarification
+                  const allFortnoxTools = [
+                    ...excludeToolsForFile,
+                    "create_invoice", "create_supplier", "create_supplier_invoice",
+                    "create_journal_entry", "export_journal_to_fortnox",
+                    "book_supplier_invoice", "register_payment",
+                  ];
+                  const retryResponse = await sendMessageToGemini(
                     finalMessage,
                     geminiFileData,
                     history,
                     undefined,
                     effectiveModel,
-                    { disableTools: true },
+                    { excludeTools: allFortnoxTools },
                   );
-                  const knowledgeText = knowledgeResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
-                  fullText = knowledgeText;
-                  const sseData = `data: ${JSON.stringify({ text: knowledgeText })}\n\n`;
-                  controller.enqueue(encoder.encode(sseData));
+                  // If retry returned a tool call (propose_action_plan), handle it as streaming action plan
+                  if (retryResponse.toolCall && retryResponse.toolCall.tool === "propose_action_plan") {
+                    const planArgs = retryResponse.toolCall.args as any;
+                    const planId = crypto.randomUUID();
+                    streamingActionPlan = {
+                      type: "action_plan",
+                      plan_id: planId,
+                      status: "pending",
+                      summary: planArgs.summary || "Konteringsförslag",
+                      actions: planArgs.actions || [],
+                      assumptions: planArgs.assumptions || [],
+                    };
+                    const planSSE = `data: ${JSON.stringify(streamingActionPlan)}\n\n`;
+                    controller.enqueue(encoder.encode(planSSE));
+                    fullText = retryResponse.text || planArgs.summary || "Konteringsförslag";
+                  } else {
+                    const retryText = retryResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
+                    fullText = retryText;
+                    const sseData = `data: ${JSON.stringify({ text: retryText })}\n\n`;
+                    controller.enqueue(encoder.encode(sseData));
+                  }
                   // Skip tool execution — go straight to save
                 } else {
 
@@ -5385,20 +5408,43 @@ ANVÄNDARFRÅGA:
     if (geminiResponse.toolCall) {
       const { tool, args } = geminiResponse.toolCall;
 
-      // RUNTIME GUARD: Block excluded tools and retry from knowledge
+      // RUNTIME GUARD: Block excluded tools and retry with action plan tools only
       if (excludeToolsForFile && excludeToolsForFile.includes(tool)) {
-        logger.warn("Non-streaming: Gemini called excluded tool — retrying from knowledge", {
+        logger.warn("Non-streaming: Gemini called excluded tool — retrying with action plan tools only", {
           blockedTool: tool,
         });
-        const knowledgeResponse = await sendMessageToGemini(
+        const allFortnoxTools = [
+          ...excludeToolsForFile,
+          "create_invoice", "create_supplier", "create_supplier_invoice",
+          "create_journal_entry", "export_journal_to_fortnox",
+          "book_supplier_invoice", "register_payment",
+        ];
+        const retryResponse = await sendMessageToGemini(
           finalMessage,
           geminiFileData,
           history,
           undefined,
           effectiveModel,
-          { disableTools: true },
+          { excludeTools: allFortnoxTools },
         );
-        const responseText = knowledgeResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
+        // If propose_action_plan was called, return it as action plan
+        if (retryResponse.toolCall && retryResponse.toolCall.tool === "propose_action_plan") {
+          const planArgs = retryResponse.toolCall.args as any;
+          const planId = crypto.randomUUID();
+          const actionPlan = {
+            type: "action_plan",
+            plan_id: planId,
+            status: "pending",
+            summary: planArgs.summary || "Konteringsförslag",
+            actions: planArgs.actions || [],
+            assumptions: planArgs.assumptions || [],
+          };
+          return new Response(
+            JSON.stringify({ type: "text", data: retryResponse.text || planArgs.summary, actionPlan }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        const responseText = retryResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
         return new Response(
           JSON.stringify({ type: "text", data: responseText }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
