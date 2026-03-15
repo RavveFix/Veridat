@@ -4069,63 +4069,8 @@ ANVÄNDARFRÅGA:
     }
     const disableTools = isSkillAssist;
 
-    // File analysis tool restriction strategy:
-    //
-    // FIRST message with file (geminiFileData): DISABLE ALL tools.
-    // Gemini analyzes purely from knowledge (BAS accounts, VAT rules, etc.) and responds in text.
-    // This works even when Fortnox is not connected — no failed get_suppliers calls.
-    // Exception: if user explicitly says "bokför direkt", "kör", "skapa faktura nu" etc. — force action tools.
-    //
-    // FOLLOW-UP messages after file analysis (hasRecentFileAnalysis): FORCE propose_action_plan + request_clarification.
-    // User has already seen the text analysis and is now confirming/adjusting — Gemini should act.
-    const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
-    const hasRecentFileAnalysis = !geminiFileData && recentHistory.some((msg: any) =>
-      msg.role === "user" && (
-        (msg.file_name && msg.file_name.length > 0) ||
-        (typeof msg.content === "string" && msg.content.includes("[BIFOGAD FIL:"))
-      )
-    );
-
-    if (!geminiFileData && Array.isArray(history)) {
-      const scanned = recentHistory.map((msg: any) => ({
-        role: msg.role,
-        hasFileName: Boolean(msg.file_name),
-        fileName: msg.file_name || null,
-        contentPreview: typeof msg.content === "string" ? msg.content.substring(0, 80) : null,
-      }));
-      logger.debug("hasRecentFileAnalysis scan", {
-        result: hasRecentFileAnalysis,
-        scannedMessages: scanned,
-      });
-    }
-
-    // Check if user explicitly wants immediate action (bypass conversational step)
-    const immediateActionPattern = /\b(bokför direkt|skapa faktura nu|kör|godkänn|bokför det|boka direkt)\b/i;
-    const userWantsImmediate = typeof finalMessage === "string" && immediateActionPattern.test(finalMessage);
-
-    // First file upload: disable ALL tools so Gemini responds in pure text
-    // Follow-up: force propose_action_plan + request_clarification (user is confirming)
-    let fileAttachedTools: string[] | undefined = undefined;
-    let disableToolsForFile = false;
-
-    if (geminiFileData && !userWantsImmediate) {
-      // First file message: disable ALL tools so Gemini analyzes purely from knowledge.
-      // This prevents failed Fortnox calls (get_suppliers etc.) when Fortnox isn't connected,
-      // and ensures a warm text response with accounting analysis before any action plan.
-      disableToolsForFile = true;
-      logger.info("First file upload: disabling all tools to enforce knowledge-based text analysis");
-    } else if (geminiFileData && userWantsImmediate) {
-      // User wants immediate action: force propose_action_plan
-      fileAttachedTools = ["propose_action_plan", "request_clarification"];
-      logger.info("First file upload with immediate action request: forcing propose_action_plan");
-    } else if (hasRecentFileAnalysis) {
-      // Follow-up after file analysis: force action tools
-      fileAttachedTools = ["propose_action_plan", "request_clarification"];
-      logger.info("Carrying forward file analysis tool restriction for follow-up message", {
-        historyLength: history?.length,
-        forcedTools: fileAttachedTools,
-      });
-    }
+    // File uploads: Gemini uses all tools in AUTO mode.
+    // Action plan card shows kontering, sources, and explanation — no need for text-first step.
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
 
@@ -4141,7 +4086,7 @@ ANVÄNDARFRÅGA:
           history,
           undefined,
           effectiveModel,
-          { disableTools: disableTools || disableToolsForFile, allowedTools: fileAttachedTools },
+          { disableTools },
         );
         logger.debug("Gemini stream created successfully");
         const encoder = new TextEncoder();
@@ -5395,7 +5340,7 @@ ANVÄNDARFRÅGA:
         history,
         undefined,
         effectiveModel,
-        { disableTools: disableTools || disableToolsForFile, allowedTools: fileAttachedTools },
+        { disableTools },
       ));
 
     // Handle Tool Calls (Non-streaming fallback)
