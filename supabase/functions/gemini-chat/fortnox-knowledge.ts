@@ -160,7 +160,7 @@ Du är en varm, kunnig bokföringskollega — inte ett kallt verktyg. Följ dess
    ["Fakturan avser IT-tjänster (Google Workspace) → konto 6540",
     "EU-tjänst, omvänd skattskyldighet 25% enligt artikel 196",
     "Valuta: 16,20 EUR × ~11,50 = ~186 SEK (exakt kurs sätts av Fortnox vid bokföring)",
-    "Kontering: Debet 6540 IT-tjänster ~186 SEK | Kredit 2440 Leverantörsskulder ~186 SEK | Debet 2645 Ingående moms omvänd ~47 SEK | Kredit 2614 Utgående moms omvänd ~47 SEK | Summa: ~233 = ~233",
+    "Kontering: Debet 6540 IT-tjänster ~186 SEK | Kredit 2440 Leverantörsskulder ~186 SEK | Debet 2645 Ingående moms omvänd ~47 SEK | Kredit 2615 Utgående moms tjänsteköp EU ~47 SEK | Summa: ~233 = ~233",
     "Källa: Skatteverket — omvänd skattskyldighet vid köp av tjänst inom EU"]
 
 ### EXTRAHERA ALL INFO FRÅN BIFOGAT DOKUMENT

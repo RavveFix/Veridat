@@ -2550,7 +2550,7 @@ Deno.serve(async (req: Request) => {
                             DueDate: siDueDate,
                             Total: totalAmt,
                             Currency: siCurrency,
-                            VATType: isRC ? "EUINTERNAL" : undefined,
+                            VATType: isRC ? "EUINTERNAL" : "NORMAL",
                             SupplierInvoiceRows: [
                               {
                                 Account: siAccount,
@@ -5939,7 +5939,9 @@ ANVÄNDARFRÅGA:
               ) / 100
               : 0;
 
-            // For reverse charge: Fortnox auto-creates VAT rows (2645/2614)
+            // For reverse charge: Fortnox auto-creates VAT rows (2645/2614 or 2615)
+            // 2614 = utgående moms varuförvärv EU, 2615 = utgående moms tjänsteköp EU
+            const rcOutgoingVatAccount = si3Acct === 4515 ? 2614 : 2615;
             const fortnoxRows = si3IsRC
               ? [
                 { Account: si3Acct, Debit: netAmount, Credit: 0 },
@@ -5995,8 +5997,8 @@ ANVÄNDARFRÅGA:
                   comment: `Omvänd skattskyldighet ${si3VatRate}%`,
                 },
                 {
-                  account: 2614,
-                  accountName: "Utgående moms omvänd",
+                  account: rcOutgoingVatAccount,
+                  accountName: rcOutgoingVatAccount === 2614 ? "Utgående moms varuförvärv EU" : "Utgående moms tjänsteköp EU",
                   debit: 0,
                   credit: rcVat,
                   comment: `Omvänd skattskyldighet ${si3VatRate}%`,

@@ -229,6 +229,11 @@ function buildSupplierInvoiceRows(
   // Fortnox auto-creates VAT rows, but show them in chat for transparency
   if (isRC) {
     const rcVat = Math.round(totalAmount * ((vatRate || 25) / 100) * 100) / 100;
+    // 2614 = utgående moms varuförvärv EU, 2615 = utgående moms tjänsteköp EU
+    const rcOutgoingAccount = account === "4515" ? "2614" : "2615";
+    const rcOutgoingName = rcOutgoingAccount === "2614"
+      ? "Utgående moms varuförvärv EU"
+      : "Utgående moms tjänsteköp EU";
     return [
       {
         account,
@@ -245,8 +250,8 @@ function buildSupplierInvoiceRows(
         comment: `Omvänd skattskyldighet ${vatRate || 25}%`,
       },
       {
-        account: "2614",
-        accountName: "Utgående moms omvänd",
+        account: rcOutgoingAccount,
+        accountName: rcOutgoingName,
         debit: null,
         credit: rcVat,
         comment: `Omvänd skattskyldighet ${vatRate || 25}%`,
