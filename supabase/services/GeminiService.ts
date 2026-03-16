@@ -887,7 +887,7 @@ const tools: Tool[] = [
                                             },
                                             invoice_number: {
                                                 type: SchemaType.STRING,
-                                                description: "Fakturanummer från originalfakturan/kvittot. Använd ALLTID numret från dokumentet om det finns."
+                                                description: "OBLIGATORISKT för create_supplier_invoice. Exakt fakturanummer från originalfakturan/kvittot — ingen modifiering, inget prefix. Om numret är 5343750467 skicka exakt '5343750467'."
                                             },
                                             total_amount: {
                                                 type: SchemaType.NUMBER,

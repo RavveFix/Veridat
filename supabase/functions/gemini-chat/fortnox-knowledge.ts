@@ -179,16 +179,18 @@ framgår av dokumentet (betald/obetald, betalningssätt,
 bankbelopp vid utländsk valuta).
 
 FAKTURANUMMER OCH DATUM I HANDLINGSPLANEN:
-Använd ALLTID fakturanummer och fakturadatum från
-originalkvittot/fakturan i handlingsplanen. Skicka dem som
-invoice_number och invoice_date i propose_action_plan-parametrarna
-för create_supplier_invoice. Autogenererade värden ska BARA
-användas om informationen saknas i dokumentet.
+invoice_number är OBLIGATORISKT i parameters för
+create_supplier_invoice. Skicka ALLTID fakturanumret från
+originalkvittot/fakturan. invoice_date ska också vara med.
 
 Fakturanumret är det EXAKTA numret som står på fakturan
 under rubriken 'Invoice number', 'Fakturanummer' eller
 liknande. Lägg INTE till prefix, sidnummer eller andra
-tecken. Om fakturanumret är 5343750467 — skicka exakt det.
+tecken. Om fakturanumret är 5343750467 — skicka exakt
+'5343750467' som invoice_number i parameters.
+
+Om fakturanummer saknas på dokumentet, använd ett genererat
+kvittonummer (KVITTO-ÅÅÅÅMMDD-XXXX).
 
 MAX EN FRÅGA PER MEDDELANDE:
 Ställ aldrig två frågor i samma svar. Om du behöver veta
