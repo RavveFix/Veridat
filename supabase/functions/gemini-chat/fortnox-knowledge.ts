@@ -303,86 +303,28 @@ TONFALL: Vanlig svenska, inga bokföringstermer. Säg 'betald'
 inte 'reglerad', 'bankkontot' inte 'likvidkonto', 'la du ut
 privat' inte 'ägarutlägg'.
 
-### BAS-KONTOPLAN (STRUKTUR)
+### BAS-KONTOPLAN
 
-Alla svenska företag använder BAS-kontoplanen. Konton har 4 siffror. Första siffran = kontoklass:
+Alla svenska företag använder BAS-kontoplanen. Konton har 4 siffror.
+Första siffran = kontoklass: 1=Tillgångar, 2=Skulder/EK, 3=Intäkter,
+4=Varuinköp, 5-6=Övriga kostnader, 7=Personal, 8=Finansiellt.
 
-- Kontoklass 1: Tillgångar (kassa, bank, kundfordringar, inventarier)
-- Kontoklass 2: Eget kapital & skulder (lån, leverantörsskulder, moms)
-- Kontoklass 3: Intäkter (försäljning varor/tjänster)
-- Kontoklass 4: Kostnader för varor/material (inköp, råvaror)
-- Kontoklass 5: Övriga externa kostnader (hyra, el, reklam, telefon)
-- Kontoklass 6: Övriga externa kostnader forts. (resekostnader, IT)
-- Kontoklass 7: Personalkostnader (löner, sociala avgifter, pension)
-- Kontoklass 8: Finansiella poster (ränteintäkter/-kostnader, bokslut)
+Den kompletta kontolistan finns i din systemkunskap. Här fokuserar vi
+på konton och regler som INTE är uppenbara:
 
-### VANLIGASTE BAS-KONTON FÖR SMB
-
-**Tillgångar (1xxx):**
-- 1510 Kundfordringar
-- 1630 Skattekonto (hos Skatteverket)
-- 1710 Förutbetalda kostnader
-- 1910 Kassa
-- 1920 PlusGiro
-- 1930 Företagskonto (bank)
-- 1940 Bank (annat konto)
-
-**Skulder & Eget kapital (2xxx):**
-- 2013 Eget kapital (enskild firma)
-- 2081 Aktiekapital (AB)
-- 2091 Balanserad vinst/förlust
-- 2099 Årets resultat
-- 2440 Leverantörsskulder
-- 2610 Utgående moms 25%
-- 2620 Utgående moms 12%
-- 2630 Utgående moms 6%
-- 2640 Ingående moms
-- 2710 Personalskatt
-- 2731 Arbetsgivaravgifter
-
-**Intäkter (3xxx):**
-- 3001 Försäljning varor 25% moms
-- 3002 Försäljning varor 12% moms
-- 3003 Försäljning varor 6% moms
-- 3011 Försäljning tjänster 25% moms
-- 3041 Exportförsäljning (momsfri)
-- 3051 EU-försäljning varor
-- 3540 Fakturerade frakter
-
-**Kostnader (4xxx–7xxx):**
-- 4010 Inköp varor och material
-- 5010 Lokalhyra
-- 5410 Förbrukningsinventarier
-- 5460 Förbrukningsmaterial
-- 5611 Reparation & underhåll maskiner
-- 5800 Resekostnader
-- 5910 Annonsering
-- 6071 Representation, avdragsgill
-- 6072 Representation, ej avdragsgill
-- 6110 Kontorsmaterial
-- 6211 Fast telefoni
-- 6212 Mobiltelefon
-- 6230 Datakommunikation
-- 6250 Postbefordran
-- 6530 Redovisnings-/revisionstjänster
-- 6570 Bankkostnader
-- 7010 Löner till tjänstemän
-- 7210 Löner till kollektivanställda
-- 7510 Arbetsgivaravgifter
-- 7533 Särskild löneskatt på pensionskostnader
-
-**Finansiellt (8xxx):**
-- 8310 Ränteintäkter
-- 8410 Räntekostnader
-- 8999 Årets resultat
+**Ofta förväxlade konton:**
+- 1920 PlusGiro — separat från 1930 (företagskonto)
+- 5400 Förbrukningsinventarier — under halvårsgräns (se nedan)
+- 5611 Drivmedel — bensin/diesel/el-laddning (EJ reparation/service)
+- 6071/6072 Representation — se representationsregler nedan
+- 6530 Redovisningstjänster — ALL bokföring/revision/deklaration
+- 6540 IT-tjänster — SaaS, hosting, programvara
+- 6550 Konsultarvoden — BARA management/strategi/teknik (EJ redovisning)
 
 ### MOMS I FORTNOX
 
-**Momssatser i Sverige:**
-- 25% — standardmoms (de flesta varor/tjänster)
-- 12% — livsmedel, hotell, restaurang
-- 6% — böcker, tidningar, kultur, persontransporter
-- 0% — sjukvård, utbildning, bank/finans, export
+OBS: Momssatser (25%/12%/6%/0%) och matmoms-sänkningen (6% fr.o.m.
+2026-04-01) finns i din systemkunskap. Upprepa INTE dessa regler.
 
 **Momstyper i Fortnox (på fakturor):**
 - SE — Försäljning inom Sverige (vanligast)
@@ -404,12 +346,6 @@ Alla svenska företag använder BAS-kontoplanen. Konton har 4 siffror. Första s
 - Perioden bestämmer du: månads-, kvartals- eller årsmoms
 - Momskoderna på kontoplanen styr vilka belopp som hamnar på varje rad
 - Felsökning: Gå till Register → Kontoplan → Utökad sökning → sök på momskod
-
-**Momsdeklaration deadlines:**
-- Månadsmoms: ~12:e i månaden, 1,5 mån efter periodens slut
-- Omsättning >40 MSEK: 26:e i månaden efter periodens slut
-- Kvartalsmoms: 12:e i andra månaden efter kvartalets slut
-- Årsmoms: redovisas i inkomstdeklarationen
 
 ### VANLIGA FORTNOX-ARBETSFLÖDEN
 
@@ -486,11 +422,107 @@ Kredit: 2731 Arbetsgivaravgifter — ~9 426 kr
 Debet: 1930 Företagskonto — belopp
 Kredit: 2013 Eget kapital — belopp
 
-**Representation (middag, 50% avdragsgill):**
-Debet: 6071 Representation avdragsgill — 50% av belopp exkl moms
-Debet: 6072 Representation ej avdragsgill — 50% av belopp exkl moms
-Debet: 2640 Ingående moms — momsbelopp (bara på avdragsgill del)
-Kredit: 1930 Företagskonto — totalbelopp
+**Representation (extern, kund/affärsmöte):**
+Regler: Max 300 kr/person/tillfälle är avdragsgillt (inkomstskatt).
+Momsavdrag: Ja, ingående moms på den avdragsgilla delen (max 300 kr/person).
+Överskjutande belopp bokförs på 6072 (ej avdragsgill, ingen momsrätt).
+
+Exempel: Middag 800 kr inkl moms, 2 personer (400 kr/person):
+Avdragsgill del: 2 × 300 = 600 kr exkl moms (480 kr netto + 120 kr moms)
+Ej avdragsgill del: 200 kr exkl moms (160 kr netto + 40 kr moms)
+Debet: 6071 Representation avdragsgill — 480 kr
+Debet: 6072 Representation ej avdragsgill — 200 kr (160 netto + 40 ej avdragsgill moms)
+Debet: 2641 Ingående moms — 120 kr (bara på avdragsgill del)
+Kredit: 1930 Företagskonto — 800 kr
+
+OBS: Fråga ALLTID hur många deltagare. Utan det kan du inte
+beräkna avdragsgill del.
+
+**Personalrepresentation (intern, julfest/personalträff):**
+Avdragsgill del: max 600 kr/person/tillfälle (mat)
+Använd 7631 (avdragsgill) och 7632 (ej avdragsgill)
+Max 2 personalfester per år med avdragsrätt
+
+### VIKTIGA BOKFÖRINGSREGLER FÖR SMB
+
+**HALVÅRSGRÄNS (förbrukningsinventarier vs tillgång):**
+Inventarier under ett halvt prisbasbelopp (28 650 kr 2025, justeras årligen)
+kan kostnadsföras direkt på 5400. Över gränsen → aktivera som tillgång
+(1210/1220) och skriv av. Fråga ALLTID om inköpspriset vid gränsfall.
+
+**AVSKRIVNINGAR (inventarier/maskiner):**
+- Linjär avskrivning: jämnt fördelat över nyttjandeperioden
+- K2: 5 år (20%/år) som förenklingsregel, eller verklig nyttjandeperiod
+- K3: verklig nyttjandeperiod (individuell bedömning)
+- Avskrivning bokförs: Debet 7830 (Avskrivningar inventarier) /
+  Kredit 1219 (Ackumulerade avskrivningar)
+- Byggnader: 2-4%/år beroende på typ (1119 ack avskr)
+
+**ENSKILD FIRMA vs AB — viktiga skillnader:**
+- Enskild firma: konto 2013 (eget kapital), inga löner till ägaren
+  → egna uttag: Debet 2013 / Kredit 1930
+  → eget kapitalinsättning: Debet 1930 / Kredit 2013
+  → alla bilkostnader, telefon etc kan ha privat del
+- AB: konto 2081 (aktiekapital), ägaren tar lön (7010/7210)
+  → utdelning: Debet 2091 / Kredit 2898 (utdelningsskuld)
+  → privat bruk = förmånsbeskattning (7385)
+Fråga ALLTID om företagsform om oklart (påverkar kontoval).
+
+**EJ AVDRAGSGILLA KOSTNADER:**
+Kostnader som ALDRIG ger skatteavdrag:
+- Böter och viten → 6991 (ej avdragsgill) eller 6990
+- Parkeringsböter → 6991
+- Gåvor (ej julgåvor till anställda ≤500 kr) → 6992
+- Förseningsavgifter (Skatteverket) → 6993
+- Skattetillägg → 6993
+- Privata kostnader i enskild firma → 2013 (eget uttag, EJ kostnad)
+Vid dessa: bokför på konto, men justera i deklarationen (INK2/INK4).
+
+**PERIODISERING VID ÅRSSKIFTE:**
+Krav: Väsentliga belopp som avser annat räkenskapsår ska periodiseras.
+K2-förenkling: ej obligatoriskt om varje post <5 000 kr.
+Vanligaste periodiseringar:
+- Förutbetald hyra: Debet 1710 / Kredit 5010
+- Upplupna kostnader: Debet [kostnad] / Kredit 2990
+- Förutbetalda intäkter: Debet 3xxx / Kredit 2990
+Återför alltid i nästa periods första verifikation.
+
+**KREDITFAKTUROR:**
+När en faktura krediteras (helt eller delvis):
+- Kundfaktura krediteras: Debet 3xxx + Debet 2611 / Kredit 1510
+  (omvänd kontering mot ursprungsfakturan)
+- Leverantörsfaktura krediteras: Debet 2440 / Kredit 4xxx + Kredit 2641
+Fråga: 'Är det en kreditfaktura/retur?' om beloppet är negativt.
+I Fortnox: skapa kreditfaktura kopplad till originalfakturan.
+
+**DRIVMEDEL OCH BILKOSTNADER:**
+- Företagsbil (ägs av företaget): alla kostnader avdragsgilla
+  → drivmedel 5611, försäkring 6350, service 5070, leasing 5615
+  → privat bruk = förmånsvärde 7385 (AB) eller ej avdragsgill del (EF)
+- Privat bil i tjänsten: milersättning 25 kr/mil (skattefri del)
+  → Debet 5800 / Kredit 1930 (eller 2013 vid utlägg EF)
+- Fråga ALLTID: 'Är det en företagsbil eller privat bil?'
+
+**FRISKVÅRDSBIDRAG:**
+- Max 5 000 kr/anställd/år (skattefritt, ej arbetsgivaravgifter)
+- Konto 7620 Sjuk- och hälsovård
+- Gäller: gym, simhall, massage, yoga etc (schablonbelopp)
+- Ej: privata aktiviteter, greenfee, ridlektioner (individuell bedömning)
+- AB: betala direkt från företagskonto (5000 kr = skattefritt)
+- EF: ej tillämpbart (ägaren är inte anställd)
+
+**MOBILTELEFON OCH INTERNET — DELVIS PRIVAT BRUK:**
+- AB: Fullt avdrag om telefonen ägs av företaget, förmånsvärde
+  beskattas om privatanvändning är mer än ringa
+- EF: Skälig uppdelning — vanligt 50/50 eller 75/25 beroende på
+  faktiskt användande. Bokför hela beloppet, justera ej avdragsgill
+  del i deklarationen.
+
+**DELBETALNINGAR:**
+Om en faktura betalas i flera omgångar:
+- Varje delbetalning: Debet 2440 / Kredit 1930 (belopp = delbetalning)
+- Leverantörsskulden minskar successivt
+- Fråga: 'Är det en delbetalning? Hur mycket betalade du?'
 
 ### VANLIGA FRÅGOR & FELSÖKNING
 
@@ -552,11 +584,11 @@ När Fortnox inte är kopplat:
 Exempel: 'Jag ser att det är en Google Workspace-faktura på 16,20 EUR (~186 SEK).
 Eftersom leverantören sitter i Irland (EU) gäller omvänd skattskyldighet (25%).
 
-Konto | Kontonamn                    | Debet    | Kredit
-6540  | IT-tjänster                  | ~186     |
-2440  | Leverantörsskulder           |          | ~186
-2645  | Ingående moms (omvänd)       |  ~47     |
-2614  | Utgående moms omvänd skattsk |          |  ~47
+Konto | Kontonamn                         | Debet    | Kredit
+6540  | IT-tjänster                       | ~186     |
+2440  | Leverantörsskulder                |          | ~186
+2645  | Ingående moms (omvänd)            |  ~47     |
+2615  | Utgående moms omvänd tjänsteköp   |          |  ~47
 (Ungefärlig kurs: 1 EUR ≈ 11,50 SEK — exakt kurs sätts vid bokföring)
 
 Vill du bokföra det direkt? Koppla Fortnox under Inställningar → Integrationer så kan jag göra det åt dig.'

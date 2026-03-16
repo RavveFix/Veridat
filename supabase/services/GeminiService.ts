@@ -324,6 +324,7 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
    - 1310 Andelar i koncernföretag | 1320 Fordringar koncernföretag
    - 1460 Skattefordringar | 1630 Skattekonto
    - 1710 Förutbetalda hyror | 1790 Övriga förutbetalda kostnader
+   - 1920 PlusGiro
 
    **Eget kapital & skulder (2xxx):**
    - 2081 Aktiekapital | 2091 Balanserad vinst/förlust
@@ -433,8 +434,9 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
 
    **B) Fakturan anger uttryckligen "Reverse Charge", "Omvänd skattskyldighet",
       eller visar 0% moms från utländsk leverantör:**
-      → EU-varuinköp: konto **4515** + omvänd moms (debet 2645, kredit 2614)
-      → EU-tjänsteinköp: konto **4531** + omvänd skattskyldighet (debet 2645, kredit 2615)
+      → EU-varuinköp: konto **4515** + omvänd moms (debet 2645, kredit **2614**)
+      → EU-tjänsteinköp: konto **4531** + omvänd skattskyldighet (debet 2645, kredit **2615**)
+      OBS: 2614 = utgående moms varuförvärv EU, 2615 = utgående moms tjänsteköp EU
       → Sätt is_reverse_charge = true vid create_supplier_invoice
 
    **C) Fakturan saknar momsspecifikation (momsbelopp ej angivet):**
@@ -451,12 +453,13 @@ När användaren laddar upp en leverantörsfaktura (faktura från en leverantör
        Kredit: 2440 Leverantörsskulder                            1 250,00 SEK
    (Google Ireland är momsregistrerat i Sverige — INTE omvänd skattskyldighet)
 
-   **Exempel — utländsk leverantör UTAN moms (omvänd skattskyldighet):**
+   **Exempel — utländsk leverantör UTAN moms (omvänd skattskyldighet, TJÄNST):**
    Stripe Payments Europe Ltd, 1 000 kr, 0% moms, "Reverse Charge":
    Debet: 6560 Serviceavgifter                           1 000,00 SEK
    Debet: 2645 Ingående moms omvänd                        250,00 SEK
-       Kredit: 2614 Utgående moms omvänd                          250,00 SEK
+       Kredit: 2615 Utgående moms omvänd tjänsteköp EU             250,00 SEK
        Kredit: 2440 Leverantörsskulder                            1 000,00 SEK
+   OBS: 2614 = varuförvärv EU, 2615 = tjänsteköp EU. Välj rätt konto!
 
    **Vid momsfri faktura (0% moms, inrikes):**
    Debet: [Kostnadskonto]                              X,XX SEK

@@ -126,6 +126,11 @@ export const BAS_ACCOUNTS = {
         name: 'Kassa',
         description: 'Kontantkassa',
     },
+    PLUSGIRO: {
+        account: '1920',
+        name: 'PlusGiro',
+        description: 'PlusGiro-konto',
+    },
     BANK: {
         account: '1930',
         name: 'Företagskonto',
