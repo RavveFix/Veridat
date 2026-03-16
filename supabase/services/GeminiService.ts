@@ -117,7 +117,7 @@ Detta gäller ÄVEN i uppföljningsmeddelanden efter filanalys. Du har ALLTID ti
    - Använd ALDRIG search_supplier_invoices eller andra läsverktyg som substitut för att läsa den bifogade filen
    - Om något är otydligt i dokumentet, fråga användaren
 
-2. **Godkännande före åtgärd**: Använd ALLTID propose_action_plan istället för att direkt anropa create_supplier_invoice, create_invoice, export_journal_to_fortnox eller book_supplier_invoice. Visa förslaget med konteringstabell och vänta på användarens godkännande.
+2. **Godkännande före åtgärd**: Använd ALLTID propose_action_plan istället för att direkt anropa create_supplier_invoice, create_invoice eller export_journal_to_fortnox. Visa förslaget med konteringstabell och vänta på användarens godkännande. Leverantörsfakturor skapas som UTKAST i Fortnox — användaren bokför och betalar själv.
 
 ## KRITISK REGEL — När INTE använda propose_action_plan:
 Skapa BARA handlingsplaner (action plans) när användaren ber dig GÖRA något i Fortnox (skapa faktura, bokföra, registrera betalning, exportera).
@@ -177,9 +177,8 @@ Du lär känna varje företag över tid. När du har kontext om företaget:
 - **create_supplier**: Skapar en ny leverantör i Fortnox med namn, organisationsnummer och kontaktuppgifter.
 - **create_supplier_invoice**: Skapar en leverantörsfaktura i Fortnox med kontering och momsbehandling. VIKTIGT: Om fakturan är i utländsk valuta (EUR, USD etc.), ange ALLTID originalvalutan i currency-fältet. Konvertera INTE belopp till SEK — Fortnox hanterar valutakonvertering automatiskt.
 - **export_journal_to_fortnox**: Exporterar ett lokalt verifikat till Fortnox som en verifikation.
-- **book_supplier_invoice**: Bokför en befintlig leverantörsfaktura i Fortnox.
-- **propose_action_plan**: Skapar en handlingsplan med konteringsförslag som visas för användaren med debet/kredit-tabell. Användaren kan godkänna, ändra eller avbryta planen. Använd ALLTID detta istället för att direkt skapa fakturor eller verifikat.
-- **register_payment**: Registrerar en betalning för en kund- eller leverantörsfaktura i Fortnox.
+- **propose_action_plan**: Skapar en handlingsplan med konteringsförslag som visas för användaren med debet/kredit-tabell. Användaren kan godkänna, ändra eller avbryta planen. Använd ALLTID detta istället för att direkt skapa fakturor eller verifikat. Leverantörsfakturor skapas som UTKAST — användaren bokför själv i Fortnox.
+- **register_payment**: Registrerar en mottagen betalning för en kundfaktura i Fortnox. Används INTE för leverantörsfakturor.
 
 ## Direkta Fortnox-verktyg (läsoperationer)
 Du kan söka och visa data från användarens Fortnox direkt i chatten:
@@ -834,22 +833,8 @@ const tools: Tool[] = [
                 }
             },
             {
-                name: "book_supplier_invoice",
-                description: "Bokför en befintlig leverantörsfaktura i Fortnox. Gör fakturan definitiv.",
-                parameters: {
-                    type: SchemaType.OBJECT,
-                    properties: {
-                        invoice_number: {
-                            type: SchemaType.STRING,
-                            description: "Fakturanummer att bokföra"
-                        }
-                    },
-                    required: ["invoice_number"]
-                }
-            },
-            {
                 name: "propose_action_plan",
-                description: "Skapar en handlingsplan med konteringsförslag som kräver användarens godkännande innan den utförs i Fortnox. Använd ALLTID detta verktyg istället för att direkt anropa create_supplier_invoice, create_invoice, export_journal_to_fortnox eller book_supplier_invoice. Skriv ALLTID en förklarande text INNAN du anropar detta verktyg i samma svar — beskriv vad du ser på kvittot/fakturan, vilka konton du valt och varför. Inkludera konteringsöversikt i assumptions.",
+                description: "Skapar en handlingsplan med konteringsförslag som kräver användarens godkännande innan den utförs i Fortnox. Använd ALLTID detta verktyg istället för att direkt anropa create_supplier_invoice, create_invoice eller export_journal_to_fortnox. Skriv ALLTID en förklarande text INNAN du anropar detta verktyg i samma svar — beskriv vad du ser på kvittot/fakturan, vilka konton du valt och varför. Inkludera konteringsöversikt i assumptions. Leverantörsfakturor skapas som UTKAST — användaren bokför själv i Fortnox.",
                 parameters: {
                     type: SchemaType.OBJECT,
                     properties: {
@@ -865,7 +850,7 @@ const tools: Tool[] = [
                                 properties: {
                                     action_type: {
                                         type: SchemaType.STRING,
-                                        description: "Typ av åtgärd: 'create_supplier_invoice', 'create_invoice', 'update_invoice', 'export_journal_to_fortnox', 'book_supplier_invoice', 'create_supplier', 'create_customer', 'register_payment'"
+                                        description: "Typ av åtgärd: 'create_supplier_invoice', 'create_invoice', 'update_invoice', 'export_journal_to_fortnox', 'create_supplier', 'create_customer'"
                                     },
                                     description: {
                                         type: SchemaType.STRING,
@@ -902,7 +887,7 @@ const tools: Tool[] = [
                                             },
                                             invoice_number: {
                                                 type: SchemaType.STRING,
-                                                description: "Fakturanummer från originalfakturan/kvittot. Använd ALLTID numret från dokumentet om det finns. Fältet används för create_supplier_invoice och book_supplier_invoice."
+                                                description: "Fakturanummer från originalfakturan/kvittot. Använd ALLTID numret från dokumentet om det finns."
                                             },
                                             total_amount: {
                                                 type: SchemaType.NUMBER,
@@ -1006,14 +991,14 @@ const tools: Tool[] = [
             },
             {
                 name: "register_payment",
-                description: "Registrerar en betalning för en kund- eller leverantörsfaktura i Fortnox.",
+                description: "Registrerar en mottagen betalning för en kundfaktura i Fortnox. Används INTE för leverantörsfakturor — de skapas som utkast och hanteras manuellt i Fortnox.",
                 parameters: {
                     type: SchemaType.OBJECT,
                     properties: {
                         payment_type: {
                             type: SchemaType.STRING,
-                            description: "Typ av betalning: 'customer' för kundfaktura, 'supplier' för leverantörsfaktura",
-                            enum: ["customer", "supplier"]
+                            description: "Typ av betalning: 'customer' för kundfaktura",
+                            enum: ["customer"]
                         },
                         invoice_number: {
                             type: SchemaType.STRING,
@@ -1337,7 +1322,6 @@ export type ToolCall =
     | { tool: 'create_supplier_invoice'; args: CreateSupplierInvoiceArgs }
     | { tool: 'create_journal_entry'; args: CreateJournalEntryArgs }
     | { tool: 'export_journal_to_fortnox'; args: ExportJournalToFortnoxArgs }
-    | { tool: 'book_supplier_invoice'; args: BookSupplierInvoiceArgs }
     | { tool: 'learn_accounting_pattern'; args: LearnAccountingPatternArgs };
 
 export interface GeminiResponse {
@@ -1572,8 +1556,7 @@ export const sendMessageToGemini = async (
             // Fortnox tools with args (pass through)
             if (functionCall.name === 'get_vouchers' || functionCall.name === 'create_supplier' ||
                 functionCall.name === 'create_supplier_invoice' || functionCall.name === 'create_journal_entry' ||
-                functionCall.name === 'export_journal_to_fortnox' ||
-                functionCall.name === 'book_supplier_invoice') {
+                functionCall.name === 'export_journal_to_fortnox') {
                 return {
                     toolCall: {
                         tool: functionCall.name as ToolCall['tool'],

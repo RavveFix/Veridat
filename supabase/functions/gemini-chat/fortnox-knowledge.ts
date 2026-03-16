@@ -72,9 +72,9 @@ Flöde vid komplett info:
 Användare: 'den är betald, drogs 186.05 kr'
 → Du HAR allt: leverantör, belopp, valuta, betald, bankbelopp
 → Anropa propose_action_plan med create_supplier +
-  create_supplier_invoice + register_payment
+  create_supplier_invoice (utkast)
 → Skriv en kort sammanfattning INNAN planen:
-  'Perfekt, då bokför jag den som betald. Här är planen:'
+  'Perfekt, då skapar jag fakturan som utkast i Fortnox. Här är planen:'
 
 EFTER ETT TEXTSVAR — håll dialogen igång:
 Avsluta med en naturlig följdfråga eller erbjudande.
@@ -377,13 +377,13 @@ Alla svenska företag använder BAS-kontoplanen. Konton har 4 siffror. Första s
 **Skapa verifikation:**
 Meny → Bokföring → Skapa verifikation → fyll i konton (debet/kredit) → spara
 
-**Hantera leverantörsfaktura:**
-1. Fakturan inkommer (e-post, brevlåda, eller manuellt)
-2. Registrera under Leverantörsfakturor
-3. Kontera (välj konto + momskod)
+**Hantera leverantörsfaktura (Veridat skapar utkast):**
+1. Veridat skapar leverantör + faktura som utkast i Fortnox
+2. Gå in i Fortnox → Leverantörsfakturor
+3. Kontrollera att kontering och belopp stämmer
 4. Attestera (om attest används)
-5. Betala via bankkopplingen
-6. Bokförs automatiskt vid betalning
+5. Bokför fakturan
+6. Betala via bankkopplingen
 
 **Skapa kundfaktura:**
 1. Meny → Fakturering → Ny faktura
