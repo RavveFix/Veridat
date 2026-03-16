@@ -2129,6 +2129,25 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Check if user has active Fortnox connection (token exists for this company)
+    let hasFortnoxConnection = false;
+    if (resolvedCompanyId && userId !== "anonymous") {
+      try {
+        const { data: tokenRow } = await supabaseAdmin
+          .from("fortnox_tokens")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("company_id", resolvedCompanyId)
+          .maybeSingle();
+        hasFortnoxConnection = !!tokenRow;
+      } catch {
+        // Non-critical — assume no connection
+      }
+      if (!hasFortnoxConnection) {
+        logger.info("No Fortnox connection for user/company", { userId, companyId: resolvedCompanyId });
+      }
+    }
+
     if (action === "generate_title") {
       if (!conversationId) {
         return new Response(
@@ -3887,13 +3906,22 @@ ANVÄNDARFRÅGA:
 
     // Tool usage instructions — always present so Gemini knows how to use Fortnox tools
     if (!isSkillAssist) {
-      finalMessage = `[VERKTYGSREGLER]\n` +
-        `Du har tillgång till Fortnox-verktyg. Använd dem så här:\n` +
-        `- LÄSVERKTYG (search_invoices, search_supplier_invoices, search_customers, get_vat_report, get_company_info, get_financial_summary, get_account_balances, search_vouchers): Använd FRITT utan att fråga. Om användaren frågar om fakturor, leverantörsfakturor, kunder, moms, företagsinfo, ekonomisk översikt, kontosaldon eller verifikationer — anropa verktyget direkt.\n` +
-        `- SKRIVVERKTYG (skapa/ändra faktura): Anropa ALLTID propose_action_plan med posting_rows. Utför ALDRIG en skrivoperation direkt. Leverantörsfakturor skapas som UTKAST — användaren bokför och betalar själv i Fortnox.\n` +
-        `- LEVERANTÖRSFAKTURA: När du skapar en leverantörsfaktura, inkludera ALLTID ett create_supplier-steg FÖRE create_supplier_invoice i handlingsplanen. Leverantören kanske inte finns i Fortnox. Systemet hanterar dubbletter — om leverantören redan finns skapas ingen ny. Referera ALLTID leverantörer med numeriskt SupplierNumber (t.ex. "1"), ALDRIG med textnamn (t.ex. "GOOGLE_IRELAND_LTD").\n` +
-        `- SAKNAD INFO: Om pris, belopp, antal eller annan kritisk info saknas för en skrivoperation → anropa request_clarification.\n\n` +
-        finalMessage;
+      if (hasFortnoxConnection) {
+        finalMessage = `[VERKTYGSREGLER]\n` +
+          `Du har tillgång till Fortnox-verktyg. Använd dem så här:\n` +
+          `- LÄSVERKTYG (search_invoices, search_supplier_invoices, search_customers, get_vat_report, get_company_info, get_financial_summary, get_account_balances, search_vouchers): Använd FRITT utan att fråga. Om användaren frågar om fakturor, leverantörsfakturor, kunder, moms, företagsinfo, ekonomisk översikt, kontosaldon eller verifikationer — anropa verktyget direkt.\n` +
+          `- SKRIVVERKTYG (skapa/ändra faktura): Anropa ALLTID propose_action_plan med posting_rows. Utför ALDRIG en skrivoperation direkt. Leverantörsfakturor skapas som UTKAST — användaren bokför och betalar själv i Fortnox.\n` +
+          `- LEVERANTÖRSFAKTURA: När du skapar en leverantörsfaktura, inkludera ALLTID ett create_supplier-steg FÖRE create_supplier_invoice i handlingsplanen. Leverantören kanske inte finns i Fortnox. Systemet hanterar dubbletter — om leverantören redan finns skapas ingen ny. Referera ALLTID leverantörer med numeriskt SupplierNumber (t.ex. "1"), ALDRIG med textnamn (t.ex. "GOOGLE_IRELAND_LTD").\n` +
+          `- SAKNAD INFO: Om pris, belopp, antal eller annan kritisk info saknas för en skrivoperation → anropa request_clarification.\n\n` +
+          finalMessage;
+      } else {
+        finalMessage = `[VERKTYGSREGLER — FORTNOX EJ KOPPLAT]\n` +
+          `Användaren har INTE kopplat Fortnox. Du har INGA Fortnox-verktyg.\n` +
+          `Skapa ALDRIG handlingsplan med Fortnox-åtgärder (create_supplier, create_supplier_invoice, create_invoice etc).\n` +
+          `Visa konteringsförslag som text med kontonummer, debet/kredit och förklaring.\n` +
+          `Avsluta med: 'Vill du koppla Fortnox kan jag skapa fakturan direkt åt dig. Gå till Inställningar → Integrationer.'\n\n` +
+          finalMessage;
+      }
     }
 
     // Provider switch (default: Gemini)
@@ -3951,7 +3979,11 @@ ANVÄNDARFRÅGA:
       "register_payment",
     ];
     const ALL_FORTNOX_TOOLS = [...FORTNOX_READ_TOOLS, ...FORTNOX_WRITE_TOOLS];
-    let excludeToolsForFile: string[] | undefined = geminiFileData ? FORTNOX_READ_TOOLS : undefined;
+
+    // If no Fortnox connection, exclude ALL Fortnox tools
+    let excludeToolsForFile: string[] | undefined = !hasFortnoxConnection
+      ? ALL_FORTNOX_TOOLS
+      : geminiFileData ? FORTNOX_READ_TOOLS : undefined;
 
     // Check conversation context for file analysis — restrict tools on follow-up messages too.
     // Without this, follow-up text messages after a file upload have ALL tools available,
@@ -3960,7 +3992,9 @@ ANVÄNDARFRÅGA:
     //   1. Current request has file (geminiFileData — already handled above)
     //   2. Pending action plan in recent assistant messages
     //   3. Recent user message had a file attachment (file_name IS NOT NULL)
-    let excludeToolsReason: string | undefined = geminiFileData ? "file_upload" : undefined;
+    let excludeToolsReason: string | undefined = !hasFortnoxConnection
+      ? "no_fortnox_connection"
+      : geminiFileData ? "file_upload" : undefined;
     if (!excludeToolsForFile && conversationId && userId !== "anonymous") {
       try {
         // Single query: fetch last 5 messages (any role) with file_name or metadata
@@ -5148,23 +5182,33 @@ ANVÄNDARFRÅGA:
                     controller.enqueue(encoder.encode(sseData));
                   }
                 } catch (toolErr) {
-                  logger.error("Tool execution error in stream", { tool: toolName, error: toolErr instanceof Error ? toolErr.message : "unknown" });
-                  // Fallback: ask Gemini to answer from its knowledge — no raw error in prompt
-                  try {
-                    const fallbackPrompt = `Verktyget "${toolName}" misslyckades. Svara ändå på användarens fråga med din befintliga kunskap om möjligt. Om frågan kräver specifik Fortnox-data som du inte har, förklara kort att Fortnox-kopplingen inte svarar just nu och ge generella råd istället.`;
-                    const fallbackResponse = await sendMessageToGemini(
-                      fallbackPrompt,
-                      undefined,
-                      history,
-                      undefined,
-                      effectiveModel,
-                      { disableTools: true },
-                    );
-                    toolResponseText = fallbackResponse.text ||
-                      "Jag kunde inte hämta data från Fortnox just nu, men jag kan hjälpa dig med generella bokföringsfrågor.";
-                  } catch {
+                  const errMsg = toolErr instanceof Error ? toolErr.message : "unknown";
+                  logger.error("Tool execution error in stream", { tool: toolName, error: errMsg });
+
+                  // Detect auth errors — show friendly reconnection message
+                  const isAuthError = errMsg.includes("401") || errMsg.includes("token") ||
+                    errMsg.includes("unauthorized") || errMsg.includes("auth");
+                  if (isAuthError) {
                     toolResponseText =
-                      "Jag kunde inte nå Fortnox just nu. Försök igen om en stund.";
+                      "Din Fortnox-koppling verkar ha gått ut. Gå till Inställningar → Integrationer för att koppla om.";
+                  } else {
+                    // Fallback: ask Gemini to answer from its knowledge — no raw error in prompt
+                    try {
+                      const fallbackPrompt = `Verktyget "${toolName}" misslyckades. Svara ändå på användarens fråga med din befintliga kunskap om möjligt. Om frågan kräver specifik Fortnox-data som du inte har, förklara kort att Fortnox-kopplingen inte svarar just nu och ge generella råd istället.`;
+                      const fallbackResponse = await sendMessageToGemini(
+                        fallbackPrompt,
+                        undefined,
+                        history,
+                        undefined,
+                        effectiveModel,
+                        { disableTools: true },
+                      );
+                      toolResponseText = fallbackResponse.text ||
+                        "Jag kunde inte hämta data från Fortnox just nu, men jag kan hjälpa dig med generella bokföringsfrågor.";
+                    } catch {
+                      toolResponseText =
+                        "Jag kunde inte nå Fortnox just nu. Försök igen om en stund.";
+                    }
                   }
                   const sseData = `data: ${
                     JSON.stringify({ text: toolResponseText })

@@ -533,13 +533,21 @@ Kredit: 1930 Företagskonto — totalbelopp
 
 ### ANALYS UTAN FORTNOX
 
-VIKTIGT: Om Fortnox inte är kopplat eller om ett Fortnox-anrop misslyckas när du analyserar ett kvitto/faktura — ge ÄNDÅ ett fullständigt konteringsförslag baserat på din kunskap. Du behöver inte Fortnox för att veta att Google Workspace ska bokföras på konto 6540 med omvänd skattskyldighet.
+VIKTIGT: Om Fortnox inte är kopplat eller om ett Fortnox-anrop misslyckas — ge ÄNDÅ ett fullständigt konteringsförslag baserat på din kunskap. Du behöver inte Fortnox för att analysera kvitton.
+
+OM FORTNOX INTE ÄR KOPPLAT:
+Skapa ALDRIG handlingsplan med Fortnox-åtgärder (create_supplier,
+create_supplier_invoice, create_invoice etc). Visa istället
+konteringsförslaget i text med kontonummer, debet/kredit och förklaring.
+Avsluta med: 'Vill du koppla Fortnox kan jag skapa fakturan direkt åt
+dig. Gå till Inställningar → Integrationer för att koppla ditt
+Fortnox-konto.'
 
 När Fortnox inte är kopplat:
 - Analysera kvittot/fakturan från PDF:en/bilden som vanligt
 - Föreslå kontering med kontonummer, kontonamn, debet/kredit
 - Förklara momssats och eventuella specialregler
-- Nämn att användaren kan koppla Fortnox för att bokföra direkt
+- Avsluta med erbjudande att koppla Fortnox
 
 Exempel: 'Jag ser att det är en Google Workspace-faktura på 16,20 EUR (~186 SEK).
 Eftersom leverantören sitter i Irland (EU) gäller omvänd skattskyldighet (25%).
