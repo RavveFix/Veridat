@@ -59,7 +59,7 @@ ALTER TABLE public.conversations ADD COLUMN IF NOT EXISTS metadata jsonb NOT NUL
 2. After Gemini streaming: if tool call is `request_clarification` → set `awaiting_input`
 3. After Gemini streaming: if tool call is `propose_action_plan` → set `action_plan_pending`
 4. After action plan execution (approve/reject) at line ~2234 (`requestMetadata?.action_response` handler) → set `idle` after execution completes (both success and error paths)
-5. Default: if none of the above triggers match and no active context → set `idle`
+5. **Topic-switch reset:** After Gemini response, if response does NOT contain `request_clarification` or `propose_action_plan` tool call, AND current state is NOT `idle` → set `idle`. This ensures topic switches don't leave the conversation stuck in an excluded state.
 
 ### Bug 3: Supplier Dedup
 
