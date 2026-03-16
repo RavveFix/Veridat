@@ -6488,53 +6488,15 @@ ANVÄNDARFRÅGA:
               },
             };
 
-            // Format response text
             const typeLabel = txType === "revenue" ? "Intäkt" : "Kostnad";
-            const entryLines = entries.map((e: any) =>
-              `| ${e.account} | ${e.accountName} | ${
-                e.debit > 0 ? roundToOre(e.debit).toFixed(2) : "—"
-              } | ${e.credit > 0 ? roundToOre(e.credit).toFixed(2) : "—"} |`
-            ).join("\n");
 
-            const defaultJournalResponseText =
-              `Verifikat **${verificationId}** skapat!\n\n` +
-              `**${typeLabel} ${
-                gross_amount.toFixed(2)
-              } kr inkl moms (${vat_rate}%)**\n\n` +
-              `| Konto | Kontonamn | Debet | Kredit |\n` +
-              `|-------|-----------|-------|--------|\n` +
-              `${entryLines}\n` +
-              `| | **Summa** | **${validation.totalDebit.toFixed(2)}** | **${
-                validation.totalCredit.toFixed(2)
-              }** |\n\n` +
-              (validation.balanced
-                ? "Bokföringen är balanserad."
-                : "Varning: Bokföringen är INTE balanserad!");
-
-            responseText = shouldFormatCurrentToolResponse
-              ? formatToolResponse({
-                toolName: "create_journal_entry",
-                rawText: defaultJournalResponseText,
-                structuredData: {
-                  toolArgs: journalArgs as unknown as Record<string, unknown>,
-                  verificationId,
-                  verification_id: verificationId,
-                  entries: entries as unknown[],
-                  postingRows: entries.map((entry: any) => ({
-                    account: entry.account,
-                    accountName: entry.accountName,
-                    debit: entry.debit || 0,
-                    credit: entry.credit || 0,
-                    comment: entry.accountName || "Verifikationsrad",
-                  })),
-                  assumptions: validation.balanced ? [] : [
-                    "Debet och kredit är inte i balans och behöver korrigeras innan export.",
-                  ],
-                  confirmationQuestion:
-                    "Ska jag justera verifikatet innan vi går vidare?",
-                },
-              })
-              : defaultJournalResponseText;
+            // Use a short summary as content — the JournalEntryCard renders
+            // the full kontering from journalMetadata, so formatToolResponse
+            // would duplicate the same info as "### Kort svar" + "### Kontering".
+            const balanceNote = validation.balanced
+              ? ""
+              : " Observera att debet och kredit inte är i balans.";
+            responseText = `Här är konteringen för verifikat ${verificationId} (${typeLabel.toLowerCase()} ${gross_amount.toFixed(2)} kr inkl ${vat_rate}% moms).${balanceNote}`;
 
             // Save message with metadata for UI rendering
             if (conversationId && conversationService) {
