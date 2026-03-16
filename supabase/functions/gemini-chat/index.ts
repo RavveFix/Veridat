@@ -3451,7 +3451,7 @@ Deno.serve(async (req: Request) => {
               void auditService.logAIDecision({
                 userId,
                 companyId: resolvedCompanyId || undefined,
-                aiProvider: "action_plan",
+                aiProvider: "gemini",
                 aiModel: "user_approved",
                 aiFunction: "execute_action_plan",
                 inputData: {
