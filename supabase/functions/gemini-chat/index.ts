@@ -4119,9 +4119,18 @@ ANVÄNDARFRÅGA:
     }
 
     if (excludeToolsForFile) {
-      logger.info("Excluding Fortnox read-tools, keeping propose_action_plan + request_clarification", {
+      // Safeguard: ensure propose_action_plan and request_clarification are NEVER excluded
+      excludeToolsForFile = excludeToolsForFile.filter(
+        (t) => t !== "propose_action_plan" && t !== "request_clarification",
+      );
+      logger.info("[tool-filter] Excluding Fortnox read-tools", {
         reason: excludeToolsReason,
+        excludedTools: excludeToolsForFile,
+        keptCritical: ["propose_action_plan", "request_clarification"],
       });
+      // Remind Gemini it has propose_action_plan available — prevents it from
+      // writing action plans as raw JSON text instead of making a function call.
+      finalMessage += `\n\n[SYSTEM: Du har tillgång till propose_action_plan och request_clarification. När du vill föreslå bokföring, gör ALLTID ett function call till propose_action_plan — skriv ALDRIG action plan som JSON i text.]`;
     }
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
