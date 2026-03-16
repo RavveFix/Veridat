@@ -1571,8 +1571,8 @@ async function executeFortnoxTool(
         const siIsRC = (siArgs.is_reverse_charge ?? siArgs.isReverseCharge ?? siArgs.IsReverseCharge) === true;
         const siAcct = (siArgs.account ?? siArgs.Account) as number;
         const siDue = (siArgs.due_date || siArgs.dueDate || siArgs.DueDate) as string | undefined;
-        // Use currency from AI parameters — Fortnox handles conversion for foreign currencies
-        const siCurr = ((siArgs.currency || siArgs.Currency) as string) || "SEK";
+        // Always SEK — we book with the actual bank amount in SEK
+        const siCurr = "SEK";
 
         // For reverse charge: total_amount IS the net (no VAT charged by supplier)
         // For normal: calculate net from gross using VAT rate
@@ -2469,8 +2469,8 @@ Deno.serve(async (req: Request) => {
                               new Date().toISOString().slice(0, 10)) as string;
                       const siDueDate = (params.due_date || params.dueDate || params.DueDate ||
                               new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)) as string;
-                      // Use currency from AI parameters — Fortnox handles conversion for foreign currencies
-                      const siCurrency = ((params.currency || params.Currency) as string) || "SEK";
+                      // Always SEK — we book with the actual bank amount in SEK, not the foreign currency amount
+                      const siCurrency = "SEK";
                       // Extract cost account from posting_rows if not in params
                       let siAccount = (params.account || params.Account) as number;
                       if (!siAccount && action.posting_rows && Array.isArray(action.posting_rows)) {
@@ -5816,7 +5816,8 @@ ANVÄNDARFRÅGA:
             const si3Due = (siArgs.due_date || siArgs.dueDate || siArgs.DueDate) as string | undefined;
             const si3InvDate = (siArgs.invoice_date || siArgs.invoiceDate || siArgs.InvoiceDate) as string | undefined;
             // Use currency from AI parameters — Fortnox handles conversion for foreign currencies
-            const si3Curr = ((siArgs.currency || siArgs.Currency) as string) || "SEK";
+            // Always SEK — we book with the actual bank amount in SEK
+            const si3Curr = "SEK";
 
             const vatMultiplier = 1 + (si3VatRate / 100);
             const netAmount = si3IsRC
