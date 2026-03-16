@@ -6010,6 +6010,7 @@ ANVÄNDARFRÅGA:
             const si3Acct = (siArgs.account ?? siArgs.Account) as number;
             const si3Desc = (siArgs.description || siArgs.Description) as string;
             const si3Due = (siArgs.due_date || siArgs.dueDate || siArgs.DueDate) as string | undefined;
+            const si3InvDate = (siArgs.invoice_date || siArgs.invoiceDate || siArgs.InvoiceDate) as string | undefined;
             // Use currency from AI parameters — Fortnox handles conversion for foreign currencies
             const si3Curr = ((siArgs.currency || siArgs.Currency) as string) || "SEK";
 
@@ -6050,7 +6051,7 @@ ANVÄNDARFRÅGA:
                 invoice: {
                   SupplierNumber: si3SupplierNum,
                   InvoiceNumber: si3InvNum || undefined,
-                  InvoiceDate: new Date().toISOString().slice(0, 10),
+                  InvoiceDate: si3InvDate || new Date().toISOString().slice(0, 10),
                   DueDate: si3Due ||
                     new Date(Date.now() + 30 * 86400000).toISOString().slice(
                       0,

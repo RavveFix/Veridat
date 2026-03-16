@@ -902,7 +902,7 @@ const tools: Tool[] = [
                                             },
                                             invoice_number: {
                                                 type: SchemaType.STRING,
-                                                description: "Löpnummer för befintlig faktura (för book_supplier_invoice)"
+                                                description: "Fakturanummer från originalfakturan/kvittot. Använd ALLTID numret från dokumentet om det finns. Fältet används för create_supplier_invoice och book_supplier_invoice."
                                             },
                                             total_amount: {
                                                 type: SchemaType.NUMBER,
@@ -918,7 +918,7 @@ const tools: Tool[] = [
                                             },
                                             invoice_date: {
                                                 type: SchemaType.STRING,
-                                                description: "Fakturadatum YYYY-MM-DD (default idag)"
+                                                description: "Fakturadatum YYYY-MM-DD från originalfakturan/kvittot. Använd ALLTID datumet från dokumentet — default till idag BARA om datum saknas."
                                             },
                                             due_date: {
                                                 type: SchemaType.STRING,
