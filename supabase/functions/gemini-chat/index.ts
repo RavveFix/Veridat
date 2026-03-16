@@ -4342,10 +4342,9 @@ ANVÄNDARFRÅGA:
                   if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
 
                   // Exclude ALL tools except propose_action_plan + request_clarification
-                  // Previously only excluded ALL_FORTNOX_TOOLS, leaving conversation_search/web_search/etc.
-                  // available — if Gemini called one of those, retryResponse.text was undefined → error fallback
+                  // Use streaming so the retry response renders word-by-word like normal responses.
                   const RETRY_KEEP_TOOLS = ["propose_action_plan", "request_clarification"];
-                  const retryResponse = await sendMessageToGemini(
+                  const retryStream = await sendMessageStreamToGemini(
                     finalMessage,
                     geminiFileData,
                     history,
@@ -4353,9 +4352,27 @@ ANVÄNDARFRÅGA:
                     effectiveModel,
                     { allowedTools: RETRY_KEEP_TOOLS },
                   );
+
+                  // Consume retry stream — collect text chunks and detect tool calls
+                  let retryToolCall: any = null;
+                  let retryText = "";
+                  for await (const retryChunk of retryStream) {
+                    const retryFunctionCalls = retryChunk.functionCalls();
+                    if (retryFunctionCalls && retryFunctionCalls.length > 0) {
+                      retryToolCall = retryFunctionCalls[0];
+                      break;
+                    }
+                    const retryChunkText = retryChunk.text();
+                    if (retryChunkText) {
+                      retryText += retryChunkText;
+                      fullText += retryChunkText;
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: retryChunkText })}\n\n`));
+                    }
+                  }
+
                   // Handle tool calls from retry (propose_action_plan or request_clarification)
-                  if (retryResponse.toolCall && retryResponse.toolCall.tool === "propose_action_plan") {
-                    const planArgs = retryResponse.toolCall.args as any;
+                  if (retryToolCall && retryToolCall.name === "propose_action_plan") {
+                    const planArgs = retryToolCall.args as any;
                     const planId = crypto.randomUUID();
                     streamingActionPlan = {
                       type: "action_plan",
@@ -4367,9 +4384,9 @@ ANVÄNDARFRÅGA:
                     };
                     const planSSE = `data: ${JSON.stringify(streamingActionPlan)}\n\n`;
                     controller.enqueue(encoder.encode(planSSE));
-                    fullText = retryResponse.text || planArgs.summary || "Konteringsförslag";
-                  } else if (retryResponse.toolCall && retryResponse.toolCall.tool === "request_clarification") {
-                    const clarArgs = retryResponse.toolCall.args as any;
+                    if (!fullText) fullText = retryText || planArgs.summary || "Konteringsförslag";
+                  } else if (retryToolCall && retryToolCall.name === "request_clarification") {
+                    const clarArgs = retryToolCall.args as any;
                     const clarText = clarArgs.message || "Jag behöver mer information för att kunna bokföra.";
                     const clarificationEvent = {
                       clarification: {
@@ -4378,18 +4395,13 @@ ANVÄNDARFRÅGA:
                       },
                     };
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(clarificationEvent)}\n\n`));
-                    fullText = clarText;
-                  } else if (retryResponse.text) {
-                    // Gemini returned text (no tool call) — stream it
-                    fullText = retryResponse.text;
-                    const sseData = `data: ${JSON.stringify({ text: retryResponse.text })}\n\n`;
-                    controller.enqueue(encoder.encode(sseData));
-                  } else {
-                    // Last resort: unexpected tool call or empty response — retry with no tools for plain text
-                    logger.warn("Retry returned unexpected tool call or empty response, falling back to disableTools", {
-                      tool: retryResponse.toolCall?.tool,
+                    if (!fullText) fullText = clarText;
+                  } else if (!retryText && !retryToolCall) {
+                    // Last resort: empty stream — retry with no tools for plain text (streaming)
+                    logger.warn("Retry stream returned no text or tool call, falling back to disableTools", {
+                      tool: retryToolCall?.name,
                     });
-                    const fallbackResponse = await sendMessageToGemini(
+                    const fallbackStream = await sendMessageStreamToGemini(
                       finalMessage,
                       geminiFileData,
                       history,
@@ -4397,10 +4409,20 @@ ANVÄNDARFRÅGA:
                       effectiveModel,
                       { disableTools: true },
                     );
-                    const fallbackText = fallbackResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
-                    fullText = fallbackText;
-                    const sseData = `data: ${JSON.stringify({ text: fallbackText })}\n\n`;
-                    controller.enqueue(encoder.encode(sseData));
+                    let fallbackGotText = false;
+                    for await (const fbChunk of fallbackStream) {
+                      const fbText = fbChunk.text();
+                      if (fbText) {
+                        fallbackGotText = true;
+                        fullText += fbText;
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: fbText })}\n\n`));
+                      }
+                    }
+                    if (!fallbackGotText) {
+                      const fallbackMsg = "Jag kunde inte analysera filen just nu. Försök igen.";
+                      fullText = fallbackMsg;
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: fallbackMsg })}\n\n`));
+                    }
                   }
                   // Skip tool execution — go straight to save
                 } else {
