@@ -2426,16 +2426,37 @@ Deno.serve(async (req: Request) => {
                       const isRC = (params.is_reverse_charge ?? params.isReverseCharge ?? params.IsReverseCharge) === true;
                       const vatMul = 1 +
                         (((params.vat_rate ?? params.vatRate ?? params.VatRate) as number || 25) / 100);
-                      // Use params.total_amount (bank amount in SEK) as source of truth.
-                      // posting_rows includes fiktiv moms for reverse charge which inflates the sum.
+                      // Total must be the bank amount in SEK. Gemini sometimes sends the
+                      // foreign currency amount (e.g. 16.20 EUR) in total_amount instead of
+                      // the SEK bank amount (186.05). Detect and correct using posting_rows.
                       let totalAmt = (params.total_amount ?? params.totalAmount ?? params.TotalAmount ?? params.Total ?? params.amount ?? params.Amount) as number || 0;
-                      if (!totalAmt && action.posting_rows && Array.isArray(action.posting_rows) && action.posting_rows.length > 0) {
-                        // Fallback: credit on 2440 (leverantörsskuld) = actual invoice total
-                        const creditRow = action.posting_rows.find((r: any) => String(r.account) === "2440" && r.credit > 0);
-                        if (creditRow) {
-                          totalAmt = creditRow.credit as number;
+
+                      // Extract SEK amount from payment account in posting_rows (1930/2893/2440)
+                      const PAYMENT_ACCOUNTS = ["1930", "2440", "2893", "1940", "1920"];
+                      let postingRowsSekTotal = 0;
+                      if (action.posting_rows && Array.isArray(action.posting_rows) && action.posting_rows.length > 0) {
+                        const paymentRow = action.posting_rows.find((r: any) =>
+                          PAYMENT_ACCOUNTS.includes(String(r.account)) && ((r.credit as number) > 0)
+                        );
+                        if (paymentRow) {
+                          postingRowsSekTotal = paymentRow.credit as number;
                         }
-                        logger.info("Extracted totalAmt from posting_rows fallback", { totalAmt, rows: action.posting_rows });
+                      }
+
+                      // If params total looks like foreign currency (less than half the posting_rows
+                      // SEK amount), use the posting_rows amount instead
+                      if (postingRowsSekTotal > 0 && totalAmt > 0 && totalAmt < postingRowsSekTotal * 0.5) {
+                        logger.warn("total_amount appears to be foreign currency, using posting_rows SEK amount", {
+                          paramTotal: totalAmt,
+                          postingRowsTotal: postingRowsSekTotal,
+                        });
+                        totalAmt = postingRowsSekTotal;
+                      }
+
+                      // If no params total at all, fall back to posting_rows
+                      if (!totalAmt && postingRowsSekTotal > 0) {
+                        totalAmt = postingRowsSekTotal;
+                        logger.info("Using posting_rows payment account as totalAmt", { totalAmt });
                       }
                       const net = isRC
                         ? totalAmt
