@@ -1042,10 +1042,19 @@ export class FortnoxService {
      * Find or create a supplier by organization number or name
      */
     async findOrCreateSupplier(supplierData: FortnoxSupplier): Promise<FortnoxSupplierResponse> {
+        // Old normalize: collapse whitespace to empty (for exact match backward compat)
         const normalize = (s: string) => s.toLowerCase().replace(/[_\s-]+/g, '').replace(/\.$/, '');
 
+        // New normalize: strip company suffixes at end-of-string only, keep spaces for word counting
+        const normalizeCompany = (s: string) =>
+            s.toLowerCase()
+                .replace(/\s+(ab|ltd|limited|inc|incorporated|gmbh|emea|nordic|sweden|scandinavia|europe|oy|as|aps|sa|sas|bv|nv)\s*$/i, '')
+                .replace(/[_\s-]+/g, ' ')
+                .replace(/\.$/, '')
+                .trim();
+
         try {
-            // 1. Match by org number using Fortnox filter
+            // 1. Match by org number using Fortnox filter (exact — most reliable)
             if (supplierData.OrganisationNumber) {
                 const encoded = encodeURIComponent(supplierData.OrganisationNumber);
                 const filtered = await this.request<FortnoxSupplierListResponse>(`/suppliers?organisationnumber=${encoded}`);
@@ -1061,19 +1070,48 @@ export class FortnoxService {
                 }
             }
 
-            // 2. Match by name using Fortnox filter (avoids pagination issues)
+            // 2. Match by name — exact normalized match (existing behavior)
             if (supplierData.Name) {
                 const encoded = encodeURIComponent(supplierData.Name);
                 const filtered = await this.request<FortnoxSupplierListResponse>(`/suppliers?name=${encoded}`);
                 const needle = normalize(supplierData.Name);
                 const byName = (filtered.Suppliers || []).find(s => s.Name && normalize(s.Name) === needle);
                 if (byName) {
-                    logger.info('Found existing supplier by name', {
+                    logger.info('Found existing supplier by name (exact)', {
                         supplierNumber: byName.SupplierNumber,
                         name: byName.Name,
                         searchedName: supplierData.Name,
                     });
                     return { Supplier: byName };
+                }
+
+                // 3. Match by normalized company name — substring fallback (>=2 words only)
+                //    Safety: single-word names like "Google" won't trigger substring matching
+                //    to avoid matching different legal entities (Google Ireland vs Google Cloud)
+                const normalizedNeedle = normalizeCompany(supplierData.Name);
+                const wordCount = normalizedNeedle.split(' ').filter(w => w.length > 0).length;
+                if (wordCount >= 2) {
+                    // Use Fortnox name= param with first two words for a broader but targeted search
+                    const searchTerm = normalizedNeedle.split(' ').slice(0, 2).join(' ');
+                    const broadFiltered = await this.request<FortnoxSupplierListResponse>(
+                        `/suppliers?name=${encodeURIComponent(searchTerm)}`
+                    );
+                    const byNormalized = (broadFiltered.Suppliers || []).find(s => {
+                        if (!s.Name) return false;
+                        const normalizedExisting = normalizeCompany(s.Name);
+                        return normalizedExisting === normalizedNeedle ||
+                            normalizedExisting.includes(normalizedNeedle) ||
+                            normalizedNeedle.includes(normalizedExisting);
+                    });
+                    if (byNormalized) {
+                        logger.info('Found existing supplier by normalized name (substring)', {
+                            supplierNumber: byNormalized.SupplierNumber,
+                            name: byNormalized.Name,
+                            searchedName: supplierData.Name,
+                            normalizedNeedle,
+                        });
+                        return { Supplier: byNormalized };
+                    }
                 }
             }
         } catch (error) {
