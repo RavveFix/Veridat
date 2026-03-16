@@ -2388,6 +2388,7 @@ Deno.serve(async (req: Request) => {
             try {
               let createdCustomerNumber: string | undefined;
               let createdSupplierNumber: string | undefined;
+              let bookingFailed = false; // Track book_supplier_invoice failure for register_payment
 
               for (let i = 0; i < actions.length; i++) {
                 let action = actions[i];
@@ -2652,12 +2653,17 @@ Deno.serve(async (req: Request) => {
                           resourceId: String(bsiInvoiceNum),
                         });
                       } catch (bookingErr: unknown) {
+                        bookingFailed = true;
+                        const errMsg = bookingErr instanceof Error ? bookingErr.message : String(bookingErr);
+                        const isAttestError = errMsg.includes("2001110") || errMsg.toLowerCase().includes("enkel attest");
                         logger.warn("book_supplier_invoice failed in action plan (non-critical)", {
                           invoiceNumber: String(bsiInvoiceNum),
-                          error: bookingErr instanceof Error ? bookingErr.message : "Unknown",
+                          error: errMsg,
+                          isAttestError,
                         });
-                        resultText =
-                          `⚠️ Leverantörsfaktura ${bsiInvoiceNum} kunde inte bokföras automatiskt. Bokför manuellt i Fortnox under Leverantörsfakturor → Attestera/Bokför.`;
+                        resultText = isAttestError
+                          ? `Fakturan är skapad i Fortnox men behöver attesteras manuellt innan den kan bokföras.`
+                          : `⚠️ Leverantörsfaktura ${bsiInvoiceNum} kunde inte bokföras automatiskt. Bokför manuellt i Fortnox under Leverantörsfakturor → Attestera/Bokför.`;
                         void auditService.log({
                           userId,
                           companyId: resolvedCompanyId || undefined,
@@ -2783,6 +2789,12 @@ Deno.serve(async (req: Request) => {
                       break;
                     }
                     case "register_payment": {
+                      // Skip payment if booking/attest failed — invoice must be booked first
+                      if (bookingFailed) {
+                        resultText = "Betalningen registreras när fakturan är bokförd i Fortnox.";
+                        logger.info("Skipping register_payment — booking failed earlier in action plan");
+                        break;
+                      }
                       const payType = (params.payment_type || params.paymentType || params.PaymentType) as string;
                       const invoiceNum = String(
                         params.invoice_number || params.invoiceNumber || params.InvoiceNumber || "",

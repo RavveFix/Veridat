@@ -47,7 +47,9 @@ export function createLogger(tag: string) {
                     message: error.message,
                     name: error.name,
                     stack: error.stack?.split('\n').slice(0, 3).join(' | ')
-                } : String(error)
+                } : (typeof error === 'object' && error !== null)
+                    ? ((() => { try { return JSON.stringify(error); } catch { return String(error); } })())
+                    : String(error)
             };
             console.error(formatMessage('error', message, errorContext));
         },
