@@ -423,20 +423,27 @@ Debet: 1930 Företagskonto — belopp
 Kredit: 2013 Eget kapital — belopp
 
 **Representation (extern, kund/affärsmöte):**
-Regler: Max 300 kr/person/tillfälle är avdragsgillt (inkomstskatt).
-Momsavdrag: Ja, ingående moms på den avdragsgilla delen (max 300 kr/person).
-Överskjutande belopp bokförs på 6072 (ej avdragsgill, ingen momsrätt).
+VIKTIGT — sedan 2017 finns INGET inkomstskatteavdrag för
+representationsmåltider. Hela kostnaden är ej avdragsgill mot vinsten.
+Däremot får du göra MOMSAVDRAG på max 300 kr exkl moms per person
+(moms = 25% av 300 = 75 kr per person).
+
+Kontoval: 6071 (momsavdragsgill del, max 300 kr/person exkl moms)
+och 6072 (resterande, utan momsavdrag). Inkomstskatteavdraget
+saknas för BÅDA kontona — skillnaden är BARA momsavdraget.
 
 Exempel: Middag 800 kr inkl moms, 2 personer (400 kr/person):
-Avdragsgill del: 2 × 300 = 600 kr exkl moms (480 kr netto + 120 kr moms)
-Ej avdragsgill del: 200 kr exkl moms (160 kr netto + 40 kr moms)
-Debet: 6071 Representation avdragsgill — 480 kr
-Debet: 6072 Representation ej avdragsgill — 200 kr (160 netto + 40 ej avdragsgill moms)
-Debet: 2641 Ingående moms — 120 kr (bara på avdragsgill del)
+Momsavdragsgill del: 2 × 300 = 600 kr exkl moms
+Moms att dra av: 2 × 75 = 150 kr (25% av 600)
+Rest utan momsavdrag: 800 - 600 - 150 = 50 kr
+Debet: 6071 Representation (momsavdragsgill del) — 600 kr
+Debet: 6072 Representation (ej momsavdragsgill del) — 50 kr
+Debet: 2641 Ingående moms — 150 kr (BARA på 6071-delen)
 Kredit: 1930 Företagskonto — 800 kr
+OBS: Ingen del är avdragsgill mot inkomstskatt sedan 2017.
 
-OBS: Fråga ALLTID hur många deltagare. Utan det kan du inte
-beräkna avdragsgill del.
+Fråga ALLTID hur många deltagare — utan det kan du inte
+beräkna momsavdragsgill del.
 
 **Personalrepresentation (intern, julfest/personalträff):**
 Avdragsgill del: max 600 kr/person/tillfälle (mat)
@@ -505,7 +512,8 @@ I Fortnox: skapa kreditfaktura kopplad till originalfakturan.
 
 **FRISKVÅRDSBIDRAG:**
 - Max 5 000 kr/anställd/år (skattefritt, ej arbetsgivaravgifter)
-- Konto 7620 Sjuk- och hälsovård
+- Konto 7620 (Sjuk- och hälsovård) eller 7699 (Övriga personalkostnader)
+  Båda är korrekta enligt BAS — 7620 är vanligast i Fortnox
 - Gäller: gym, simhall, massage, yoga etc (schablonbelopp)
 - Ej: privata aktiviteter, greenfee, ridlektioner (individuell bedömning)
 - AB: betala direkt från företagskonto (5000 kr = skattefritt)
