@@ -4296,13 +4296,18 @@ ANVÄNDARFRÅGA:
                     blockedTool: toolName,
                   });
                   if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
+
+                  // Exclude ALL tools except propose_action_plan + request_clarification
+                  // Previously only excluded ALL_FORTNOX_TOOLS, leaving conversation_search/web_search/etc.
+                  // available — if Gemini called one of those, retryResponse.text was undefined → error fallback
+                  const RETRY_KEEP_TOOLS = ["propose_action_plan", "request_clarification"];
                   const retryResponse = await sendMessageToGemini(
                     finalMessage,
                     geminiFileData,
                     history,
                     undefined,
                     effectiveModel,
-                    { excludeTools: ALL_FORTNOX_TOOLS },
+                    { allowedTools: RETRY_KEEP_TOOLS },
                   );
                   // Handle tool calls from retry (propose_action_plan or request_clarification)
                   if (retryResponse.toolCall && retryResponse.toolCall.tool === "propose_action_plan") {
@@ -4330,10 +4335,27 @@ ANVÄNDARFRÅGA:
                     };
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(clarificationEvent)}\n\n`));
                     fullText = clarText;
+                  } else if (retryResponse.text) {
+                    // Gemini returned text (no tool call) — stream it
+                    fullText = retryResponse.text;
+                    const sseData = `data: ${JSON.stringify({ text: retryResponse.text })}\n\n`;
+                    controller.enqueue(encoder.encode(sseData));
                   } else {
-                    const retryText = retryResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
-                    fullText = retryText;
-                    const sseData = `data: ${JSON.stringify({ text: retryText })}\n\n`;
+                    // Last resort: unexpected tool call or empty response — retry with no tools for plain text
+                    logger.warn("Retry returned unexpected tool call or empty response, falling back to disableTools", {
+                      tool: retryResponse.toolCall?.tool,
+                    });
+                    const fallbackResponse = await sendMessageToGemini(
+                      finalMessage,
+                      geminiFileData,
+                      history,
+                      undefined,
+                      effectiveModel,
+                      { disableTools: true },
+                    );
+                    const fallbackText = fallbackResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
+                    fullText = fallbackText;
+                    const sseData = `data: ${JSON.stringify({ text: fallbackText })}\n\n`;
                     controller.enqueue(encoder.encode(sseData));
                   }
                   // Skip tool execution — go straight to save
@@ -5423,13 +5445,15 @@ ANVÄNDARFRÅGA:
         logger.warn("Non-streaming: Gemini called excluded tool — retrying with action plan tools only", {
           blockedTool: tool,
         });
+        // Restrict to ONLY propose_action_plan + request_clarification (mode:ANY)
+        const RETRY_KEEP_TOOLS = ["propose_action_plan", "request_clarification"];
         const retryResponse = await sendMessageToGemini(
           finalMessage,
           geminiFileData,
           history,
           undefined,
           effectiveModel,
-          { excludeTools: ALL_FORTNOX_TOOLS },
+          { allowedTools: RETRY_KEEP_TOOLS },
         );
         // Handle tool calls from retry
         if (retryResponse.toolCall && retryResponse.toolCall.tool === "propose_action_plan") {
@@ -5458,8 +5482,25 @@ ANVÄNDARFRÅGA:
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } },
           );
+        } else if (retryResponse.text) {
+          return new Response(
+            JSON.stringify({ type: "text", data: retryResponse.text }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
         }
-        const responseText = retryResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
+        // Last resort: unexpected tool call or empty response — retry with no tools
+        logger.warn("Non-streaming: retry returned unexpected tool call or empty, falling back to disableTools", {
+          tool: retryResponse.toolCall?.tool,
+        });
+        const fallbackResponse = await sendMessageToGemini(
+          finalMessage,
+          geminiFileData,
+          history,
+          undefined,
+          effectiveModel,
+          { disableTools: true },
+        );
+        const responseText = fallbackResponse.text || "Jag kunde inte analysera filen just nu. Försök igen.";
         return new Response(
           JSON.stringify({ type: "text", data: responseText }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
