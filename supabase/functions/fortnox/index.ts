@@ -2071,6 +2071,18 @@ Deno.serve(async (req: Request) => {
                 if (invoiceDataRaw.Total === undefined && (invoiceDataRaw.total !== undefined || invoiceDataRaw.total_amount !== undefined || invoiceDataRaw.totalAmount !== undefined)) {
                     invoiceDataRaw.Total = invoiceDataRaw.total ?? invoiceDataRaw.total_amount ?? invoiceDataRaw.totalAmount;
                 }
+                // Ensure InvoiceNumber is a string (not number) — prevents type coercion
+                if (invoiceDataRaw.InvoiceNumber != null && typeof invoiceDataRaw.InvoiceNumber !== 'string') {
+                    logger.warn('[exportSupplierInvoice] InvoiceNumber was not a string, converting', {
+                        original: invoiceDataRaw.InvoiceNumber,
+                        type: typeof invoiceDataRaw.InvoiceNumber,
+                    });
+                    invoiceDataRaw.InvoiceNumber = String(invoiceDataRaw.InvoiceNumber);
+                }
+                logger.info('[exportSupplierInvoice] InvoiceNumber being sent to Fortnox', {
+                    invoiceNumber: invoiceDataRaw.InvoiceNumber,
+                    supplierNumber: invoiceDataRaw.SupplierNumber,
+                });
                 requireString(invoiceDataRaw.SupplierNumber, 'payload.invoice.SupplierNumber');
                 requireString(invoiceDataRaw.InvoiceNumber, 'payload.invoice.InvoiceNumber');
                 requireString(invoiceDataRaw.InvoiceDate, 'payload.invoice.InvoiceDate');

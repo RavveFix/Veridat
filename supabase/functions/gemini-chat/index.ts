@@ -1558,7 +1558,13 @@ async function executeFortnoxTool(
         if (siSupplierNum !== siSupplierRaw) {
           logger.info("Resolved supplier name to number for direct tool call", { from: siSupplierRaw, to: siSupplierNum });
         }
-        const siInvNum = (siArgs.invoice_number || siArgs.invoiceNumber || siArgs.InvoiceNumber) as string | undefined;
+        const siInvNumRaw = siArgs.invoice_number || siArgs.invoiceNumber || siArgs.InvoiceNumber;
+        const siInvNum = siInvNumRaw ? String(siInvNumRaw) : undefined;
+        logger.info("[create_supplier_invoice] InvoiceNumber from tool args", {
+          raw: siInvNumRaw,
+          rawType: typeof siInvNumRaw,
+          resolved: siInvNum,
+        });
         const siTotalAmt = (siArgs.total_amount ?? siArgs.totalAmount ?? siArgs.TotalAmount ?? siArgs.Total) as number;
         const siVatRate = ((siArgs.vat_rate ?? siArgs.vatRate ?? siArgs.VatRate) as number) || 25;
         const siVatAmt = (siArgs.vat_amount ?? siArgs.vatAmount ?? siArgs.VatAmount) as number | undefined;
@@ -2449,8 +2455,16 @@ Deno.serve(async (req: Request) => {
                       const supplierNum = resolvedCompanyId
                         ? (await resolveSupplierNumber(supplierRaw, authHeader, resolvedCompanyId)) || supplierRaw
                         : supplierRaw;
-                      const siInvoiceNumber = (params.invoice_number || params.invoiceNumber || params.InvoiceNumber ||
-                              `KVITTO-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString(36).slice(-4).toUpperCase()}`) as string;
+                      const siInvoiceNumberRaw = params.invoice_number || params.invoiceNumber || params.InvoiceNumber;
+                      const siInvoiceNumber = siInvoiceNumberRaw
+                        ? String(siInvoiceNumberRaw)
+                        : `KVITTO-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+                      logger.info("[create_supplier_invoice] InvoiceNumber from params", {
+                        raw: siInvoiceNumberRaw,
+                        rawType: typeof siInvoiceNumberRaw,
+                        resolved: siInvoiceNumber,
+                        allKeys: Object.keys(params),
+                      });
                       const siInvoiceDate = (params.invoice_date || params.invoiceDate || params.InvoiceDate ||
                               new Date().toISOString().slice(0, 10)) as string;
                       const siDueDate = (params.due_date || params.dueDate || params.DueDate ||
