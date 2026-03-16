@@ -4087,9 +4087,38 @@ ANVÄNDARFRÅGA:
       "book_supplier_invoice", "register_payment",
     ];
     const ALL_FORTNOX_TOOLS = [...FORTNOX_READ_TOOLS, ...FORTNOX_WRITE_TOOLS];
-    const excludeToolsForFile = geminiFileData ? FORTNOX_READ_TOOLS : undefined;
+    let excludeToolsForFile: string[] | undefined = geminiFileData ? FORTNOX_READ_TOOLS : undefined;
+
+    // Check for pending action plan in conversation — restrict tools on follow-up messages too
+    // Without this, follow-up text messages after a file upload have ALL tools available,
+    // causing Gemini to call get_suppliers instead of continuing the file analysis dialog.
+    if (!excludeToolsForFile && conversationId && userId !== "anonymous") {
+      try {
+        const { data: recentMessages } = await supabaseAdmin
+          .from("messages")
+          .select("metadata")
+          .eq("conversation_id", conversationId)
+          .eq("role", "assistant")
+          .not("metadata", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(5);
+
+        const hasPendingPlan = (recentMessages || []).some(
+          (m: any) => m.metadata?.type === "action_plan" && m.metadata?.status === "pending",
+        );
+        if (hasPendingPlan) {
+          excludeToolsForFile = FORTNOX_READ_TOOLS;
+          logger.info("Pending action plan detected — excluding Fortnox read-tools on follow-up message");
+        }
+      } catch (err) {
+        logger.warn("Failed to check for pending action plan", { error: String(err) });
+      }
+    }
+
     if (excludeToolsForFile) {
-      logger.info("File upload: excluding Fortnox read-tools, keeping propose_action_plan + request_clarification");
+      logger.info("Excluding Fortnox read-tools, keeping propose_action_plan + request_clarification", {
+        reason: geminiFileData ? "file_upload" : "pending_action_plan",
+      });
     }
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
