@@ -64,6 +64,26 @@ const MODEL_MAP = {
 } as const;
 type EdgeSupabaseClient = SupabaseClient<any, any, any, any, any>;
 
+// ── Conversation state machine ──────────────────────────────────
+type ConversationState = "idle" | "file_analysis" | "awaiting_input" | "action_plan_pending";
+
+async function updateConversationState(
+  supabase: any,
+  conversationId: string | null,
+  state: ConversationState,
+): Promise<void> {
+  if (!conversationId) return;
+  try {
+    // Atomic jsonb merge via Postgres function — no read-modify-write race condition
+    await supabase.rpc("set_conversation_state", {
+      p_conversation_id: conversationId,
+      p_state: state,
+    });
+  } catch (err) {
+    logger.warn("Failed to update conversation state", { error: String(err), state });
+  }
+}
+
 const ACCOUNTING_TOOL_RESPONSE_NAMES = new Set([
   // Only write/action tools get the accounting template format.
   // Read-only tools (get_customers, get_suppliers, get_articles) return
@@ -2283,6 +2303,9 @@ Deno.serve(async (req: Request) => {
             })
             .eq("id", planMessage.id);
 
+          // Reset conversation state to idle after rejection
+          void updateConversationState(supabaseAdmin, conversationId, "idle");
+
           const encoder = new TextEncoder();
           const rejectStream = new ReadableStream({
             start(controller) {
@@ -3429,6 +3452,9 @@ Deno.serve(async (req: Request) => {
                 })
                 .eq("id", planMessage.id);
 
+              // Reset conversation state to idle after execution
+              void updateConversationState(supabaseAdmin, conversationId, "idle");
+
               // Save the execution summary as assistant message
               if (conversationService || conversationId) {
                 try {
@@ -3471,6 +3497,8 @@ Deno.serve(async (req: Request) => {
               controller.close();
             } catch (streamErr) {
               logger.error("Action plan execution stream error", streamErr);
+              // Reset conversation state to idle even on error — don't leave stuck
+              void updateConversationState(supabaseAdmin, conversationId, "idle");
               controller.enqueue(
                 encoder.encode(
                   `data: ${
@@ -3995,36 +4023,26 @@ ANVÄNDARFRÅGA:
     let excludeToolsReason: string | undefined = !hasFortnoxConnection
       ? "no_fortnox_connection"
       : geminiFileData ? "file_upload" : undefined;
+    // Set conversation state for file upload
+    if (geminiFileData && conversationId) {
+      void updateConversationState(supabaseAdmin, conversationId, "file_analysis");
+    }
     if (!excludeToolsForFile && conversationId && userId !== "anonymous") {
       try {
-        // Single query: fetch last 5 messages (any role) with file_name or metadata
-        const { data: recentMessages } = await supabaseAdmin
-          .from("messages")
-          .select("role, file_name, metadata")
-          .eq("conversation_id", conversationId)
-          .order("created_at", { ascending: false })
-          .limit(5);
-
-        if (recentMessages && recentMessages.length > 0) {
-          const hasPendingPlan = recentMessages.some(
-            (m: any) => m.role === "assistant" &&
-              m.metadata?.type === "action_plan" &&
-              m.metadata?.status === "pending",
-          );
-          const hasRecentFile = recentMessages.some(
-            (m: any) => m.role === "user" && m.file_name,
-          );
-
-          if (hasPendingPlan) {
-            excludeToolsForFile = FORTNOX_READ_TOOLS;
-            excludeToolsReason = "pending_action_plan";
-          } else if (hasRecentFile) {
-            excludeToolsForFile = FORTNOX_READ_TOOLS;
-            excludeToolsReason = "recent_file_in_conversation";
-          }
+        // Read conversation state from metadata instead of scanning messages
+        const { data: convData } = await supabaseAdmin
+          .from("conversations")
+          .select("metadata")
+          .eq("id", conversationId)
+          .single();
+        const convState = (convData?.metadata as any)?.conversation_state as ConversationState | null;
+        // null/missing state (old conversations without metadata) = idle — no crash
+        if (convState && convState !== "idle") {
+          excludeToolsForFile = FORTNOX_READ_TOOLS;
+          excludeToolsReason = `state:${convState}`;
         }
       } catch (err) {
-        logger.warn("Failed to check conversation context for tool restriction", { error: String(err) });
+        logger.warn("Failed to read conversation state", { error: String(err) });
       }
     }
 
@@ -4233,6 +4251,19 @@ ANVÄNDARFRÅGA:
                 lastFinishReason: lastFinishReason || "none",
                 promptFeedback: lastPromptFeedback ? JSON.stringify(lastPromptFeedback) : null,
               });
+
+              // ── State machine transitions after Gemini response ──
+              if (conversationId) {
+                if (toolCallDetected?.name === "request_clarification") {
+                  void updateConversationState(supabaseAdmin, conversationId, "awaiting_input");
+                } else if (toolCallDetected?.name === "propose_action_plan") {
+                  void updateConversationState(supabaseAdmin, conversationId, "action_plan_pending");
+                } else if (!toolCallDetected && !geminiFileData) {
+                  // Topic-switch reset: no tool call and no file = back to idle
+                  // Prevents conversations getting stuck in excluded state on topic change
+                  void updateConversationState(supabaseAdmin, conversationId, "idle");
+                }
+              }
 
               if (toolCallDetected) {
                 // Execute the tool and stream the result
