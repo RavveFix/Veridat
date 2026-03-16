@@ -46,7 +46,6 @@ import {
 import { createLogger } from "../../services/LoggerService.ts";
 import { AuditService } from "../../services/AuditService.ts";
 import {
-  buildAccountingContract,
   formatToolResponse,
   isAccountingIntent,
 } from "../../services/AccountingResponseContract.ts";
@@ -3992,19 +3991,11 @@ ANVÄNDARFRÅGA:
       vatReportContext,
       hasFileAttachment,
     });
-    const accountingContract = accountingIntent
-      ? buildAccountingContract({
-        sourceCitationStyle: "Kort källa + datum (YYYY-MM-DD)",
-        assumptionPolicy:
-          "Visa antaganden kort och avsluta med en tydlig bekräftelsefråga",
-        postingLayout:
-          "Markdown-tabell med kolumnerna Konto, Kontonamn, Debet, Kredit, Kommentar",
-      })
-      : null;
-    const withAccountingContract = (prompt: string): string => {
-      if (!accountingContract) return prompt;
-      return `${accountingContract}\n\n${prompt}`;
-    };
+    // NOTE: buildAccountingContract() is no longer injected into prompts.
+    // Gemini's text responses should be natural markdown, not rigid
+    // "Kort svar / Kontering / Antaganden / Nästa steg" templates.
+    // The fortnox-knowledge.ts prompt already guides conversational style.
+    // formatToolResponse() still formats tool results that lack UI cards.
     const shouldFormatAccountingToolResponse = (toolName: string): boolean => {
       if (!accountingIntent) return false;
       const normalizedToolName = toolName.trim().toLowerCase();
@@ -4017,9 +4008,6 @@ ANVÄNDARFRÅGA:
       });
     };
 
-    if (accountingContract) {
-      finalMessage = withAccountingContract(finalMessage);
-    }
 
     // Tool usage instructions — always present so Gemini knows how to use Fortnox tools
     if (!isSkillAssist) {
@@ -4478,7 +4466,7 @@ ANVÄNDARFRÅGA:
                         const noResultsPrompt =
                           `Jag sökte igenom tidigare konversationer efter "${searchQuery}" men hittade inget relevant. Svara på användarens fråga så gott du kan utan tidigare kontext: "${message}"`;
                         const noResultsResponse = await sendMessageToGemini(
-                          withAccountingContract(noResultsPrompt),
+                          (noResultsPrompt),
                           undefined,
                           history,
                           undefined,
@@ -4498,7 +4486,7 @@ ANVÄNDARFRÅGA:
                             contextLines.join("\n")
                           }\n\nAnvänd denna kontext för att svara naturligt på användarens fråga: "${message}"`;
                         const followUp = await sendMessageToGemini(
-                          withAccountingContract(contextPrompt),
+                          (contextPrompt),
                           undefined,
                           history,
                           undefined,
@@ -4543,7 +4531,7 @@ ANVÄNDARFRÅGA:
                           contextLines.join("\n")
                         }\n\nGe en kort överblick baserat på dessa konversationer för att svara på: "${message}"`;
                         const followUp = await sendMessageToGemini(
-                          withAccountingContract(contextPrompt),
+                          (contextPrompt),
                           undefined,
                           history,
                           undefined,
@@ -4566,7 +4554,7 @@ ANVÄNDARFRÅGA:
                       const noResultsPrompt =
                         `Jag hittade inga tillförlitliga webbkällor via webbsökning för frågan. Svara ändå så gott du kan, men var tydlig med osäkerhet och be om förtydligande vid behov. Fråga: "${message}"`;
                       const followUp = await sendMessageToGemini(
-                        withAccountingContract(noResultsPrompt),
+                        (noResultsPrompt),
                         undefined,
                         history,
                         undefined,
@@ -4581,7 +4569,7 @@ ANVÄNDARFRÅGA:
                           formatWebSearchContext(webResults)
                         }\n\nAnvänd dessa källor för att svara på användarens fråga. Redovisa källa och datum i svaret. Fråga: "${message}"`;
                       const followUp = await sendMessageToGemini(
-                        withAccountingContract(contextPrompt),
+                        (contextPrompt),
                         undefined,
                         history,
                         undefined,
@@ -5678,7 +5666,7 @@ ANVÄNDARFRÅGA:
               const noResultsPrompt =
                 `Jag sökte igenom tidigare konversationer efter "${searchQuery}" men hittade inget relevant. Svara på användarens fråga så gott du kan utan tidigare kontext: "${message}"`;
               const noResultsResponse = await sendMessageToGemini(
-                withAccountingContract(noResultsPrompt),
+                (noResultsPrompt),
                 undefined,
                 history,
                 undefined,
@@ -5700,7 +5688,7 @@ ANVÄNDARFRÅGA:
                   contextLines.join("\n")
                 }\n\nAnvänd denna kontext för att svara naturligt på användarens fråga: "${message}"`;
               const followUp = await sendMessageToGemini(
-                withAccountingContract(contextPrompt),
+                (contextPrompt),
                 undefined,
                 history,
                 undefined,
@@ -5748,7 +5736,7 @@ ANVÄNDARFRÅGA:
                 contextLines.join("\n")
               }\n\nGe en kort överblick baserat på dessa konversationer för att svara på: "${message}"`;
               const followUp = await sendMessageToGemini(
-                withAccountingContract(contextPrompt),
+                (contextPrompt),
                 undefined,
                 history,
                 undefined,
@@ -5768,7 +5756,7 @@ ANVÄNDARFRÅGA:
               const noResultsPrompt =
                 `Jag hittade inga tillförlitliga webbkällor via webbsökning för frågan. Svara ändå så gott du kan, men var tydlig med osäkerhet och be om förtydligande vid behov. Fråga: "${message}"`;
               const followUp = await sendMessageToGemini(
-                withAccountingContract(noResultsPrompt),
+                (noResultsPrompt),
                 undefined,
                 history,
                 undefined,
@@ -5783,7 +5771,7 @@ ANVÄNDARFRÅGA:
                   formatWebSearchContext(webResults)
                 }\n\nAnvänd dessa källor för att svara på användarens fråga. Redovisa källa och datum i svaret. Fråga: "${message}"`;
               const followUp = await sendMessageToGemini(
-                withAccountingContract(contextPrompt),
+                (contextPrompt),
                 undefined,
                 history,
                 undefined,
@@ -5798,7 +5786,7 @@ ANVÄNDARFRÅGA:
           case "company_lookup": {
             const lookupResult = await lookupCompanyOnAllabolag((args as any).company_name);
             const followUp = await sendMessageToGemini(
-              withAccountingContract(`FÖRETAGSUPPSLAG:\n${lookupResult}\n\nFortsätt svara på användarens fråga med denna information. Fråga: "${message}"`),
+              (`FÖRETAGSUPPSLAG:\n${lookupResult}\n\nFortsätt svara på användarens fråga med denna information. Fråga: "${message}"`),
               undefined,
               history,
               undefined,
