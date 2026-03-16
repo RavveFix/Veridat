@@ -25,6 +25,11 @@ Change `maxOutputTokens` from `2048` to `4096` in `GeminiService.ts`:
 
 Replace message-counting with a state field in `conversations.metadata`.
 
+**Prerequisites:** The `conversations` table does not currently have a `metadata` column. A migration is required:
+```sql
+ALTER TABLE public.conversations ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+```
+
 **States:** `idle` | `file_analysis` | `awaiting_input` | `action_plan_pending`
 
 **Transitions:**
@@ -53,7 +58,7 @@ Replace message-counting with a state field in `conversations.metadata`.
 1. Early in request: if `geminiFileData` → set `file_analysis`
 2. After Gemini streaming: if tool call is `request_clarification` → set `awaiting_input`
 3. After Gemini streaming: if tool call is `propose_action_plan` → set `action_plan_pending`
-4. After action plan execution (approve/reject) → set `idle`
+4. After action plan execution (approve/reject) at line ~2234 (`requestMetadata?.action_response` handler) → set `idle` after execution completes (both success and error paths)
 5. Default: if none of the above triggers match and no active context → set `idle`
 
 ### Bug 3: Supplier Dedup
@@ -76,12 +81,14 @@ Two-pronged fix: prompt improvement + smarter matching.
 function normalizeCompanyName(name: string): string {
   return name
     .toLowerCase()
-    .replace(/\b(ab|ltd|limited|inc|incorporated|gmbh|emea|nordic|sweden|scandinavia|europe|oy|as|aps|sa|sas|bv|nv)\b/gi, '')
+    .replace(/\s+(ab|ltd|limited|inc|incorporated|gmbh|emea|nordic|sweden|scandinavia|europe|oy|as|aps|sa|sas|bv|nv)\s*$/i, '')
     .replace(/[_\s-]+/g, ' ')
     .replace(/\.$/, '')
     .trim();
 }
 ```
+
+**Note:** Suffix stripping is anchored to end-of-string only (`$`). This prevents false positives like "Fastighets AS Gruppen" losing "AS" mid-name. Also note: the existing `normalize` function collapses whitespace to empty string; the new version uses single space — this is intentional for the >=2 word substring check.
 
 **Substring match safety:** Only apply substring/contains matching when the normalized name has **2 or more words**. This prevents "Google" from matching "Google Cloud EMEA", "Google Ireland Ltd", etc. — these are distinct legal entities with different org.nr.
 
@@ -93,6 +100,7 @@ function normalizeCompanyName(name: string): string {
 
 | File | Change |
 |------|--------|
+| `supabase/migrations/YYYYMMDD_add_conversations_metadata.sql` | Add `metadata jsonb` column to `conversations` |
 | `supabase/services/GeminiService.ts` | `maxOutputTokens: 4096`, prompt addition for org.nr |
 | `supabase/functions/gemini-chat/index.ts` | State machine replacing message-count logic |
 | `supabase/services/FortnoxService.ts` | Improved `findOrCreateSupplier` matching |
