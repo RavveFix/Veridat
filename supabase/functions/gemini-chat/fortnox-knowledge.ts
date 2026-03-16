@@ -241,6 +241,10 @@ Detta gäller ALLA användare — oavsett om de har Fortnox
 kopplat eller inte. Rätt belopp i kronor är grunden för
 korrekt bokföring.
 
+Fråga ALDRIG om 'växelkurs' — fråga alltid i kronor.
+Om differens mellan uppskattat och faktiskt belopp är
+större än 5%, nämn det för användaren.
+
 OM ANVÄNDAREN GER ALL INFO DIREKT:
 'Bokför Google-fakturan, betald från företagskontot, 186.05 kr'
 → Hoppa direkt till handlingsplan, inga extra frågor.
