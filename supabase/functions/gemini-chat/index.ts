@@ -4089,35 +4089,50 @@ ANVÄNDARFRÅGA:
     const ALL_FORTNOX_TOOLS = [...FORTNOX_READ_TOOLS, ...FORTNOX_WRITE_TOOLS];
     let excludeToolsForFile: string[] | undefined = geminiFileData ? FORTNOX_READ_TOOLS : undefined;
 
-    // Check for pending action plan in conversation — restrict tools on follow-up messages too
+    // Check conversation context for file analysis — restrict tools on follow-up messages too.
     // Without this, follow-up text messages after a file upload have ALL tools available,
     // causing Gemini to call get_suppliers instead of continuing the file analysis dialog.
+    // Three signals trigger restriction:
+    //   1. Current request has file (geminiFileData — already handled above)
+    //   2. Pending action plan in recent assistant messages
+    //   3. Recent user message had a file attachment (file_name IS NOT NULL)
+    let excludeToolsReason: string | undefined = geminiFileData ? "file_upload" : undefined;
     if (!excludeToolsForFile && conversationId && userId !== "anonymous") {
       try {
+        // Single query: fetch last 5 messages (any role) with file_name or metadata
         const { data: recentMessages } = await supabaseAdmin
           .from("messages")
-          .select("metadata")
+          .select("role, file_name, metadata")
           .eq("conversation_id", conversationId)
-          .eq("role", "assistant")
-          .not("metadata", "is", null)
           .order("created_at", { ascending: false })
           .limit(5);
 
-        const hasPendingPlan = (recentMessages || []).some(
-          (m: any) => m.metadata?.type === "action_plan" && m.metadata?.status === "pending",
-        );
-        if (hasPendingPlan) {
-          excludeToolsForFile = FORTNOX_READ_TOOLS;
-          logger.info("Pending action plan detected — excluding Fortnox read-tools on follow-up message");
+        if (recentMessages && recentMessages.length > 0) {
+          const hasPendingPlan = recentMessages.some(
+            (m: any) => m.role === "assistant" &&
+              m.metadata?.type === "action_plan" &&
+              m.metadata?.status === "pending",
+          );
+          const hasRecentFile = recentMessages.some(
+            (m: any) => m.role === "user" && m.file_name,
+          );
+
+          if (hasPendingPlan) {
+            excludeToolsForFile = FORTNOX_READ_TOOLS;
+            excludeToolsReason = "pending_action_plan";
+          } else if (hasRecentFile) {
+            excludeToolsForFile = FORTNOX_READ_TOOLS;
+            excludeToolsReason = "recent_file_in_conversation";
+          }
         }
       } catch (err) {
-        logger.warn("Failed to check for pending action plan", { error: String(err) });
+        logger.warn("Failed to check conversation context for tool restriction", { error: String(err) });
       }
     }
 
     if (excludeToolsForFile) {
       logger.info("Excluding Fortnox read-tools, keeping propose_action_plan + request_clarification", {
-        reason: geminiFileData ? "file_upload" : "pending_action_plan",
+        reason: excludeToolsReason,
       });
     }
 
