@@ -1487,7 +1487,7 @@ export const sendMessageToGemini = async (
             contents: contents,
             generationConfig: {
                 temperature: 1.0, // Gemini 3 recommended setting
-                maxOutputTokens: 2048,
+                maxOutputTokens: 4096,
             },
         });
 
@@ -1704,7 +1704,7 @@ export const sendMessageStreamToGemini = async (
             contents: contents,
             generationConfig: {
                 temperature: 1.0, // Gemini 3 recommended setting
-                maxOutputTokens: 2048,
+                maxOutputTokens: 4096,
             },
         });
 
