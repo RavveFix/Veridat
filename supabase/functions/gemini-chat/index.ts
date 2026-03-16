@@ -5394,6 +5394,18 @@ ANVÄNDARFRÅGA:
         { disableTools, excludeTools: excludeToolsForFile },
       ));
 
+    // ── State machine transitions for non-streaming path ──
+    if (conversationId) {
+      if (geminiResponse.toolCall?.tool === "request_clarification") {
+        void updateConversationState(supabaseAdmin, conversationId, "awaiting_input");
+      } else if (geminiResponse.toolCall?.tool === "propose_action_plan") {
+        void updateConversationState(supabaseAdmin, conversationId, "action_plan_pending");
+      } else if (!geminiResponse.toolCall && !geminiFileData) {
+        // Topic-switch reset for non-streaming path
+        void updateConversationState(supabaseAdmin, conversationId, "idle");
+      }
+    }
+
     // Handle Tool Calls (Non-streaming fallback)
     if (geminiResponse.toolCall) {
       const { tool, args } = geminiResponse.toolCall;

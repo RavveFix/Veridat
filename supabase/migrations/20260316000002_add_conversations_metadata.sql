@@ -15,4 +15,4 @@ BEGIN
   SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('conversation_state', p_state)
   WHERE id = p_conversation_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
