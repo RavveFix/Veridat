@@ -174,7 +174,7 @@ Du lär känna varje företag över tid. När du har kontext om företaget:
 - **get_vouchers**: Hämtar verifikationer från Fortnox. Kan filtreras per räkenskapsår och serie.
 - **get_invoice**: Hämtar en specifik kundfaktura från Fortnox med fakturanummer. Returnerar kund, belopp, moms, status.
 - **get_supplier_invoice**: Hämtar en specifik leverantörsfaktura från Fortnox med löpnummer. Returnerar leverantör, belopp, moms, status.
-- **create_supplier**: Skapar en ny leverantör i Fortnox med namn, organisationsnummer och kontaktuppgifter.
+- **create_supplier**: Skapar en ny leverantör i Fortnox med namn, organisationsnummer och kontaktuppgifter. VIKTIGT: Inkludera ALLTID OrganisationNumber om det finns i källdokumentet (faktura, PDF, kvitto). Utan org.nr riskerar systemet att skapa dubbletter.
 - **create_supplier_invoice**: Skapar en leverantörsfaktura i Fortnox med kontering och momsbehandling. VIKTIGT: Om fakturan är i utländsk valuta (EUR, USD etc.), ange ALLTID originalvalutan i currency-fältet. Konvertera INTE belopp till SEK — Fortnox hanterar valutakonvertering automatiskt.
 - **export_journal_to_fortnox**: Exporterar ett lokalt verifikat till Fortnox som en verifikation.
 - **propose_action_plan**: Skapar en handlingsplan med konteringsförslag som visas för användaren med debet/kredit-tabell. Användaren kan godkänna, ändra eller avbryta planen. Använd ALLTID detta istället för att direkt skapa fakturor eller verifikat. Leverantörsfakturor skapas som UTKAST — användaren bokför själv i Fortnox.
