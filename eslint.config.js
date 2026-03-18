@@ -5,10 +5,10 @@ export default tseslint.config(
     eslint.configs.recommended,
     ...tseslint.configs.recommended,
     {
-        ignores: ['dist/**', 'node_modules/**', '_archive/**', '**/*.js']
+        ignores: ['dist/**', 'node_modules/**', '_archive/**', 'apps/**', '**/*.js']
     },
     {
-        files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
+        files: ['shared/**/*.ts', 'tests/**/*.ts'],
         languageOptions: {
             parserOptions: {
                 ecmaVersion: 2020,

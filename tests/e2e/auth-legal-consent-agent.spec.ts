@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { CURRENT_TERMS_VERSION } from '../../apps/web/src/constants/termsVersion';
+import { CURRENT_TERMS_VERSION } from '../../shared/constants/termsVersion';
 import { generateMagicLinkWithUser, loginWithMagicLink } from './helpers/auth';
 import {
     countLegalAcceptances,

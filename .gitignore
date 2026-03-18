@@ -25,6 +25,9 @@ Thumbs.db
 # Build
 dist/
 
+# Legacy app (removed, kept locally for reference)
+apps/
+
 # Playwright
 playwright-report/
 test-results/

@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `supabase/functions/fortnox/` — Fortnox write/read dispatcher Edge Function
 - **veridat/** (Git submodule): Next.js frontend, deployar till Vercel
   - Separat repo, ändras inte härifrån
-- `apps/web/` — GAMMAL Vite-app. **ANVÄNDS INTE. IGNORERA.**
+- `shared/` — Shared constants (e.g. `termsVersion.ts`) used by tests and tooling
 
 **Tech Stack (Production — `veridat/`):**
 - Frontend: Next.js 16 (App Router, TypeScript)

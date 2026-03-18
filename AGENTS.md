@@ -2,19 +2,18 @@
 
 ## Project Structure & Module Organization
 
-- `apps/web/src/`: frontend TypeScript (controllers, services, hooks, components, styles, utils).
-- `apps/web/app/`: main app HTML + PWA assets (`apps/web/app/index.html`, `apps/web/app/manifest.json`).
-- `apps/web/*.html`: top-level pages (`apps/web/index.html`, `apps/web/login.html`, `apps/web/privacy.html`, `apps/web/terms.html`).
+- `veridat/src/`: Next.js frontend (App Router, TypeScript).
+- `shared/`: Shared constants used by tests and tooling.
 - `supabase/functions/`: Deno Edge Functions (e.g., `gemini-chat`, `analyze-excel-ai`, `fortnox`, `python-proxy`).
 - `python-api/`: FastAPI VAT service (Railway deploy target).
 - `tests/`: lightweight frontend verification scripts; `python-api/tests/`: pytest suite.
-- `dist/`: production build output (generated at repo root).
+- `veridat/.next/`: Next.js build output (gitignored).
 
 ## Build, Test, and Development Commands
 
-- `npm run dev`: start Vite dev server on `http://localhost:5173` (route rewrites in `vite.config.ts`).
-- `npm run build`: TypeScript typecheck (`tsc`) + production bundle to `dist/`.
-- `npm run preview`: serve the production build locally.
+- `npm run dev`: start Next.js dev server (proxies to `veridat/`).
+- `npm run build`: production build (proxies to `veridat/`).
+- `npm run preview`: serve the production build locally (proxies to `veridat/`).
 - `npm run supabase:start` / `npm run supabase:stop`: start/stop local Supabase.
 - `npm run supabase:serve`: serve `gemini-chat` locally; `npm run supabase:deploy`: deploy it.
 - `cd python-api && uvicorn app.main:app --reload --port 8080`: run the VAT API locally.
@@ -39,8 +38,8 @@ Notes:
 
 - TypeScript is `strict`; prefer explicit types and `async/await`. Avoid `any`.
 - Indentation: 4 spaces (match existing files).
-- Preact-first UI: add new UI as `.tsx` components under `apps/web/src/components/`; keep imperative DOM “glue” minimal.
-- Naming: `PascalCase` for components/classes (`ChatService.ts`), `camelCase` for functions/vars, `kebab-case` for component CSS in `apps/web/src/styles/components/`.
+- Next.js App Router: add new UI as `.tsx` components under `veridat/src/`.
+- Naming: `PascalCase` for components/classes (`ChatService.ts`), `camelCase` for functions/vars.
 
 ## Testing Guidelines
 

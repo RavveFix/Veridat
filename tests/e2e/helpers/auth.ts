@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { CURRENT_TERMS_VERSION } from '../../../apps/web/src/constants/termsVersion';
+import { CURRENT_TERMS_VERSION } from '../../../shared/constants/termsVersion';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173';
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'http://127.0.0.1:54321';
