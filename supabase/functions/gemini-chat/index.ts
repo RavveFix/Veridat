@@ -3154,9 +3154,26 @@ ANVÄNDARFRÅGA:
                         streamingActionPlan = customerListData as any;
 
                         const count = customerListData.customers.length;
-                        toolResponseText = count > 0
-                          ? `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}.`
-                          : `Inga kunder hittades${args.query ? ` som matchar "${args.query}"` : ""}.`;
+                        if (count > 0) {
+                          toolResponseText = `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}.`;
+                        } else {
+                          // Customer not found — ask Gemini to generate a contextual follow-up
+                          // (instead of showing a dead-end canned message)
+                          try {
+                            const noCustomerPrompt = `SYSTEM: Sökning i Fortnox efter "${args.query || "kunden"}" returnerade 0 resultat. Kunden finns inte registrerad i Fortnox ännu. Svara på svenska: förklara kort att kunden inte hittades och fråga vad som behövs för att skapa kunden (t.ex. organisationsnummer, adress). Användarens ursprungliga meddelande: "${message}"`;
+                            const followUp = await sendMessageToGemini(
+                              noCustomerPrompt,
+                              undefined,
+                              history,
+                              undefined,
+                              effectiveModel,
+                              { disableTools: true },
+                            );
+                            toolResponseText = followUp.text || `Kunden "${args.query}" finns inte i Fortnox. För att skapa en ny kund behöver jag organisationsnummer. Har du det tillgängligt?`;
+                          } catch {
+                            toolResponseText = `Kunden "${args.query}" finns inte i Fortnox. Vill du skapa den? Jag behöver organisationsnummer för att gå vidare.`;
+                          }
+                        }
                       } catch (searchErr) {
                         logger.error("search_customers failed", searchErr);
                         toolResponseText = "Kunde inte hämta kunder från Fortnox just nu. Försök igen.";
