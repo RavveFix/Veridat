@@ -57,3 +57,6 @@ verify_jwt = false
 
 [functions.test-orchestrator]
 verify_jwt = false
+
+[functions.receipt-inbox]
+verify_jwt = false
