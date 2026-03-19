@@ -132,6 +132,10 @@ import {
 const logger = createLogger("gemini-chat");
 const RATE_LIMIT_ENDPOINT = "ai";
 
+const ACCOUNTING_RESPONSE_TEMPLATE_ENABLED = parseBooleanEnvFlag(
+  Deno.env.get("ACCOUNTING_RESPONSE_TEMPLATE_ENABLED"),
+);
+
 /** Model routing: abstract tier → concrete Gemini model ID */
 const MODEL_MAP = {
   standard: "gemini-3-flash-preview",
