@@ -32,4 +32,4 @@ jobs:
         run: npm run test
 
       - name: Build
-        run: npm run build
+        run: echo "Frontend (veridat/) builds via Vercel on push. Edge Functions deploy via Supabase."
