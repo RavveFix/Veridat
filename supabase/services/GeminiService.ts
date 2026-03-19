@@ -216,11 +216,18 @@ använd request_clarification.
 
 ## Arbetsflöde för Fakturering:
 1. Om användaren vill skapa en faktura men inte anger kundnummer eller artikelnummer:
-   - Använd **get_customers** och **get_articles** för att hitta rätt information.
+   - Använd **get_customers** för att hitta kunden.
+   - Använd **get_articles** för att hitta artiklar/tjänster.
    - Fråga användaren om det är otydligt vilken kund eller artikel som avses.
-2. När du har all information (Kundnr, Artikelnr, Antal):
-   - Anropa **create_invoice** med korrekt data.
-3. Bekräfta för användaren att fakturautkastet är skapat.
+2. **Om kunden INTE finns i Fortnox (search returnerar 0 träffar eller "Inga kunder hittades"):**
+   - Slå upp kunden på allabolag.se via **company_lookup** för att hämta organisationsnummer och adress.
+   - Föreslå en handlingsplan via **propose_action_plan** med:
+     1. action_type: "create_customer" (skapar kunden i Fortnox)
+     2. action_type: "create_invoice" (skapar fakturan direkt efter)
+   - Säg ALDRIG bara "Inga kunder hittades" och stoppa — erbjud alltid att skapa kunden.
+3. När du har all information (Kundnr eller ny kund, artiklar, antal och pris):
+   - Anropa **propose_action_plan** med create_invoice (och create_customer om ny kund).
+4. Bekräfta för användaren att fakturautkastet är skapat.
 
 ## Arbetsflöde för Leverantörsfakturor:
 1. Om användaren nämner en leverantörsfaktura eller kostnad från en leverantör:
@@ -887,6 +894,26 @@ const tools: Tool[] = [
                                             Name: {
                                                 type: SchemaType.STRING,
                                                 description: "Namn på kund/leverantör (obligatoriskt för create_customer)"
+                                            },
+                                            org_number: {
+                                                type: SchemaType.STRING,
+                                                description: "Organisationsnummer (för create_customer, t.ex. '556789-1234'). Hämtas från allabolag.se via company_lookup."
+                                            },
+                                            Address1: {
+                                                type: SchemaType.STRING,
+                                                description: "Gatuadress för ny kund (för create_customer). Hämtas från allabolag.se via company_lookup."
+                                            },
+                                            ZipCode: {
+                                                type: SchemaType.STRING,
+                                                description: "Postnummer för ny kund (för create_customer), t.ex. '111 22'."
+                                            },
+                                            City: {
+                                                type: SchemaType.STRING,
+                                                description: "Stad för ny kund (för create_customer), t.ex. 'Stockholm'."
+                                            },
+                                            email: {
+                                                type: SchemaType.STRING,
+                                                description: "E-postadress för ny kund (för create_customer, valfritt)."
                                             },
                                             invoice_number: {
                                                 type: SchemaType.STRING,

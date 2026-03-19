@@ -503,6 +503,61 @@ export async function executeFortnoxTool(
       case "company_lookup": {
         return await lookupCompanyOnAllabolag((toolArgs as any).company_name);
       }
+      case "create_customer": {
+        const ccArgs = toolArgs as Record<string, unknown>;
+        const customerName = (ccArgs.name || ccArgs.Name) as string;
+        if (!customerName) {
+          return "Kundnamn saknas. Ange name för att skapa kunden.";
+        }
+        let orgNr = (ccArgs.org_number || ccArgs.OrganisationNumber) as string | undefined;
+        let address = (ccArgs.Address1 || ccArgs.address) as string | undefined;
+        let zipCode = (ccArgs.ZipCode || ccArgs.zip_code) as string | undefined;
+        let city = (ccArgs.City || ccArgs.city) as string | undefined;
+
+        // Auto-enrich from allabolag.se if org number is missing
+        if (!orgNr && customerName) {
+          try {
+            const lookupText = await lookupCompanyOnAllabolag(customerName);
+            const lineMatch = lookupText.match(/^- .+?\((\d{6}-?\d{4})\):\s*(.+?),\s*(\d{3}\s?\d{2})\s+(.+?)\s*\[/m);
+            if (lineMatch) {
+              orgNr = orgNr || lineMatch[1];
+              address = address || lineMatch[2].trim();
+              zipCode = zipCode || lineMatch[3].trim();
+              city = city || lineMatch[4].trim();
+              logger.info("Auto-enriched customer from allabolag", { customerName, orgNr, city });
+            }
+          } catch (lookupErr) {
+            logger.warn("Allabolag enrichment failed for create_customer", { error: lookupErr instanceof Error ? lookupErr.message : "unknown" });
+          }
+        }
+
+        const result = await callFortnoxWrite(
+          "findOrCreateCustomer",
+          {
+            customer: {
+              Name: customerName,
+              OrganisationNumber: orgNr || undefined,
+              Email: (ccArgs.email || ccArgs.Email) as string | undefined,
+              Address1: address || undefined,
+              ZipCode: zipCode || undefined,
+              City: city || undefined,
+            },
+          },
+          "create_customer",
+          String(orgNr || customerName),
+        );
+        const customer = (result as any).Customer || result;
+        void auditService.log({
+          userId,
+          companyId: companyId || undefined,
+          actorType: "ai",
+          action: "create",
+          resourceType: "customer",
+          resourceId: String(customer.CustomerNumber || ""),
+          newState: customer,
+        });
+        return `Kund skapad: ${customer.Name || customerName} (kundnr ${customer.CustomerNumber || "tilldelas"})`;
+      }
       default:
         return null;
     }
@@ -537,7 +592,7 @@ export const FORTNOX_READ_TOOLS = [
 ];
 export const FORTNOX_WRITE_TOOLS = [
   "create_invoice", "create_supplier", "create_supplier_invoice",
-  "create_journal_entry", "export_journal_to_fortnox",
+  "create_customer", "create_journal_entry", "export_journal_to_fortnox",
   "register_payment",
 ];
 export const ALL_FORTNOX_TOOLS = [...FORTNOX_READ_TOOLS, ...FORTNOX_WRITE_TOOLS];

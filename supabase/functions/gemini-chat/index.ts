@@ -1466,7 +1466,7 @@ Deno.serve(async (req: Request) => {
                       const custCount = customerListData.customers.length;
                       resultText = custCount > 0
                         ? `Hittade ${custCount} kunder${custArgs.query ? ` som matchar "${custArgs.query}"` : ""}.`
-                        : `Inga kunder hittades.`;
+                        : `Inga kunder hittades${custArgs.query ? ` som matchar "${custArgs.query}"` : ""}. Kunden finns inte i Fortnox — erbjud att skapa kunden med create_customer.`;
                       break;
                     }
                     case "get_vat_report": {
@@ -3156,7 +3156,7 @@ ANVÄNDARFRÅGA:
                         const count = customerListData.customers.length;
                         toolResponseText = count > 0
                           ? `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}.`
-                          : `Inga kunder hittades${args.query ? ` som matchar "${args.query}"` : ""}.`;
+                          : `Inga kunder hittades${args.query ? ` som matchar "${args.query}"` : ""}. Kunden finns inte i Fortnox ännu — erbjud att skapa kunden med create_customer i en propose_action_plan (sök på allabolag.se med company_lookup för att hämta org.nr och adress).`;
                       } catch (searchErr) {
                         logger.error("search_customers failed", searchErr);
                         toolResponseText = "Kunde inte hämta kunder från Fortnox just nu. Försök igen.";
