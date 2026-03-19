@@ -15,53 +15,80 @@ import { getEnv } from "./utils.ts";
 
 const logger = createLogger("gemini-chat:fortnox-tools");
 
+const LOOKUP_FAILED_MSG =
+  `Uppslag misslyckades — kunde inte hämta företagsuppgifter automatiskt. ` +
+  `Fråga användaren: "Kan du ge mig organisationsnummer och adress (gatuadress, postnummer, ort) ` +
+  `för ${"{companyName}"}? Då skapar jag kunden med korrekta uppgifter."`;
+
 export async function lookupCompanyOnAllabolag(companyName: string): Promise<string> {
   if (!companyName) return "Företagsnamn saknas.";
+  const failureMsg = LOOKUP_FAILED_MSG.replace("{companyName}", companyName);
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
-      const searchUrl = `https://www.allabolag.se/find?what=${encodeURIComponent(companyName)}`;
+      // allabolag.se now loads search results client-side via /api/search JSON endpoint
+      const searchUrl = `https://www.allabolag.se/api/search?query=${encodeURIComponent(companyName)}`;
       const resp = await fetch(searchUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; Veridat/1.0)" },
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+          "Referer": `https://www.allabolag.se/search?query=${encodeURIComponent(companyName)}`,
+        },
         signal: controller.signal,
       });
       if (!resp.ok) {
-        return `Kunde inte söka på allabolag.se (status ${resp.status}). Skapa kunden utan uppslag.`;
+        logger.warn("Allabolag API returned non-OK status", { status: resp.status, companyName });
+        return failureMsg;
       }
-      const html = await resp.text();
-      const ndMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-      if (!ndMatch) {
-        return `Hittade ingen data på allabolag.se för "${companyName}". Skapa kunden utan uppslag.`;
-      }
-      let nextData;
+
+      let data: any;
       try {
-        nextData = JSON.parse(ndMatch[1]);
+        data = await resp.json();
       } catch {
-        return `Kunde inte tolka data från allabolag.se. Skapa kunden utan uppslag.`;
+        logger.warn("Allabolag API returned non-JSON", { companyName });
+        return failureMsg;
       }
-      const hits = nextData?.props?.pageProps?.hits
-        || nextData?.props?.pageProps?.searchResult?.hits
-        || [];
-      if (hits.length === 0) {
-        return `Inga träffar på allabolag.se för "${companyName}".`;
+
+      const companies: any[] = data?.companies || [];
+      if (companies.length === 0) {
+        return failureMsg;
       }
-      const results = hits.slice(0, 3).map((h: any) => {
-        const name = h.name || h.companyName || "";
-        const orgNr = h.orgnr || h.organisationNumber || "";
-        const address = h.address || h.visitingAddress || "";
-        const zipCode = h.zipCode || h.postalCode || "";
-        const city = h.city || h.town || "";
-        const status = h.status || h.companyStatus || "";
-        return `- ${name} (${orgNr}): ${address}, ${zipCode} ${city} [${status}]`;
+
+      // Filter to companies whose name actually matches the search query
+      // (The API sometimes ignores the query and returns unrelated companies)
+      const queryWords = companyName.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const relevant = companies.filter((c: any) => {
+        const name = (c.name || c.legalName || "").toLowerCase();
+        return queryWords.some(w => name.includes(w));
+      });
+
+      const candidates = relevant.length > 0 ? relevant : companies;
+
+      // Check if any candidate actually looks relevant (not just a fallback list)
+      if (relevant.length === 0) {
+        logger.info("Allabolag returned no name-matching companies", { companyName, returned: companies.length });
+        return failureMsg;
+      }
+
+      const results = candidates.slice(0, 3).map((c: any) => {
+        const name = c.name || c.legalName || "";
+        const orgNr = c.orgnr || "";
+        const postal = c.postalAddress || c.visitorAddress || {};
+        const address = postal.addressLine || "";
+        const zipCode = postal.zipCode || "";
+        const city = postal.postPlace || "";
+        const status = c.status || "";
+        return `- ${name} (${orgNr}): ${address}, ${zipCode} ${city}${status ? ` [${status}]` : ""}`;
       }).join("\n");
+
       return `Sökresultat från allabolag.se för "${companyName}":\n${results}\n\nAnvänd organisationsnummer, adress och stad från träffen ovan i create_customer-parametrarna.`;
     } finally {
       clearTimeout(timeoutId);
     }
   } catch (err) {
-    logger.warn("Allabolag lookup failed", { error: err instanceof Error ? err.message : "unknown" });
-    return `Uppslag på allabolag.se misslyckades. Skapa kunden utan företagsuppgifter.`;
+    logger.warn("Allabolag lookup failed", { error: err instanceof Error ? err.message : "unknown", companyName });
+    return failureMsg;
   }
 }
 

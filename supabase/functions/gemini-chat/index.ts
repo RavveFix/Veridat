@@ -4011,8 +4011,15 @@ ANVÄNDARFRÅGA:
           }
           case "company_lookup": {
             const lookupResult = await lookupCompanyOnAllabolag((args as any).company_name);
+            const lookupFailed = lookupResult.startsWith("Uppslag misslyckades");
+            const followUpPrompt = lookupFailed
+              ? (`FÖRETAGSUPPSLAG MISSLYCKADES:\n${lookupResult}\n\n` +
+                `INSTRUKTION: Automatiskt uppslag gick inte. Fråga nu användaren om saknad information ` +
+                `(organisationsnummer och/eller adress) för att kunna skapa kunden. ` +
+                `Formulera frågan naturligt på svenska. Skapa INTE kunden utan dessa uppgifter.`)
+              : (`FÖRETAGSUPPSLAG:\n${lookupResult}\n\nFortsätt svara på användarens fråga med denna information. Fråga: "${message}"`);
             const followUp = await sendMessageToGemini(
-              (`FÖRETAGSUPPSLAG:\n${lookupResult}\n\nFortsätt svara på användarens fråga med denna information. Fråga: "${message}"`),
+              followUpPrompt,
               undefined,
               history,
               undefined,
