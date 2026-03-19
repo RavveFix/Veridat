@@ -2621,16 +2621,26 @@ ANVÄNDARFRÅGA:
                   // Handle tool calls from retry (propose_action_plan or request_clarification)
                   if (retryToolCall && retryToolCall.name === "propose_action_plan") {
                     const planArgs = retryToolCall.args as any;
-                    const planId = crypto.randomUUID();
-                    streamingActionPlan = {
-                      type: "action_plan",
-                      plan_id: planId,
-                      status: "pending",
+                    const retryPlanId = crypto.randomUUID();
+                    const retryActionPlan = {
+                      type: "action_plan" as const,
+                      plan_id: retryPlanId,
+                      status: "pending" as const,
                       summary: planArgs.summary || "Konteringsförslag",
-                      actions: planArgs.actions || [],
+                      actions: (planArgs.actions || []).map((a: any, i: number) => ({
+                        id: `${retryPlanId}-${i}`,
+                        action_type: a.action_type,
+                        description: a.description,
+                        parameters: a.parameters || {},
+                        posting_rows: a.posting_rows || [],
+                        confidence: a.confidence ?? 0.8,
+                        status: "pending" as const,
+                      })),
                       assumptions: planArgs.assumptions || [],
+                      source_file: findSourceFile(Array.isArray(history) ? history : []),
                     };
-                    const planSSE = `data: ${JSON.stringify(streamingActionPlan)}\n\n`;
+                    streamingActionPlan = retryActionPlan;
+                    const planSSE = `data: ${JSON.stringify({ actionPlan: retryActionPlan })}\n\n`;
                     controller.enqueue(encoder.encode(planSSE));
                     if (!fullText) fullText = retryText || planArgs.summary || "Konteringsförslag";
                   } else if (retryToolCall && retryToolCall.name === "request_clarification") {
