@@ -2690,6 +2690,7 @@ ANVÄNDARFRÅGA:
                   search_articles: "Söker artiklar...",
                   conversation_search: "Söker i tidigare konversationer...",
                   web_search: "Söker på webben...",
+                  company_lookup: "Söker företagsinformation...",
                 };
                 const toolLabel = TOOL_LABELS[toolName] || `Kör ${toolName}...`;
                 const toolStepId = sendStep(controller, encoder, toolLabel, {
@@ -3499,6 +3500,53 @@ ANVÄNDARFRÅGA:
                       logger.warn("Failed to learn pattern", { error: String(learnError) });
                       toolResponseText = `Det gick inte att spara konteringsregeln. Försök igen senare.`;
                     }
+                  } else if (toolName === "company_lookup") {
+                    // Look up company data — feed result back to Gemini as internal context,
+                    // never stream the raw lookup text (which contains internal instructions) to the user.
+                    const lookupResult = await lookupCompanyOnAllabolag((toolArgs as any).company_name);
+                    const companyFollowUp = await sendMessageToGemini(
+                      `FÖRETAGSUPPSLAG:\n${lookupResult}\n\nAnvänd informationen ovan och anropa propose_action_plan med de åtgärder som behövs (t.ex. create_customer och create_invoice). Ursprungligt meddelande: "${message}"`,
+                      undefined,
+                      history,
+                      undefined,
+                      effectiveModel,
+                      { forceToolCall: ["propose_action_plan", "request_clarification"] },
+                    );
+                    if (companyFollowUp.toolCall?.tool === "propose_action_plan") {
+                      const planArgs = companyFollowUp.toolCall.args as any;
+                      const planId = crypto.randomUUID();
+                      const actionPlan = {
+                        type: "action_plan" as const,
+                        plan_id: planId,
+                        status: "pending" as const,
+                        summary: planArgs.summary || "Handlingsplan",
+                        actions: (planArgs.actions || []).map((a: any, i: number) => ({
+                          id: `${planId}-${i}`,
+                          action_type: a.action_type,
+                          description: a.description,
+                          parameters: a.parameters || {},
+                          posting_rows: a.posting_rows || [],
+                          confidence: a.confidence ?? 0.8,
+                          status: "pending" as const,
+                        })),
+                        assumptions: planArgs.assumptions || [],
+                        source_file: findSourceFile(Array.isArray(history) ? history : []),
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ actionPlan })}\n\n`));
+                      streamingActionPlan = actionPlan;
+                      const actionsDesc = actionPlan.actions
+                        .map((a, i) => `${i + 1}. ${a.description}`)
+                        .join("\n");
+                      toolResponseText = `Jag har förberett en handlingsplan: "${actionPlan.summary}"\n\n${actionsDesc}\n\nGodkänn, ändra eller avbryt planen med knapparna ovan.`;
+                    } else if (companyFollowUp.toolCall?.tool === "request_clarification") {
+                      const clarArgs = companyFollowUp.toolCall.args as any;
+                      const clarText = clarArgs.message || "Jag behöver mer information för att gå vidare.";
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ clarification: { message: clarText, missing_fields: clarArgs.missing_fields || [] } })}\n\n`));
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: clarText })}\n\n`));
+                      toolResponseText = clarText;
+                    } else {
+                      toolResponseText = companyFollowUp.text || "Hittade företagsinformation. Vill du att jag går vidare med att skapa kunden i Fortnox?";
+                    }
                   } else {
                     // Execute Fortnox tools server-side
                     const fortnoxToolResult = await executeFortnoxTool(
@@ -4028,14 +4076,24 @@ ANVÄNDARFRÅGA:
           }
           case "company_lookup": {
             const lookupResult = await lookupCompanyOnAllabolag((args as any).company_name);
+            // Feed result back to Gemini as internal context — never expose raw lookup text
+            // (which contains internal instructions) to the user.
             const followUp = await sendMessageToGemini(
-              (`FÖRETAGSUPPSLAG:\n${lookupResult}\n\nFortsätt svara på användarens fråga med denna information. Fråga: "${message}"`),
+              `FÖRETAGSUPPSLAG:\n${lookupResult}\n\nAnvänd informationen ovan och anropa propose_action_plan med de åtgärder som behövs (t.ex. create_customer och create_invoice). Ursprungligt meddelande: "${message}"`,
               undefined,
               history,
               undefined,
               effectiveModel,
+              { forceToolCall: ["propose_action_plan", "request_clarification"] },
             );
-            responseText = followUp.text || lookupResult;
+            if (followUp.toolCall?.tool === "propose_action_plan") {
+              const planArgs = followUp.toolCall.args as any;
+              responseText = `Handlingsplan: "${planArgs.summary || "Skapa kund och faktura"}"\n\n${(planArgs.actions || []).map((a: any, i: number) => `${i + 1}. ${a.description}`).join("\n")}`;
+            } else if (followUp.toolCall?.tool === "request_clarification") {
+              responseText = (followUp.toolCall.args as any).message || "Jag behöver mer information för att gå vidare.";
+            } else {
+              responseText = followUp.text || "Hittade företagsinformation. Vill du att jag går vidare med att skapa kunden?";
+            }
             break;
           }
           case "create_invoice": {
