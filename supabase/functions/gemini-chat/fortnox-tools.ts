@@ -27,41 +27,41 @@ export async function lookupCompanyOnAllabolag(companyName: string): Promise<str
         signal: controller.signal,
       });
       if (!resp.ok) {
-        return `Kunde inte söka på allabolag.se (status ${resp.status}). Skapa kunden utan uppslag.`;
+        return `Jag kunde tyvärr inte hitta företagsuppgifter automatiskt. Kan du ge mig organisationsnummer, gatuadress, postnummer och ort för "${companyName}"?`;
       }
       const html = await resp.text();
       const ndMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
       if (!ndMatch) {
-        return `Hittade ingen data på allabolag.se för "${companyName}". Skapa kunden utan uppslag.`;
+        return `Jag kunde tyvärr inte hitta företagsuppgifter automatiskt. Kan du ge mig organisationsnummer, gatuadress, postnummer och ort för "${companyName}"?`;
       }
       let nextData;
       try {
         nextData = JSON.parse(ndMatch[1]);
       } catch {
-        return `Kunde inte tolka data från allabolag.se. Skapa kunden utan uppslag.`;
+        return `Jag kunde tyvärr inte hitta företagsuppgifter automatiskt. Kan du ge mig organisationsnummer, gatuadress, postnummer och ort för "${companyName}"?`;
       }
       const hits = nextData?.props?.pageProps?.hits
         || nextData?.props?.pageProps?.searchResult?.hits
         || [];
       if (hits.length === 0) {
-        return `Inga träffar på allabolag.se för "${companyName}".`;
+        return `Jag kunde tyvärr inte hitta företagsuppgifter automatiskt. Kan du ge mig organisationsnummer, gatuadress, postnummer och ort för "${companyName}"?`;
       }
-      const results = hits.slice(0, 3).map((h: any) => {
-        const name = h.name || h.companyName || "";
-        const orgNr = h.orgnr || h.organisationNumber || "";
-        const address = h.address || h.visitingAddress || "";
-        const zipCode = h.zipCode || h.postalCode || "";
-        const city = h.city || h.town || "";
-        const status = h.status || h.companyStatus || "";
-        return `- ${name} (${orgNr}): ${address}, ${zipCode} ${city} [${status}]`;
-      }).join("\n");
-      return `Sökresultat från allabolag.se för "${companyName}":\n${results}\n\nAnvänd organisationsnummer, adress och stad från träffen ovan i create_customer-parametrarna.`;
+      const best = hits[0];
+      const name = best.name || best.companyName || companyName;
+      const orgNr = best.orgnr || best.organisationNumber || "";
+      const address = best.address || best.visitingAddress || "";
+      const zipCode = best.zipCode || best.postalCode || "";
+      const city = best.city || best.town || "";
+      const orgNrFormatted = orgNr ? `, org.nr ${orgNr}` : "";
+      const addressFormatted = [address, zipCode, city].filter(Boolean).join(", ");
+      const addressPart = addressFormatted ? `, ${addressFormatted}` : "";
+      return `Jag hittade företaget! ${name}${orgNrFormatted}${addressPart}. Vill du att jag skapar kunden i Fortnox och sedan skapar fakturan?`;
     } finally {
       clearTimeout(timeoutId);
     }
   } catch (err) {
     logger.warn("Allabolag lookup failed", { error: err instanceof Error ? err.message : "unknown" });
-    return `Uppslag på allabolag.se misslyckades. Skapa kunden utan företagsuppgifter.`;
+    return `Jag kunde tyvärr inte hitta företagsuppgifter automatiskt. Kan du ge mig organisationsnummer, gatuadress, postnummer och ort för "${companyName}"?`;
   }
 }
 
