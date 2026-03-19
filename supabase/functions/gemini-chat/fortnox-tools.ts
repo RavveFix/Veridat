@@ -8,6 +8,7 @@ import type {
   ExportJournalToFortnoxArgs,
 } from "../../services/GeminiService.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 import { FortnoxService } from "../../services/FortnoxService.ts";
 import { AuditService } from "../../services/AuditService.ts";
 import { createLogger } from "../../services/LoggerService.ts";
@@ -17,51 +18,59 @@ const logger = createLogger("gemini-chat:fortnox-tools");
 
 export async function lookupCompanyOnAllabolag(companyName: string): Promise<string> {
   if (!companyName) return "Företagsnamn saknas.";
+
+  const apiKey = Deno.env.get("GEMINI_API_KEY");
+  if (!apiKey) {
+    logger.warn("GEMINI_API_KEY not found for company lookup");
+    return `Kunde inte söka efter företaget. Skapa kunden utan uppslag.`;
+  }
+
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    try {
-      const searchUrl = `https://www.allabolag.se/find?what=${encodeURIComponent(companyName)}`;
-      const resp = await fetch(searchUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; Veridat/1.0)" },
-        signal: controller.signal,
-      });
-      if (!resp.ok) {
-        return `Kunde inte söka på allabolag.se (status ${resp.status}). Skapa kunden utan uppslag.`;
-      }
-      const html = await resp.text();
-      const ndMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-      if (!ndMatch) {
-        return `Hittade ingen data på allabolag.se för "${companyName}". Skapa kunden utan uppslag.`;
-      }
-      let nextData;
-      try {
-        nextData = JSON.parse(ndMatch[1]);
-      } catch {
-        return `Kunde inte tolka data från allabolag.se. Skapa kunden utan uppslag.`;
-      }
-      const hits = nextData?.props?.pageProps?.hits
-        || nextData?.props?.pageProps?.searchResult?.hits
-        || [];
-      if (hits.length === 0) {
-        return `Inga träffar på allabolag.se för "${companyName}".`;
-      }
-      const results = hits.slice(0, 3).map((h: any) => {
-        const name = h.name || h.companyName || "";
-        const orgNr = h.orgnr || h.organisationNumber || "";
-        const address = h.address || h.visitingAddress || "";
-        const zipCode = h.zipCode || h.postalCode || "";
-        const city = h.city || h.town || "";
-        const status = h.status || h.companyStatus || "";
-        return `- ${name} (${orgNr}): ${address}, ${zipCode} ${city} [${status}]`;
-      }).join("\n");
-      return `Sökresultat från allabolag.se för "${companyName}":\n${results}\n\nAnvänd organisationsnummer, adress och stad från träffen ovan i create_customer-parametrarna.`;
-    } finally {
-      clearTimeout(timeoutId);
+    const genAI = new GoogleGenerativeAI(apiKey);
+    // gemini-2.0-flash supports Google Search grounding
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      tools: [{ googleSearch: {} } as any],
+    });
+
+    const prompt =
+      `Sök efter det svenska företaget "${companyName}" och returnera ENDAST ett JSON-objekt (utan markdown-kodblock) med dessa fält:
+{"name":"officiellt registrerat företagsnamn","org_number":"organisationsnummer i format XXXXXX-XXXX","address":"gatuadress","zipcode":"postnummer","city":"ort","status":"aktiv eller inaktiv"}
+Om företaget inte hittas, returnera: {"not_found":true}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+
+    // Extract JSON from response (model may wrap in markdown despite instructions)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      logger.warn("Company lookup: no JSON in Gemini response", { companyName });
+      return `Hittade ingen information om "${companyName}". Fråga användaren om organisationsnummer och adress.`;
     }
+
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(jsonMatch[0]);
+    } catch {
+      logger.warn("Company lookup: failed to parse JSON", { companyName, text });
+      return `Kunde inte tolka sökresultatet för "${companyName}". Skapa kunden utan uppslag.`;
+    }
+
+    if (data.not_found) {
+      return `Inga träffar för "${companyName}". Fråga användaren om organisationsnummer och adress.`;
+    }
+
+    const name = (data.name as string) || companyName;
+    const orgNr = (data.org_number as string) || "";
+    const address = (data.address as string) || "";
+    const zipcode = (data.zipcode as string) || "";
+    const city = (data.city as string) || "";
+    const status = (data.status as string) || "";
+
+    return `Sökresultat för "${companyName}":\n- ${name} (${orgNr}): ${address}, ${zipcode} ${city} [${status}]\n\nAnvänd organisationsnummer, adress och stad från träffen ovan i create_customer-parametrarna.`;
   } catch (err) {
-    logger.warn("Allabolag lookup failed", { error: err instanceof Error ? err.message : "unknown" });
-    return `Uppslag på allabolag.se misslyckades. Skapa kunden utan företagsuppgifter.`;
+    logger.warn("Company lookup via Gemini Search failed", { error: err instanceof Error ? err.message : "unknown" });
+    return `Uppslag misslyckades. Skapa kunden utan företagsuppgifter.`;
   }
 }
 

@@ -622,7 +622,7 @@ const tools: Tool[] = [
             },
             {
                 name: "company_lookup",
-                description: "Slå upp ett svenskt företag på allabolag.se för att hämta organisationsnummer, adress och annan information. Använd ALLTID detta verktyg INNAN du skapar en ny kund (create_customer) i en handlingsplan.",
+                description: "Slå upp ett svenskt företag via Google Search för att hämta organisationsnummer, adress och annan information. Använd ALLTID detta verktyg INNAN du skapar en ny kund (create_customer) i en handlingsplan.",
                 parameters: {
                     type: SchemaType.OBJECT,
                     properties: {
