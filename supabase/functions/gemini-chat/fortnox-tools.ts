@@ -198,7 +198,7 @@ export async function executeFortnoxTool(
       ? companyId.trim()
       : null;
   if (!resolvedCompanyId) {
-    throw new Error("Bolagskontext saknas för Fortnox-verktyg.");
+    return "Jag ser att Fortnox inte är anslutet just nu. Du kan koppla Fortnox under Integrationer för att hämta kunder, skapa fakturor och bokföra direkt. Men jag kan fortfarande hjälpa dig med bokföringsfrågor!";
   }
 
   const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
@@ -507,23 +507,19 @@ export async function executeFortnoxTool(
         return null;
     }
   } catch (err) {
-    logger.error(`Fortnox tool ${toolName} failed`, { error: err instanceof Error ? err.message : "unknown" });
-    const friendlyNames: Record<string, string> = {
-      get_customers: "hämtning av kunder",
-      get_suppliers: "hämtning av leverantörer",
-      get_articles: "hämtning av artiklar",
-      get_invoice: "hämtning av faktura",
-      get_supplier_invoice: "hämtning av leverantörsfaktura",
-      create_invoice: "skapande av faktura",
-      get_vat_report: "hämtning av momsrapport",
-      get_company_info: "hämtning av företagsinfo",
-      get_financial_summary: "hämtning av ekonomisk sammanfattning",
-      get_account_balances: "hämtning av kontosaldon",
-      create_voucher: "skapande av verifikation",
-      lookup_company: "sökning av företag",
-    };
-    const friendly = friendlyNames[toolName] || "åtgärden";
-    return `Ett fel uppstod vid ${friendly}. Försök igen om en stund.`;
+    const errMsg = err instanceof Error ? err.message : "unknown";
+    logger.error(`Fortnox tool ${toolName} failed`, { error: errMsg });
+
+    // Detect auth/token errors — suggest reconnecting
+    const isAuthError = errMsg.toLowerCase().includes("credential") ||
+      errMsg.toLowerCase().includes("token") ||
+      errMsg.toLowerCase().includes("401") ||
+      errMsg.toLowerCase().includes("unauthorized");
+    if (isAuthError) {
+      return "Fortnox-kopplingen verkar ha gått ut. Gå till Integrationer för att koppla om. Men jag kan fortfarande hjälpa dig med bokföringsfrågor!";
+    }
+
+    return "Jag ser att Fortnox inte är anslutet just nu. Du kan koppla Fortnox under Integrationer för att hämta kunder, skapa fakturor och bokföra direkt. Men jag kan fortfarande hjälpa dig med bokföringsfrågor!";
   }
 }
 

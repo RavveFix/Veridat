@@ -3805,7 +3805,11 @@ ANVÄNDARFRÅGA:
           ? resolvedCompanyId.trim()
           : null;
       if (!fortnoxCompanyId) {
-        throw new Error("Bolagskontext saknas för Fortnox-verktyg.");
+        logger.warn("Non-streaming: Fortnox tool called but no companyId", { tool });
+        return new Response(
+          JSON.stringify({ type: "text", data: "Jag ser att Fortnox inte är anslutet just nu. Du kan koppla Fortnox under Integrationer för att hämta kunder, skapa fakturor och bokföra direkt. Men jag kan fortfarande hjälpa dig med bokföringsfrågor!" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
       const fortnoxService = new FortnoxService(
         fortnoxConfig,
