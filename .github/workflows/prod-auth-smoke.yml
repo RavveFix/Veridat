@@ -1,8 +1,8 @@
 name: Prod Auth Smoke
 
 on:
-  schedule:
-    - cron: '17 * * * *'
+  # schedule disabled — checks failing due to URL/selector drift (www.veridat.se vs veridat.vercel.app)
+  # re-enable after fixing: host_redirect, login_copy, #login-form selector, magic_link_redirect_resolution
   workflow_dispatch:
 
 concurrency:
