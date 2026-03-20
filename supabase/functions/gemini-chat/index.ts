@@ -2287,10 +2287,10 @@ ANVÄNDARFRÅGA:
         dataLength: geminiFileData.data.length,
       });
       finalMessage = `[BIFOGAD FIL: ${safeFileName} (${safeMime})]\n` +
-        `Användaren har bifogat en fil. Analysera filinnehållet: ` +
-        `extrahera belopp, moms, leverantör, datum. ` +
-        `Föreslå kontering med BAS-konton och momssats baserat på din kunskap. ` +
-        `Använd propose_action_plan om du är säker, annars request_clarification.\n\n` +
+        `Användaren har bifogat ett kvitto eller en faktura. Gör så här i ordning:\n` +
+        `1. ANROPA propose_receipt_analysis ALLTID FÖRST — extrahera leverantör, datum, totalbelopp, moms (belopp och sats), nettosumma, betalningssätt och föreslaget BAS-konto.\n` +
+        `2. Skriv sedan en kort förklaring om vad du ser och vilket konto du föreslår.\n` +
+        `3. Anropa propose_action_plan med create_supplier_invoice-steget om Fortnox är kopplat, annars request_clarification om info saknas.\n\n` +
         finalMessage;
     } else if (geminiFileData) {
       logger.warn("geminiFileData present but data is empty", {
@@ -2357,18 +2357,18 @@ ANVÄNDARFRÅGA:
     }
 
     if (excludeToolsForFile) {
-      // Safeguard: ensure propose_action_plan and request_clarification are NEVER excluded
+      // Safeguard: ensure propose_action_plan, propose_receipt_analysis and request_clarification are NEVER excluded
       excludeToolsForFile = excludeToolsForFile.filter(
-        (t) => t !== "propose_action_plan" && t !== "request_clarification",
+        (t) => t !== "propose_action_plan" && t !== "request_clarification" && t !== "propose_receipt_analysis",
       );
       logger.info("[tool-filter] Excluding Fortnox read-tools", {
         reason: excludeToolsReason,
         excludedTools: excludeToolsForFile,
-        keptCritical: ["propose_action_plan", "request_clarification"],
+        keptCritical: ["propose_action_plan", "propose_receipt_analysis", "request_clarification"],
       });
       // Remind Gemini it has propose_action_plan available — prevents it from
       // writing action plans as raw JSON text instead of making a function call.
-      finalMessage += `\n\n[SYSTEM: Du har tillgång till propose_action_plan och request_clarification. När du vill föreslå bokföring, gör ALLTID ett function call till propose_action_plan — skriv ALDRIG action plan som JSON i text.]`;
+      finalMessage += `\n\n[SYSTEM: Du har tillgång till propose_receipt_analysis, propose_action_plan och request_clarification. Vid kvitto/faktura-analys: anropa ALLTID propose_receipt_analysis FÖRST, sedan propose_action_plan. Gör ALLTID function calls — skriv ALDRIG action plan eller kvittodata som JSON i text.]`;
     }
 
     const forceNonStreaming = isSkillAssist || streamParam === false;
@@ -2589,9 +2589,9 @@ ANVÄNDARFRÅGA:
                   });
                   if (formulerStepId) completeThinkingStep(controller, encoder, formulerStepId, "Formulerar svar...");
 
-                  // Exclude ALL tools except propose_action_plan + request_clarification
+                  // Exclude ALL tools except propose_action_plan + propose_receipt_analysis + request_clarification
                   // Use streaming so the retry response renders word-by-word like normal responses.
-                  const RETRY_KEEP_TOOLS = ["propose_action_plan", "request_clarification"];
+                  const RETRY_KEEP_TOOLS = ["propose_action_plan", "propose_receipt_analysis", "request_clarification"];
                   const retryStream = await sendMessageStreamToGemini(
                     finalMessage,
                     geminiFileData,
@@ -2897,6 +2897,42 @@ ANVÄNDARFRÅGA:
                       planId,
                       actionCount: actionPlan.actions.length,
                       summary: actionPlan.summary,
+                    });
+                  } else if (toolName === "propose_receipt_analysis") {
+                    // Structured receipt/invoice extraction — emit as interactive card
+                    const raArgs = toolArgs as {
+                      supplier?: string;
+                      invoice_number?: string;
+                      date?: string;
+                      total_amount?: number;
+                      vat_amount?: number;
+                      vat_rate?: number;
+                      net_amount?: number;
+                      currency?: string;
+                      payment_method?: string;
+                      suggested_account?: number;
+                      suggested_account_name?: string;
+                    };
+                    const receiptAnalysis = {
+                      type: "receipt_analysis" as const,
+                      supplier: raArgs.supplier || "Okänd leverantör",
+                      invoice_number: raArgs.invoice_number,
+                      date: raArgs.date,
+                      total_amount: raArgs.total_amount || 0,
+                      vat_amount: raArgs.vat_amount,
+                      vat_rate: raArgs.vat_rate ?? 25,
+                      net_amount: raArgs.net_amount,
+                      currency: raArgs.currency || "SEK",
+                      payment_method: raArgs.payment_method,
+                      suggested_account: raArgs.suggested_account,
+                      suggested_account_name: raArgs.suggested_account_name,
+                    };
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ receiptAnalysis })}\n\n`));
+                    toolResponseText = `Kvitto/faktura analyserat: ${receiptAnalysis.supplier}, ${receiptAnalysis.total_amount} ${receiptAnalysis.currency}. Förbereder bokföringsförslag...`;
+                    logger.info("Receipt analysis extracted", {
+                      supplier: receiptAnalysis.supplier,
+                      total: receiptAnalysis.total_amount,
+                      currency: receiptAnalysis.currency,
                     });
                   } else if (toolName === "request_clarification") {
                     // AI needs more info before creating a plan
@@ -3742,8 +3778,8 @@ ANVÄNDARFRÅGA:
         logger.warn("Non-streaming: Gemini called excluded tool — retrying with action plan tools only", {
           blockedTool: tool,
         });
-        // Restrict to ONLY propose_action_plan + request_clarification (mode:ANY)
-        const RETRY_KEEP_TOOLS = ["propose_action_plan", "request_clarification"];
+        // Restrict to ONLY propose_action_plan + propose_receipt_analysis + request_clarification (mode:ANY)
+        const RETRY_KEEP_TOOLS = ["propose_action_plan", "propose_receipt_analysis", "request_clarification"];
         const retryResponse = await sendMessageToGemini(
           finalMessage,
           geminiFileData,
@@ -4451,6 +4487,43 @@ ANVÄNDARFRÅGA:
               resourceType: "voucher",
               resourceId: ejArgs.journal_entry_id,
               newState: voucher,
+            });
+            break;
+          }
+          case "propose_receipt_analysis": {
+            // Non-streaming path: save receipt analysis to metadata
+            const raArgs = args as {
+              supplier?: string;
+              invoice_number?: string;
+              date?: string;
+              total_amount?: number;
+              vat_amount?: number;
+              vat_rate?: number;
+              net_amount?: number;
+              currency?: string;
+              payment_method?: string;
+              suggested_account?: number;
+              suggested_account_name?: string;
+            };
+            const receiptAnalysis = {
+              type: "receipt_analysis",
+              supplier: raArgs.supplier || "Okänd leverantör",
+              invoice_number: raArgs.invoice_number,
+              date: raArgs.date,
+              total_amount: raArgs.total_amount || 0,
+              vat_amount: raArgs.vat_amount,
+              vat_rate: raArgs.vat_rate ?? 25,
+              net_amount: raArgs.net_amount,
+              currency: raArgs.currency || "SEK",
+              payment_method: raArgs.payment_method,
+              suggested_account: raArgs.suggested_account,
+              suggested_account_name: raArgs.suggested_account_name,
+            };
+            nonStreamMetadata = receiptAnalysis;
+            responseText = `Kvitto/faktura analyserat: ${receiptAnalysis.supplier}, ${receiptAnalysis.total_amount} ${receiptAnalysis.currency}. Klicka på "Bokför detta" för att skapa ett bokföringsförslag.`;
+            logger.info("Receipt analysis extracted (non-stream)", {
+              supplier: receiptAnalysis.supplier,
+              total: receiptAnalysis.total_amount,
             });
             break;
           }
