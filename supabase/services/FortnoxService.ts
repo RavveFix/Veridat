@@ -282,13 +282,48 @@ export class FortnoxService {
     }
 
     /**
+     * Re-reads the latest token from DB and returns it if still valid (>60s remaining).
+     * Used to recover from race conditions where another process already refreshed.
+     */
+    private async readFreshTokenFromDb(legacyRow: boolean): Promise<string | null> {
+        const { data: scopedRow } = await this.supabase
+            .from('fortnox_tokens')
+            .select('access_token, expires_at')
+            .eq('user_id', this.userId)
+            .eq('company_id', this.companyId)
+            .maybeSingle();
+
+        const row = scopedRow ?? (
+            legacyRow
+                ? (await this.supabase
+                    .from('fortnox_tokens')
+                    .select('access_token, expires_at')
+                    .eq('user_id', this.userId)
+                    .is('company_id', null)
+                    .maybeSingle()).data
+                : null
+        );
+
+        if (row && new Date(row.expires_at).getTime() > Date.now() + 60_000) {
+            return row.access_token;
+        }
+        return null;
+    }
+
+    /**
      * Refreshes the access token using the refresh token.
-     * Uses optimistic locking (updated_at check) to prevent race conditions
-     * when multiple concurrent requests trigger a refresh simultaneously.
+     *
+     * Race condition strategy: Fortnox refresh tokens are single-use. If two concurrent
+     * requests both try to refresh, the second one will get "invalid_grant" because the
+     * first already consumed the token.
+     *
+     * Fix: Claim a refresh lock (by atomically bumping updated_at) BEFORE calling Fortnox.
+     * If the lock claim fails, another process already has it — wait briefly and reuse
+     * whatever token they stored. Only call Fortnox if we successfully claimed the lock.
      */
     async refreshAccessToken(refreshToken: string, rowId: string): Promise<string> {
         try {
-            // 1. Read current updated_at for optimistic lock
+            // 1. Read current updated_at and refresh_count
             const { data: scopedCurrentRow } = await this.supabase
                 .from('fortnox_tokens')
                 .select('updated_at, refresh_count')
@@ -323,7 +358,52 @@ export class FortnoxService {
             const previousUpdatedAt = currentRow?.updated_at;
             const refreshCount = (currentRow?.refresh_count ?? 0) + 1;
 
-            // 2. Exchange refresh token with Fortnox
+            // 2. CLAIM REFRESH LOCK before calling Fortnox.
+            // Atomically update updated_at so any concurrent request sees a changed
+            // value and knows NOT to call Fortnox with the same single-use refresh token.
+            const lockTimestamp = new Date().toISOString();
+            let lockQuery = this.supabase
+                .from('fortnox_tokens')
+                .update({ updated_at: lockTimestamp })
+                .eq('id', rowId)
+                .eq('user_id', this.userId);
+
+            if (legacyRow) {
+                lockQuery = lockQuery.is('company_id', null);
+            } else {
+                lockQuery = lockQuery.eq('company_id', this.companyId);
+            }
+
+            if (previousUpdatedAt) {
+                lockQuery = lockQuery.eq('updated_at', previousUpdatedAt);
+            } else {
+                lockQuery = lockQuery.is('updated_at', null);
+            }
+
+            const { data: lockResult } = await lockQuery.select('id').maybeSingle();
+
+            if (!lockResult) {
+                // Another process claimed the lock first.
+                // Wait briefly for their Fortnox call + DB write to complete, then reuse their token.
+                logger.info('Token refresh lock held by another process — waiting for result', {
+                    userId: this.userId,
+                    companyId: this.companyId,
+                    rowId,
+                });
+                await new Promise(resolve => setTimeout(resolve, 700));
+
+                const freshToken = await this.readFreshTokenFromDb(legacyRow);
+                if (freshToken) {
+                    logger.info('Reused token written by concurrent refresh');
+                    return freshToken;
+                }
+
+                // Other process may have failed — fall through and attempt our own refresh.
+                // Our Fortnox call may fail with invalid_grant if their refresh_token was consumed.
+                logger.warn('Concurrent refresh may have failed, attempting own refresh anyway');
+            }
+
+            // 3. Call Fortnox to exchange the refresh token
             const credentials = btoa(`${this.clientId}:${this.clientSecret}`);
 
             const params = new URLSearchParams();
@@ -356,38 +436,22 @@ export class FortnoxService {
             if (!response.ok) {
                 const errorText = await response.text();
 
-                // If invalid_grant, another concurrent request may have already refreshed.
-                // Re-read the DB — if a newer token exists, use it instead of failing.
+                // If invalid_grant, the lock-claim fallback above may have timed out before the
+                // other process finished writing. Give them more time and re-check DB.
                 if (response.status === 400 && errorText.includes('invalid_grant')) {
-                    logger.info('invalid_grant — checking if another process already refreshed');
-                    const { data: scopedLatestRow } = await this.supabase
-                        .from('fortnox_tokens')
-                        .select('access_token, expires_at')
-                        .eq('user_id', this.userId)
-                        .eq('company_id', this.companyId)
-                        .maybeSingle();
+                    logger.warn('invalid_grant received — waiting and checking for concurrent refresh result', {
+                        userId: this.userId,
+                        companyId: this.companyId,
+                    });
+                    await new Promise(resolve => setTimeout(resolve, 500));
 
-                    const latestRow = scopedLatestRow ?? (
-                        legacyRow
-                            ? (await this.supabase
-                                .from('fortnox_tokens')
-                                .select('access_token, expires_at')
-                                .eq('user_id', this.userId)
-                                .is('company_id', null)
-                                .maybeSingle()).data
-                            : null
-                    );
-
-                    if (latestRow) {
-                        const latestExpiry = new Date(latestRow.expires_at).getTime();
-                        if (latestExpiry > Date.now() + 60_000) {
-                            // Another process already refreshed — use the new token
-                            logger.info('Found valid token from concurrent refresh');
-                            return latestRow.access_token;
-                        }
+                    const freshToken = await this.readFreshTokenFromDb(legacyRow);
+                    if (freshToken) {
+                        logger.info('Recovered from invalid_grant: found valid token from concurrent refresh');
+                        return freshToken;
                     }
 
-                    // Token is truly invalid — user needs to re-authenticate
+                    // Token is truly gone — user must reconnect Fortnox
                     throw new Error('Din Fortnox-anslutning har gått ut. Gå till Integrationer och anslut Fortnox igen.');
                 }
 
@@ -401,12 +465,13 @@ export class FortnoxService {
             const now = new Date().toISOString();
             const newExpiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
-            // 3. Update DB with optimistic lock (only if no concurrent refresh)
-            let primaryQuery = this.supabase
+            // 4. Write new tokens to DB.
+            // We hold the lock (updated_at was bumped in step 2), so no extra optimistic check needed.
+            const primaryUpdate = await this.supabase
                 .from('fortnox_tokens')
                 .update({
                     access_token: access_token,
-                    refresh_token: refresh_token, // Fortnox rotates refresh tokens!
+                    refresh_token: refresh_token, // Fortnox rotates refresh tokens — must save!
                     expires_at: newExpiresAt,
                     last_refresh_at: now,
                     refresh_count: refreshCount,
@@ -415,24 +480,12 @@ export class FortnoxService {
                 })
                 .eq('id', rowId)
                 .eq('user_id', this.userId)
-                .eq('company_id', this.companyId);
-
-            // Optimistic lock: match previous updated_at (use .is(null) if undefined)
-            if (previousUpdatedAt) {
-                primaryQuery = primaryQuery.eq('updated_at', previousUpdatedAt);
-            } else {
-                primaryQuery = primaryQuery.is('updated_at', null);
-            }
-
-            const primaryUpdate = await primaryQuery
+                .eq('company_id', this.companyId)
                 .select('access_token')
                 .maybeSingle();
 
-            let updateResult = primaryUpdate.data;
-            let updateError = primaryUpdate.error;
-
-            if ((!updateResult || updateError) && legacyRow) {
-                let legacyQuery = this.supabase
+            if ((!primaryUpdate.data || primaryUpdate.error) && legacyRow) {
+                await this.supabase
                     .from('fortnox_tokens')
                     .update({
                         access_token: access_token,
@@ -446,43 +499,6 @@ export class FortnoxService {
                     .eq('id', rowId)
                     .eq('user_id', this.userId)
                     .is('company_id', null);
-
-                if (previousUpdatedAt) {
-                    legacyQuery = legacyQuery.eq('updated_at', previousUpdatedAt);
-                } else {
-                    legacyQuery = legacyQuery.is('updated_at', null);
-                }
-
-                const legacyUpdate = await legacyQuery
-                    .select('access_token')
-                    .maybeSingle();
-                updateResult = legacyUpdate.data;
-                updateError = legacyUpdate.error;
-            }
-
-            if (updateError || !updateResult) {
-                // Concurrent refresh detected — another process already updated the token.
-                // Fetch the latest token from DB and use that instead.
-                logger.info('Concurrent token refresh detected, using latest token');
-                const { data: scopedLatestToken } = await this.supabase
-                    .from('fortnox_tokens')
-                    .select('access_token')
-                    .eq('user_id', this.userId)
-                    .eq('company_id', this.companyId)
-                    .maybeSingle();
-
-                const latestToken = scopedLatestToken ?? (
-                    legacyRow
-                        ? (await this.supabase
-                            .from('fortnox_tokens')
-                            .select('access_token')
-                            .eq('user_id', this.userId)
-                            .is('company_id', null)
-                            .maybeSingle()).data
-                        : null
-                );
-
-                return latestToken?.access_token ?? access_token;
             }
 
             logger.info('Token refreshed successfully', { refreshCount });
