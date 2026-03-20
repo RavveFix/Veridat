@@ -974,6 +974,60 @@ const tools: Tool[] = [
                 }
             },
             {
+                name: "propose_receipt_analysis",
+                description: "Extraherar och presenterar strukturerad data från ett kvitto eller faktura som ett interaktivt kort. Anropa detta ALLTID som FÖRSTA steg när en bild (kvitto, faktura, bon) analyseras — INNAN propose_action_plan. Extrahera all tillgänglig information: leverantör, datum, belopp, moms, betalningssätt och föreslå BAS-konto.",
+                parameters: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        supplier: {
+                            type: SchemaType.STRING,
+                            description: "Leverantörens/butikens namn exakt som det står på kvittot/fakturan"
+                        },
+                        invoice_number: {
+                            type: SchemaType.STRING,
+                            description: "Faktura- eller kvittonummer om det finns synligt"
+                        },
+                        date: {
+                            type: SchemaType.STRING,
+                            description: "Faktura- eller kvittodatum i format YYYY-MM-DD"
+                        },
+                        total_amount: {
+                            type: SchemaType.NUMBER,
+                            description: "Totalbelopp inkl. moms i dokumentets valuta"
+                        },
+                        vat_amount: {
+                            type: SchemaType.NUMBER,
+                            description: "Momsbelopp (moms att betala)"
+                        },
+                        vat_rate: {
+                            type: SchemaType.NUMBER,
+                            description: "Momssats i procent: 25, 12, 6 eller 0"
+                        },
+                        net_amount: {
+                            type: SchemaType.NUMBER,
+                            description: "Belopp exkl. moms (netto)"
+                        },
+                        currency: {
+                            type: SchemaType.STRING,
+                            description: "Valutakod (t.ex. SEK, EUR, USD). Standard: SEK"
+                        },
+                        payment_method: {
+                            type: SchemaType.STRING,
+                            description: "Betalningssätt om synligt: kort, kontant, swish, bankgiro, plusgiro, faktura, autogiro"
+                        },
+                        suggested_account: {
+                            type: SchemaType.NUMBER,
+                            description: "Föreslaget BAS-konto för kostnaden (t.ex. 5010 kontorsmaterial, 6212 mobiltelefon, 6540 IT-abonnemang, 5400 förbrukningsinventarier)"
+                        },
+                        suggested_account_name: {
+                            type: SchemaType.STRING,
+                            description: "Kontonamn för det föreslagna BAS-kontot (t.ex. 'Kontorsmaterial', 'Mobiltelefon')"
+                        }
+                    },
+                    required: ["supplier", "total_amount"]
+                }
+            },
+            {
                 name: "request_clarification",
                 description: "Fråga användaren om saknad information innan en handlingsplan skapas. Använd detta när belopp, antal, pris, momssats eller annan kritisk information saknas för en skrivoperation.",
                 parameters: {
