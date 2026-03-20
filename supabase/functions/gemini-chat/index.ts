@@ -3155,7 +3155,66 @@ ANVÄNDARFRÅGA:
 
                         const count = customerListData.customers.length;
                         if (count > 0) {
-                          toolResponseText = `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}.`;
+                          // Customer(s) found — call Gemini with results so it can proceed (e.g. propose_action_plan)
+                          try {
+                            const customerSummary = customerListData.customers
+                              .map((c) => `${c.name} (kundnr: ${c.customerNumber})`)
+                              .join(", ");
+                            const followUpPrompt = `SYSTEM: Fortnox-sökning hittade ${count} kund(er): ${customerSummary}. Användarens ursprungliga meddelande: "${message}". Fortsätt nu med nästa steg — om användaren vill skapa en faktura, anropa propose_action_plan med create_invoice.`;
+                            const followUp = await sendMessageToGemini(
+                              followUpPrompt,
+                              undefined,
+                              history,
+                              undefined,
+                              effectiveModel,
+                            );
+                            if (followUp.toolCall?.tool === "propose_action_plan") {
+                              const planArgs = followUp.toolCall.args as {
+                                summary?: string;
+                                actions?: Array<{
+                                  action_type: string;
+                                  description: string;
+                                  parameters: Record<string, unknown>;
+                                  posting_rows?: Array<{ account: string; accountName: string; debit: number; credit: number; comment?: string }>;
+                                  confidence?: number;
+                                }>;
+                                assumptions?: string[];
+                              };
+                              const planId = crypto.randomUUID();
+                              const actionPlan = {
+                                type: "action_plan" as const,
+                                plan_id: planId,
+                                status: "pending" as const,
+                                summary: planArgs.summary || "Handlingsplan",
+                                actions: (planArgs.actions || []).map((a, i) => ({
+                                  id: `${planId}-${i}`,
+                                  action_type: a.action_type,
+                                  description: a.description,
+                                  parameters: a.parameters || {},
+                                  posting_rows: a.posting_rows || [],
+                                  confidence: a.confidence ?? 0.8,
+                                  status: "pending" as const,
+                                })),
+                                assumptions: planArgs.assumptions || [],
+                                source_file: findSourceFile(Array.isArray(history) ? history : []),
+                              };
+                              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ actionPlan })}\n\n`));
+                              const actionsDesc = actionPlan.actions.map((a, i) => `${i + 1}. ${a.description}`).join("\n");
+                              toolResponseText = `Jag har förberett en handlingsplan: "${actionPlan.summary}"\n\n${actionsDesc}\n\nGodkänn, ändra eller avbryt planen med knapparna ovan.`;
+                              streamingActionPlan = actionPlan;
+                              logger.info("Action plan proposed after customer search", { planId, actionCount: actionPlan.actions.length });
+                            } else if (followUp.toolCall?.tool === "request_clarification") {
+                              const clarArgs = followUp.toolCall.args as { message?: string; missing_fields?: string[] };
+                              const clarText = clarArgs.message || "Jag behöver mer information för att kunna fortsätta.";
+                              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ clarification: { message: clarText, missing_fields: clarArgs.missing_fields || [] } })}\n\n`));
+                              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: clarText })}\n\n`));
+                              toolResponseText = clarText;
+                            } else {
+                              toolResponseText = followUp.text || `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}. Vad vill du göra härnäst?`;
+                            }
+                          } catch {
+                            toolResponseText = `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}. Vad vill du göra härnäst?`;
+                          }
                         } else {
                           // Customer not found — ask Gemini to generate a contextual follow-up
                           // (instead of showing a dead-end canned message)
@@ -3498,6 +3557,78 @@ ANVÄNDARFRÅGA:
                     } catch (learnError) {
                       logger.warn("Failed to learn pattern", { error: String(learnError) });
                       toolResponseText = `Det gick inte att spara konteringsregeln. Försök igen senare.`;
+                    }
+                  } else if (toolName === "get_customers" || toolName === "get_articles" || toolName === "get_suppliers") {
+                    // Fortnox lookup tools called during agent flow — fetch data then let Gemini continue
+                    if (!resolvedCompanyId) {
+                      toolResponseText = "Fortnox-koppling saknas. Koppla ditt Fortnox-konto under Inställningar.";
+                    } else {
+                      try {
+                        const rawResult = await executeFortnoxTool(
+                          toolName,
+                          toolArgs,
+                          supabaseAdmin,
+                          userId,
+                          resolvedCompanyId,
+                          req.headers.get("Authorization")!,
+                        );
+                        const dataContext = rawResult || `Inga resultat hittades för ${toolName}.`;
+                        const followUpPrompt = `SYSTEM: Fortnox-verktyget "${toolName}" returnerade: ${dataContext}. Användarens ursprungliga meddelande: "${message}". Fortsätt nu med nästa steg.`;
+                        const followUp = await sendMessageToGemini(
+                          followUpPrompt,
+                          undefined,
+                          history,
+                          undefined,
+                          effectiveModel,
+                        );
+                        if (followUp.toolCall?.tool === "propose_action_plan") {
+                          const planArgs = followUp.toolCall.args as {
+                            summary?: string;
+                            actions?: Array<{
+                              action_type: string;
+                              description: string;
+                              parameters: Record<string, unknown>;
+                              posting_rows?: Array<{ account: string; accountName: string; debit: number; credit: number; comment?: string }>;
+                              confidence?: number;
+                            }>;
+                            assumptions?: string[];
+                          };
+                          const planId = crypto.randomUUID();
+                          const actionPlan = {
+                            type: "action_plan" as const,
+                            plan_id: planId,
+                            status: "pending" as const,
+                            summary: planArgs.summary || "Handlingsplan",
+                            actions: (planArgs.actions || []).map((a, i) => ({
+                              id: `${planId}-${i}`,
+                              action_type: a.action_type,
+                              description: a.description,
+                              parameters: a.parameters || {},
+                              posting_rows: a.posting_rows || [],
+                              confidence: a.confidence ?? 0.8,
+                              status: "pending" as const,
+                            })),
+                            assumptions: planArgs.assumptions || [],
+                            source_file: findSourceFile(Array.isArray(history) ? history : []),
+                          };
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ actionPlan })}\n\n`));
+                          const actionsDesc = actionPlan.actions.map((a, i) => `${i + 1}. ${a.description}`).join("\n");
+                          toolResponseText = `Jag har förberett en handlingsplan: "${actionPlan.summary}"\n\n${actionsDesc}\n\nGodkänn, ändra eller avbryt planen med knapparna ovan.`;
+                          streamingActionPlan = actionPlan;
+                          logger.info("Action plan proposed after lookup tool", { toolName, planId, actionCount: actionPlan.actions.length });
+                        } else if (followUp.toolCall?.tool === "request_clarification") {
+                          const clarArgs = followUp.toolCall.args as { message?: string; missing_fields?: string[] };
+                          const clarText = clarArgs.message || "Jag behöver mer information för att kunna fortsätta.";
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ clarification: { message: clarText, missing_fields: clarArgs.missing_fields || [] } })}\n\n`));
+                          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: clarText })}\n\n`));
+                          toolResponseText = clarText;
+                        } else {
+                          toolResponseText = followUp.text || dataContext;
+                        }
+                      } catch (lookupErr) {
+                        logger.error(`${toolName} follow-up failed`, lookupErr);
+                        toolResponseText = `Kunde inte hämta data från Fortnox just nu. Försök igen.`;
+                      }
                     }
                   } else {
                     // Execute Fortnox tools server-side
