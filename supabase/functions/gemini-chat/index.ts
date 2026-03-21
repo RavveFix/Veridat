@@ -2429,6 +2429,72 @@ ANVÄNDARFRÅGA:
           return (result || {}) as Record<string, unknown>;
         };
 
+        // Helper: call Gemini after a data-fetch tool, expecting propose_action_plan or
+        // request_clarification. Used by search_customers (with results) and
+        // propose_receipt_analysis so Gemini can continue the conversation.
+        const handleFollowUpActionPlan = async (
+          ctrl: ReadableStreamDefaultController,
+          contextPrompt: string,
+          fallbackText: string,
+        ): Promise<string> => {
+          try {
+            const followUp = await sendMessageToGemini(
+              contextPrompt,
+              undefined,
+              history,
+              undefined,
+              effectiveModel,
+              { allowedTools: ["propose_action_plan", "request_clarification"] },
+            );
+
+            const followUpCall = followUp.toolCall as any;
+            if (followUpCall?.tool === "propose_action_plan") {
+              const planArgs = followUpCall.args as any;
+              const planId = crypto.randomUUID();
+              const actionPlan = {
+                type: "action_plan" as const,
+                plan_id: planId,
+                status: "pending" as const,
+                summary: planArgs.summary || "Handlingsplan",
+                actions: (planArgs.actions || []).map((a: any, i: number) => ({
+                  id: `${planId}-${i}`,
+                  action_type: a.action_type,
+                  description: a.description,
+                  parameters: a.parameters || {},
+                  posting_rows: a.posting_rows || [],
+                  confidence: a.confidence ?? 0.8,
+                  status: "pending" as const,
+                })),
+                assumptions: planArgs.assumptions || [],
+                source_file: findSourceFile(Array.isArray(history) ? history : []),
+              };
+              ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ actionPlan })}\n\n`));
+              streamingActionPlan = actionPlan;
+              if (conversationId) {
+                void updateConversationState(supabaseAdmin, conversationId, "action_plan_pending");
+              }
+              const actionsDesc = actionPlan.actions
+                .map((a, i) => `${i + 1}. ${(a as any).description}`)
+                .join("\n");
+              return `Jag har förberett en handlingsplan: "${actionPlan.summary}"\n\n${actionsDesc}\n\nGodkänn, ändra eller avbryt planen med knapparna ovan.`;
+            }
+
+            if (followUpCall?.tool === "request_clarification") {
+              const clarArgs = followUpCall.args as any;
+              const clarText = clarArgs.message || "Jag behöver mer information.";
+              ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ clarification: { message: clarText, missing_fields: clarArgs.missing_fields || [] } })}\n\n`));
+              if (conversationId) {
+                void updateConversationState(supabaseAdmin, conversationId, "awaiting_input");
+              }
+              return clarText;
+            }
+
+            return followUp.text || fallbackText;
+          } catch {
+            return fallbackText;
+          }
+        };
+
         // Thinking step helpers — emit agentStep SSE events
         let thinkingStepCounter = 0;
         const thinkingStepTimestamps = new Map<string, number>();
@@ -2928,12 +2994,36 @@ ANVÄNDARFRÅGA:
                       suggested_account_name: raArgs.suggested_account_name,
                     };
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ receiptAnalysis })}\n\n`));
-                    toolResponseText = `Kvitto/faktura analyserat: ${receiptAnalysis.supplier}, ${receiptAnalysis.total_amount} ${receiptAnalysis.currency}. Förbereder bokföringsförslag...`;
                     logger.info("Receipt analysis extracted", {
                       supplier: receiptAnalysis.supplier,
                       total: receiptAnalysis.total_amount,
                       currency: receiptAnalysis.currency,
                     });
+
+                    // Call Gemini again so it can propose the booking action plan.
+                    // Without this second call, Gemini never gets to call propose_action_plan
+                    // after propose_receipt_analysis, leaving the user with no booking card.
+                    {
+                      const vatLine = receiptAnalysis.vat_amount != null
+                        ? `${receiptAnalysis.vat_amount} kr (${receiptAnalysis.vat_rate}%)`
+                        : `${receiptAnalysis.vat_rate}%`;
+                      const receiptContext =
+                        `KVITTO/FAKTURA ANALYSERAD:\n` +
+                        `- Leverantör: ${receiptAnalysis.supplier}\n` +
+                        `- Belopp inkl. moms: ${receiptAnalysis.total_amount} ${receiptAnalysis.currency}\n` +
+                        `- Moms: ${vatLine}\n` +
+                        (receiptAnalysis.net_amount != null ? `- Netto: ${receiptAnalysis.net_amount} kr\n` : "") +
+                        (receiptAnalysis.date ? `- Datum: ${receiptAnalysis.date}\n` : "") +
+                        (receiptAnalysis.invoice_number ? `- Fakturanr: ${receiptAnalysis.invoice_number}\n` : "") +
+                        (receiptAnalysis.payment_method ? `- Betalningssätt: ${receiptAnalysis.payment_method}\n` : "") +
+                        (receiptAnalysis.suggested_account ? `- Föreslaget BAS-konto: ${receiptAnalysis.suggested_account} (${receiptAnalysis.suggested_account_name || ""})\n` : "") +
+                        `\nSkapa nu en handlingsplan (propose_action_plan) med create_supplier och/eller create_supplier_invoice-åtgärder för att bokföra detta kvitto/faktura i Fortnox. Använd föreslaget BAS-konto och korrekt momssats. Om du saknar obligatorisk information (t.ex. leverantörsnummer), använd request_clarification.`;
+                      toolResponseText = await handleFollowUpActionPlan(
+                        controller,
+                        receiptContext,
+                        `Kvitto/faktura analyserat: ${receiptAnalysis.supplier}, ${receiptAnalysis.total_amount} ${receiptAnalysis.currency}. Vill du att jag förbereder ett bokföringsförslag?`,
+                      );
+                    }
                   } else if (toolName === "request_clarification") {
                     // AI needs more info before creating a plan
                     const clarArgs = toolArgs as { message?: string; missing_fields?: string[] };
@@ -3191,7 +3281,21 @@ ANVÄNDARFRÅGA:
 
                         const count = customerListData.customers.length;
                         if (count > 0) {
-                          toolResponseText = `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}.`;
+                          // Customers found — call Gemini again so it can propose an invoice
+                          // action plan (or ask for clarification). Without this second call,
+                          // Gemini never gets to call propose_action_plan after search_customers.
+                          const customerLines = customerListData.customers
+                            .map((c) => `- ${c.name} (kundnr: ${c.customerNumber}${c.organisationNumber ? `, org: ${c.organisationNumber}` : ""})`)
+                            .join("\n");
+                          const customerFoundPrompt =
+                            `KUNDLISTA FRÅN FORTNOX (sökterm: "${args.query || ""}"):\n${customerLines}\n\n` +
+                            `Användarens ursprungliga begäran: "${message}"\n\n` +
+                            `Om användaren vill skapa en faktura, anropa propose_action_plan med create_invoice-åtgärden och använd CustomerNumber från listan ovan. Fråga om du saknar information (t.ex. artiklar, belopp).`;
+                          toolResponseText = await handleFollowUpActionPlan(
+                            controller,
+                            customerFoundPrompt,
+                            `Jag hittade ${count} kunder${args.query ? ` som matchar "${args.query}"` : ""}. Vilket kundnummer ska jag fakturera?`,
+                          );
                         } else {
                           // Customer not found — ask Gemini to generate a contextual follow-up
                           // (instead of showing a dead-end canned message)
